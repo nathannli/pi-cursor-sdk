@@ -42,7 +42,8 @@ class CursorAbortError extends Error {
 }
 
 const CURSOR_API_KEY_ENV_VAR = "CURSOR_API_KEY";
-const MISSING_API_KEY_MESSAGE = "CURSOR_API_KEY or --api-key is required for Cursor SDK runs.";
+const MISSING_API_KEY_MESSAGE =
+	"Cursor SDK runs require CURSOR_API_KEY or pi --api-key. Set CURSOR_API_KEY before starting pi, or restart pi with --api-key.";
 const GENERIC_CURSOR_SDK_ERROR_MESSAGE =
 	"Cursor SDK request failed. The API key may be missing, invalid, or unauthorized. Verify CURSOR_API_KEY or pass --api-key, then retry.";
 const AUTH_CURSOR_SDK_ERROR_MESSAGE =

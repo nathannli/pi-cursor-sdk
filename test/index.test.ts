@@ -116,7 +116,8 @@ describe("extension factory", () => {
 		mockedDiscover.mockImplementationOnce(async (options: any) => {
 			options.onFallback({
 				reason: "missing-api-key",
-				message: "CURSOR_API_KEY or --api-key is required; using fallback Cursor model list.",
+				message:
+					"CURSOR_API_KEY or --api-key is required for Cursor model discovery. Using fallback Cursor models for selection only; Cursor runs in this session will fail until pi is restarted with a key.",
 			});
 			return [
 				{
@@ -144,7 +145,7 @@ describe("extension factory", () => {
 		await sessionHandlers.at(-1)!({}, ctx);
 
 		expect(notify).toHaveBeenCalledWith(
-			"CURSOR_API_KEY or --api-key is required; using fallback Cursor model list.",
+			"CURSOR_API_KEY or --api-key is required for Cursor model discovery. Using fallback Cursor models for selection only; Cursor runs in this session will fail until pi is restarted with a key.",
 			"warning",
 		);
 	});

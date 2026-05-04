@@ -63,6 +63,8 @@ describe("discoverModels", () => {
 			}),
 		]);
 		expect(JSON.stringify(issues)).toContain("--api-key");
+		expect(JSON.stringify(issues)).toContain("selection only");
+		expect(JSON.stringify(issues)).toContain("will fail until pi is restarted");
 		expect(mockedList).not.toHaveBeenCalled();
 	});
 

@@ -396,7 +396,9 @@ describe("streamCursor", () => {
 
 			const error = events.find((e: any) => e.type === "error");
 			expect(error).toBeDefined();
-			expect((error as any).error.errorMessage).toBe("CURSOR_API_KEY or --api-key is required for Cursor SDK runs.");
+			expect((error as any).error.errorMessage).toBe(
+				"Cursor SDK runs require CURSOR_API_KEY or pi --api-key. Set CURSOR_API_KEY before starting pi, or restart pi with --api-key.",
+			);
 			expect(mockedCreate).not.toHaveBeenCalled();
 		} finally {
 			if (originalKey === undefined) {

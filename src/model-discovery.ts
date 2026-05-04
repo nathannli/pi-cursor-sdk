@@ -489,7 +489,7 @@ export async function discoverModels(options: DiscoverModelsOptions = {}): Promi
 		return useFallbackModels(options, {
 			reason: "missing-api-key",
 			message:
-				"CURSOR_API_KEY is required for Cursor model discovery; using fallback Cursor model list. Cursor runs can still use CURSOR_API_KEY or --api-key.",
+				"CURSOR_API_KEY or --api-key is required for Cursor model discovery. Using fallback Cursor models for selection only; Cursor runs in this session will fail until pi is restarted with a key.",
 		});
 	}
 
@@ -505,7 +505,8 @@ export async function discoverModels(options: DiscoverModelsOptions = {}): Promi
 	} catch {
 		return useFallbackModels(options, {
 			reason: "discovery-failed",
-			message: "Cursor model discovery failed. Verify CURSOR_API_KEY or pass --api-key for runs; using fallback Cursor model list.",
+			message:
+				"Cursor model discovery failed. Using fallback Cursor models for selection only; verify CURSOR_API_KEY or restart pi with --api-key before running Cursor models.",
 		});
 	}
 }

@@ -75,7 +75,7 @@ pi -e . --api-key "your-key" --model cursor/composer-2 --cursor-no-fast -p "Say 
 
 Use `CURSOR_API_KEY` when possible. It gives the extension a key during startup model discovery. `--api-key` is also read for discovery, but shell wrappers and launchers are easier to diagnose when the key is exported as `CURSOR_API_KEY` before pi starts.
 
-Actual Cursor runs require `CURSOR_API_KEY` or pi's `--api-key` option. If model discovery cannot authenticate or reach Cursor, pi may still list fallback Cursor models. A runtime setup/auth error means the key was missing, invalid, unauthorized, or not exported into the pi process.
+Actual Cursor runs require `CURSOR_API_KEY` or pi's `--api-key` option. If model discovery cannot authenticate or reach Cursor, pi may still list fallback Cursor models for selection, but those fallback rows are not a working offline mode. In an already-started interactive session, a missing-key Cursor run will fail until pi is restarted with `CURSOR_API_KEY` exported or `--api-key` passed. A runtime setup/auth error means the key was missing, invalid, unauthorized, or not exported into the pi process.
 
 Do not store the API key in `~/.pi/agent/cursor-sdk.json`; that file is only for non-secret extension state such as Cursor fast defaults. `PATH` is only for executable lookup and should not contain the API key.
 
@@ -102,14 +102,16 @@ Rules:
 
 ## Thinking support
 
-Use pi's native thinking controls:
+All Cursor SDK models should be treated as thinking-capable Cursor models. The `thinking` column in `pi --list-models` is narrower: it only means pi can control a Cursor SDK thinking parameter for that model.
+
+Use pi's native thinking controls for models where Cursor exposes `reasoning`, `effort`, or boolean `thinking` parameters:
 
 ```bash
 pi --model cursor/gpt-5.5@1m --thinking medium -p "Say ok only"
 pi --model cursor/gpt-5.5@272k:xhigh -p "Say ok only"
 ```
 
-The extension builds Cursor SDK params from the selected pi thinking level:
+For those controllable models, the extension builds Cursor SDK params from the selected pi thinking level:
 
 - `reasoning=none|low|medium|high|extra-high`
 - `effort=low|medium|high|xhigh|max`
@@ -119,9 +121,9 @@ For Claude models with both `thinking` and `effort`, pi thinking `off` sends `th
 
 ### Why some Cursor models show `thinking=no`
 
-In `pi --list-models`, the `thinking` column means pi can control the model's thinking level with `--thinking`, a final `:medium` model suffix, or shift+tab.
+In `pi --list-models`, the `thinking` column means pi can control the model's thinking level with `--thinking`, a final `:medium` model suffix, or shift+tab. It does not mean whether the Cursor model can think.
 
-Some Cursor models can still reason internally, and Cursor may still emit thinking deltas for them, even when Cursor does not expose a `reasoning`, `effort`, or `thinking` parameter for the extension to set. Those models show `thinking=no` because there is no pi-controllable Cursor SDK parameter. The extension does not disable Cursor's own default/internal reasoning behavior.
+Some Cursor SDK models do not expose a `reasoning`, `effort`, or `thinking` parameter for the extension to set. Those models show `thinking=no` because there is no pi-controllable Cursor SDK parameter. Cursor thinking is still enabled/supported by the model, and Cursor may still emit thinking deltas. The extension does not disable Cursor's own default reasoning behavior.
 
 ## Fast mode
 
