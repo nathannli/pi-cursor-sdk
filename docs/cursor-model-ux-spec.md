@@ -64,7 +64,7 @@ Pi model metadata is also a source of truth for pi-native behavior:
 
 - `ProviderModelConfig.id`
 - `ProviderModelConfig.name`
-- `ProviderModelConfig.reasoning`
+- `ProviderModelConfig.reasoning`: means pi-controllable thinking, not whether a Cursor model can reason internally
 - `ProviderModelConfig.thinkingLevelMap`
 - `ProviderModelConfig.contextWindow`
 - `ProviderModelConfig.maxTokens`
@@ -163,7 +163,7 @@ Each registered model must set:
 
 - `id`: context-qualified pi model ID when needed.
 - `name`: human-readable Cursor display name plus context when useful.
-- `reasoning`: `true` only if a Cursor `reasoning`, `effort`, or `thinking` parameter can map to pi thinking.
+- `reasoning`: `true` only if a Cursor `reasoning`, `effort`, or `thinking` parameter can map to pi thinking. This controls pi's thinking UI and `pi --list-models` `thinking` column; it must not be used to claim whether the Cursor model can reason internally.
 - `thinkingLevelMap`: model-specific pi-to-Cursor mapping for pi UI, clamping, persistence, and footer display.
 - `contextWindow`: parsed from context variant, else conservative fallback.
 - `maxTokens`: conservative explicit value until Cursor SDK exposes output limits.
@@ -214,6 +214,13 @@ Do not register a shortcut for `shift+tab`. Pi reserves the native thinking keyb
 Do not add a context-cycle shortcut in the first pass. Context is a pi model variant, so users should change it through native model selection/cycling.
 
 ## Thinking / Reasoning / Effort Mapping
+
+Important distinction:
+
+- **Pi-controllable thinking** means Cursor exposes a `reasoning`, `effort`, or `thinking` parameter that the extension can set from pi's native thinking level. These models register `reasoning: true` and show `thinking=yes` in `pi --list-models`.
+- **Cursor internal reasoning** means the model may reason by default, and Cursor may emit thinking deltas, but Cursor does not expose a user-controllable thinking parameter. These models register `reasoning: false` and show `thinking=no` in `pi --list-models` because pi cannot control a level for them. The extension still parses Cursor `thinking-delta` events if they are emitted.
+
+Do not mark a model `reasoning: true` only because it can reason internally. That would make pi show controls such as `--thinking`, `:medium`, and shift+tab even though the extension cannot translate them into Cursor SDK params.
 
 Pi levels:
 

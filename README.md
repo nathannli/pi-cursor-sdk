@@ -92,6 +92,12 @@ The extension builds Cursor SDK params from the selected pi thinking level:
 
 For Claude models with both `thinking` and `effort`, pi thinking `off` sends `thinking=false` and omits `effort`.
 
+### Why some Cursor models show `thinking=no`
+
+In `pi --list-models`, the `thinking` column means pi can control the model's thinking level with `--thinking`, a final `:medium` model suffix, or shift+tab.
+
+Some Cursor models can still reason internally, and Cursor may still emit thinking deltas for them, even when Cursor does not expose a `reasoning`, `effort`, or `thinking` parameter for the extension to set. Those models show `thinking=no` because there is no pi-controllable Cursor SDK parameter. The extension does not disable Cursor's own default/internal reasoning behavior.
+
 ## Fast mode
 
 Use `/cursor-fast` to toggle fast mode for the selected Cursor model when supported.
