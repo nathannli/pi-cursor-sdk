@@ -5,3 +5,4 @@ coverage/
 .env.*
 *.tgz
 .pi/
+demo-script.md
