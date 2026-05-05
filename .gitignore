@@ -6,3 +6,4 @@ coverage/
 *.tgz
 .pi/
 demo-script.md
+docs/public-demo-script.md
