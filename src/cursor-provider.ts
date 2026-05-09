@@ -18,6 +18,7 @@ import {
 	canRenderCursorToolNatively,
 	isCursorNativeToolDisplayRuntimeEnabled,
 	recordCursorNativeToolDisplay,
+	type CursorNativeToolDisplayItem,
 } from "./cursor-native-tool-display.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
@@ -57,6 +58,15 @@ const AUTH_CURSOR_SDK_ERROR_MESSAGE =
 const APPROX_CHARS_PER_TOKEN = 4;
 const IMAGE_TOKEN_ESTIMATE = 1200;
 const CURSOR_ACTIVITY_TRACE_MAX_CHARS = 50000;
+const CURSOR_NATIVE_REPLAY_TOOL_ID_PATTERN = /^(cursor-replay-\d+-\d+)-tool-\d+$/;
+
+interface PendingCursorNativeReply {
+	textDeltas: string[];
+	promptInputTokens: number;
+}
+
+let cursorNativeReplayCounter = 0;
+const pendingCursorNativeReplies = new Map<string, PendingCursorNativeReply>();
 
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -168,6 +178,77 @@ function scrubDisplayValue(value: unknown, apiKey?: string): unknown {
 	return value;
 }
 
+function createCursorNativeReplayId(): string {
+	cursorNativeReplayCounter += 1;
+	return `cursor-replay-${Date.now()}-${cursorNativeReplayCounter}`;
+}
+
+function getCursorNativeReplayIdFromToolCallId(toolCallId: string): string | undefined {
+	return CURSOR_NATIVE_REPLAY_TOOL_ID_PATTERN.exec(toolCallId)?.[1];
+}
+
+function getPendingCursorNativeReplayId(context: Context): string | undefined {
+	for (let index = context.messages.length - 1; index >= 0; index -= 1) {
+		const message = context.messages[index];
+		if (message.role !== "toolResult") break;
+		const replayId = getCursorNativeReplayIdFromToolCallId(message.toolCallId);
+		if (replayId && pendingCursorNativeReplies.has(replayId)) return replayId;
+	}
+	return undefined;
+}
+
+function splitTextIntoReplayDeltas(text: string): string[] {
+	const deltas: string[] = [];
+	let remaining = text;
+	while (remaining.length > 0) {
+		if (remaining.length <= 96) {
+			deltas.push(remaining);
+			break;
+		}
+		const boundary = Math.max(48, remaining.lastIndexOf(" ", 96));
+		deltas.push(remaining.slice(0, boundary));
+		remaining = remaining.slice(boundary);
+	}
+	return deltas;
+}
+
+async function emitTextDeltas(
+	stream: AssistantMessageEventStream,
+	partial: AssistantMessage,
+	deltas: string[],
+): Promise<string> {
+	if (deltas.length === 0) return "";
+	const contentIndex = partial.content.length;
+	partial.content.push({ type: "text", text: "" });
+	stream.push({ type: "text_start", contentIndex, partial });
+	const block = partial.content[contentIndex];
+	if (block.type !== "text") return "";
+	for (const delta of deltas) {
+		block.text += delta;
+		stream.push({ type: "text_delta", contentIndex, delta, partial });
+		await Promise.resolve();
+	}
+	stream.push({ type: "text_end", contentIndex, content: block.text, partial });
+	return block.text;
+}
+
+async function replayPendingCursorNativeReply(
+	stream: AssistantMessageEventStream,
+	partial: AssistantMessage,
+	context: Context,
+): Promise<boolean> {
+	const replayId = getPendingCursorNativeReplayId(context);
+	if (!replayId) return false;
+	const pending = pendingCursorNativeReplies.get(replayId);
+	if (!pending) return false;
+	pendingCursorNativeReplies.delete(replayId);
+	const finalText = await emitTextDeltas(stream, partial, pending.textDeltas);
+	setApproximateUsage(partial, pending.promptInputTokens, finalText);
+	partial.stopReason = "stop";
+	stream.push({ type: "done", reason: "stop", message: partial });
+	return true;
+}
+
 export function streamCursor(
 	model: Model<Api>,
 	context: Context,
@@ -189,6 +270,11 @@ export function streamCursor(
 
 			stream.push({ type: "start", partial });
 			throwIfAborted();
+
+			if (await replayPendingCursorNativeReply(stream, partial, context)) {
+				stream.end();
+				return;
+			}
 
 			const apiKey = resolveCursorApiKey(options?.apiKey);
 			if (!apiKey) throw new Error(MISSING_API_KEY_MESSAGE);
@@ -214,12 +300,14 @@ export function streamCursor(
 			let activityTraceTruncated = false;
 			let nativeToolDisplayCounter = 0;
 			let textContentIndex = -1;
+			const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();
+			const nativeReplayId = createCursorNativeReplayId();
 			const textDeltas: string[] = [];
+			const nativeToolDisplays: CursorNativeToolDisplayItem[] = [];
 			const startedToolCalls = new Map<string, unknown>();
 			const completedToolFingerprints = new Set<string>();
 
 			const appendLiveTextDelta = (text: string): void => {
-				textDeltas.push(text);
 				if (textContentIndex < 0) {
 					textContentIndex = partial.content.length;
 					partial.content.push({ type: "text", text: "" });
@@ -318,8 +406,8 @@ export function streamCursor(
 				if (completedToolFingerprints.has(fingerprint)) return;
 				completedToolFingerprints.add(fingerprint);
 
-				if (isCursorNativeToolDisplayRuntimeEnabled() && canRenderCursorToolNatively(display.toolName)) {
-					const id = `cursor-tool-${++nativeToolDisplayCounter}`;
+				if (useNativeToolReplay && canRenderCursorToolNatively(display.toolName)) {
+					const id = `${nativeReplayId}-tool-${++nativeToolDisplayCounter}`;
 					const contentIndex = partial.content.length;
 					const scrubbedArgs = scrubDisplayValue(display.args, resolvedApiKey) as Record<string, unknown>;
 					const scrubbedResult = scrubDisplayValue(display.result, resolvedApiKey) as typeof display.result;
@@ -330,7 +418,8 @@ export function streamCursor(
 						arguments: scrubbedArgs,
 					});
 					stream.push({ type: "toolcall_start", contentIndex, partial });
-					recordCursorNativeToolDisplay({
+					stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(scrubbedArgs), partial });
+					nativeToolDisplays.push({
 						...display,
 						id,
 						args: scrubbedArgs,
@@ -348,7 +437,8 @@ export function streamCursor(
 				const update = args.update;
 
 				if (update.type === "text-delta") {
-					appendLiveTextDelta(update.text);
+					textDeltas.push(update.text);
+					if (!useNativeToolReplay) appendLiveTextDelta(update.text);
 				} else if (update.type === "thinking-delta") {
 					appendTraceDelta(update.text);
 				} else if (update.type === "thinking-completed") {
@@ -398,17 +488,30 @@ export function streamCursor(
 			const result = await run.wait();
 			await cacheSdkContextWindow(agent.agentId, model.id);
 
-			// Close any open thinking/activity trace, then use the final run result only when
-			// Cursor did not stream text deltas.
+			// Close any open thinking/activity trace. For native tool replay, mirror Codex's
+			// shape: emit a toolUse turn first, let pi render recorded tool results, then
+			// replay Cursor's final answer as the next assistant turn.
 			closeTraceBlock();
 
-			const finalText = flushText(textDeltas.length === 0 && hasUsableText(result.result) ? [result.result] : []);
-			setApproximateUsage(partial, promptInputTokens, finalText);
+			const replayTextDeltas = hasUsableText(result.result) ? splitTextIntoReplayDeltas(result.result) : textDeltas;
 
 			if (result.status === "cancelled") {
 				partial.stopReason = "aborted";
 				stream.push({ type: "error", reason: "aborted", error: partial });
+			} else if (useNativeToolReplay && nativeToolDisplays.length > 0) {
+				const shouldReplayFinalText = replayTextDeltas.some((delta) => delta.trim().length > 0);
+				if (shouldReplayFinalText) {
+					pendingCursorNativeReplies.set(nativeReplayId, { textDeltas: replayTextDeltas, promptInputTokens });
+				}
+				for (const display of nativeToolDisplays) {
+					recordCursorNativeToolDisplay({ ...display, terminate: !shouldReplayFinalText });
+				}
+				setApproximateUsage(partial, promptInputTokens, "");
+				partial.stopReason = "toolUse";
+				stream.push({ type: "done", reason: "toolUse", message: partial });
 			} else {
+				const finalText = flushText(useNativeToolReplay ? replayTextDeltas : textDeltas.length === 0 && hasUsableText(result.result) ? replayTextDeltas : []);
+				setApproximateUsage(partial, promptInputTokens, finalText);
 				stream.push({ type: "done", reason: "stop", message: partial });
 			}
 		} catch (error) {

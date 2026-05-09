@@ -35,6 +35,7 @@ import { Agent, createAgentPlatform } from "@cursor/sdk";
 import { streamCursor } from "../src/cursor-provider.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
 import { __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
+import { __testUtils as nativeToolDisplayTestUtils, registerCursorNativeToolDisplay } from "../src/cursor-native-tool-display.js";
 import type { ModelListItem } from "@cursor/sdk";
 import type { Context, Model } from "@earendil-works/pi-ai";
 
@@ -148,6 +149,8 @@ const cursorModelItems: ModelListItem[] = [
 describe("streamCursor", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		delete process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY;
+		nativeToolDisplayTestUtils.reset();
 		modelDiscoveryTestUtils.registerModelItems(cursorModelItems);
 		// Re-setup default mock return after clearing
 		mockedCreate.mockResolvedValue({
@@ -331,6 +334,90 @@ describe("streamCursor", () => {
 
 		expect(trace).toContain("read README.md");
 		expect(trace).toContain("# pi-cursor-sdk");
+	});
+
+	it("replays native Cursor tools as a toolUse turn before final text", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: any[] = [];
+		registerCursorNativeToolDisplay({
+			registerTool: vi.fn((tool: any) => {
+				registeredTools.push(tool);
+			}),
+		} as any);
+
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+			opts.onDelta({ update: { type: "text-delta", text: "I am checking files." } });
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "read",
+						result: { status: "success", value: { content: "# pi-cursor-sdk" } },
+					},
+					callId: "c1",
+				},
+			});
+			opts.onDelta({ update: { type: "text-delta", text: "Final-ish streamed text." } });
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "Final answer only." }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
+		const firstText = firstEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+
+		expect(firstText).toBe("");
+		expect(firstDone.reason).toBe("toolUse");
+		expect(firstDone.message.stopReason).toBe("toolUse");
+		expect(firstDone.message.content.map((block: any) => block.type)).toEqual(["toolCall"]);
+		expect(toolCall.name).toBe("read");
+		expect(firstEvents.some((event: any) => event.type === "toolcall_delta")).toBe(true);
+
+		const readTool = registeredTools.find((tool) => tool.name === "read");
+		const toolResult = await readTool.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
+		expect(toolResult).toEqual({
+			content: [{ type: "text", text: "# pi-cursor-sdk" }],
+			details: undefined,
+			terminate: false,
+		});
+
+		const replayContext = makeContext();
+		replayContext.messages = [
+			...replayContext.messages,
+			firstDone.message,
+			{
+				role: "toolResult",
+				toolCallId: toolCall.id,
+				toolName: "read",
+				content: toolResult.content,
+				details: toolResult.details,
+				isError: false,
+				timestamp: 2,
+			},
+		];
+
+		const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
+		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+		const replayDone = replayEvents.find((e: any) => e.type === "done") as any;
+
+		expect(mockedCreate).toHaveBeenCalledTimes(1);
+		expect(replayText).toBe("Final answer only.");
+		expect(replayDone.reason).toBe("stop");
+		expect(replayDone.message.content).toEqual([{ type: "text", text: "Final answer only." }]);
 	});
 
 	it("streams Cursor text deltas live and only falls back to final result when no deltas arrive", async () => {

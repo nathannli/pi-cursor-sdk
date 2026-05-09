@@ -11,7 +11,7 @@ vi.mock("../src/cursor-provider.js", () => ({
 import extensionFactory from "../src/index.js";
 import { discoverModels } from "../src/model-discovery.js";
 import { streamCursor } from "../src/cursor-provider.js";
-import { recordCursorNativeToolDisplay } from "../src/cursor-native-tool-display.js";
+import { __testUtils as nativeToolDisplayTestUtils, recordCursorNativeToolDisplay } from "../src/cursor-native-tool-display.js";
 
 const mockedDiscover = vi.mocked(discoverModels);
 const mockedStreamCursor = vi.mocked(streamCursor);
@@ -44,6 +44,7 @@ function createMockPi() {
 describe("extension factory", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		nativeToolDisplayTestUtils.reset();
 	});
 
 	it("registers Cursor fast controls and one provider with correct fields", async () => {

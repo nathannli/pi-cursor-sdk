@@ -12,6 +12,7 @@ const NATIVE_CURSOR_TOOL_NAMES = new Set(["read", "bash", "ls"]);
 
 export interface CursorNativeToolDisplayItem extends CursorPiToolDisplay {
 	id: string;
+	terminate?: boolean;
 }
 
 let nativeToolDisplayEnabled = false;
@@ -44,6 +45,13 @@ function consumeCursorNativeToolDisplay(id: string): CursorNativeToolDisplayItem
 	return item;
 }
 
+export const __testUtils = {
+	reset(): void {
+		nativeToolDisplayEnabled = false;
+		nativeToolResults.clear();
+	},
+};
+
 function wrapNativeCursorTool<TParams extends TSchema, TDetails, TState>(
 	definition: ToolDefinition<TParams, TDetails, TState>,
 ): ToolDefinition<TParams, TDetails, TState> {
@@ -55,7 +63,7 @@ function wrapNativeCursorTool<TParams extends TSchema, TDetails, TState>(
 				return {
 					content: cursorDisplay.result.content,
 					details: cursorDisplay.result.details as TDetails,
-					terminate: true,
+					terminate: cursorDisplay.terminate ?? true,
 				};
 			}
 			return definition.execute(toolCallId, params, signal, onUpdate, ctx);

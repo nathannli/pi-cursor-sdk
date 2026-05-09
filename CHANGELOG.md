@@ -6,7 +6,7 @@
 
 - Added pi-native `/login` API-key integration for the Cursor provider. Startup discovery now checks pi `--api-key`, the stored `cursor` key in `~/.pi/agent/auth.json`, then `CURSOR_API_KEY`.
 - Fallback Cursor models remain available when startup discovery cannot authenticate; once auth is saved, fallback model runs can use the stored key, while `/reload` or restart refreshes the full live Cursor model catalog.
-- Improved Cursor activity display by preserving Cursor thinking, streaming Cursor text deltas live, and replaying completed Cursor internal `read`, `bash`, and `ls` activity through pi's native tool rendering path in interactive TTY sessions where possible. Non-interactive runs keep bounded scrubbed transcript output, and raw Cursor call IDs remain omitted.
+- Improved Cursor activity display by preserving Cursor thinking, streaming Cursor text deltas live when native replay is not active, and replaying completed Cursor internal `read`, `bash`, and `ls` activity through pi's native tool rendering path in interactive TTY sessions where possible. Native Cursor tool replay now follows Codex-style ordering: assistant tool-use turn, recorded pi tool results, then replayed final assistant answer. Non-interactive runs keep bounded scrubbed transcript output, and raw Cursor call IDs remain omitted.
 - Stopped copying Cursor SDK cumulative internal agent/tool/cache token usage into pi usage, preventing false context-overflow and compaction triggers after long Cursor runs.
 
 ## 0.1.4 - 2026-05-07
