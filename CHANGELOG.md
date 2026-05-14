@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Update the verified dependency baseline to `@cursor/sdk` 1.0.13 and Vitest 4.1.6.
+- Register latest-style Cursor SDK model aliases returned by `Cursor.models.list()` as pi-selectable Cursor model IDs, including context-qualified alias variants where applicable.
+- Clarify Max Mode behavior against current Cursor SDK docs: Cursor may enable required Max Mode automatically, but the extension still only advertises catalog-exposed context variants.
+
 ## 0.1.7 - 2026-05-10
 
 ### Fixed

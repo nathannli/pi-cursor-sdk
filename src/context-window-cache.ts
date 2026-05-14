@@ -40,6 +40,10 @@ export function loadContextWindowCache(): Map<string, number> {
 	return cache;
 }
 
+export function getCachedContextWindowExact(modelId: string): number | undefined {
+	return loadContextWindowCache().get(modelId);
+}
+
 export function getCachedContextWindow(modelId: string): number | undefined {
 	const cache = loadContextWindowCache();
 	return cache.get(modelId) ?? cache.get("default");

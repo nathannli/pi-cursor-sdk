@@ -1277,6 +1277,58 @@ describe("streamCursor", () => {
 		);
 	});
 
+	it("passes Cursor alias model selection back to the SDK", async () => {
+		modelDiscoveryTestUtils.registerModelItems([
+			{
+				id: "gpt-5.5",
+				displayName: "GPT-5.5",
+				aliases: ["gpt-latest"],
+				parameters: [
+					{ id: "context", displayName: "Context", values: [{ value: "1m" }, { value: "272k" }] },
+					{ id: "reasoning", displayName: "Reasoning", values: [{ value: "none" }, { value: "medium" }] },
+				],
+				variants: [
+					{
+						params: [
+							{ id: "context", value: "1m" },
+							{ id: "reasoning", value: "medium" },
+						],
+						displayName: "GPT-5.5",
+						isDefault: true,
+					},
+				],
+			},
+		]);
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockedCreate.mockResolvedValue({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const stream = streamCursor(makeModel("gpt-latest@272k"), makeContext(), { apiKey: "test-key", reasoning: "medium" });
+		await collectEvents(stream);
+
+		expect(mockedCreate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: {
+					id: "gpt-latest",
+					params: [
+						{ id: "context", value: "272k" },
+						{ id: "reasoning", value: "medium" },
+					],
+				},
+			}),
+		);
+	});
+
 	it("passes Cursor model selection with context and pi thinking off to Agent.create", async () => {
 		const modelWithParams = makeModel("gpt-5.5@1m");
 		const mockSend = vi.fn().mockResolvedValue({

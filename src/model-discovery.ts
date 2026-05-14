@@ -7,7 +7,7 @@ import type {
 } from "@cursor/sdk";
 import { AuthStorage, type ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { ModelThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
-import { getCachedContextWindow } from "./context-window-cache.js";
+import { getCachedContextWindow, getCachedContextWindowExact } from "./context-window-cache.js";
 
 const CURSOR_PROVIDER_ID = "cursor";
 const CURSOR_API_KEY_ENV_VAR = "CURSOR_API_KEY";
@@ -217,6 +217,7 @@ async function getDiscoveryApiKey(): Promise<string | undefined> {
 export interface CursorModelMetadata {
 	piModelId: string;
 	baseModelId: string;
+	selectionModelId: string;
 	displayName: string;
 	defaultParams: ModelParameterValue[];
 	context?: string;
@@ -340,23 +341,25 @@ function getParamValue(params: ModelParameterValue[], id: string): string | unde
 	return params.find((param) => param.id === id)?.value;
 }
 
-function encodePiModelId(baseModelId: string, context?: string): string {
-	return context ? `${baseModelId}@${context}` : baseModelId;
+function encodePiModelId(modelId: string, context?: string): string {
+	return context ? `${modelId}@${context}` : modelId;
 }
 
-function getModelName(item: ModelListItem, context?: string): string {
+function getModelName(item: ModelListItem, context?: string, alias?: string): string {
 	const displayName = item.displayName || item.id;
-	return context ? `${displayName} @ ${context}` : displayName;
+	const baseName = alias ? `${displayName} (${alias})` : displayName;
+	return context ? `${baseName} @ ${context}` : baseName;
 }
 
-function getContextWindow(piModelId: string, context?: string): number {
+function getContextWindow(piModelId: string, context?: string, baseModelId?: string): number {
 	if (context) return parseContextWindow(context) ?? FALLBACK_CONTEXT_WINDOW;
-	return getCachedContextWindow(piModelId) ?? FALLBACK_CONTEXT_WINDOW;
+	return getCachedContextWindowExact(piModelId) ?? (baseModelId ? getCachedContextWindow(baseModelId) : undefined) ?? FALLBACK_CONTEXT_WINDOW;
 }
 
 function toMetadata(
 	item: ModelListItem,
 	piModelId: string,
+	selectionModelId: string,
 	defaultParams: ModelParameterValue[],
 	context: string | undefined,
 ): CursorModelMetadata {
@@ -365,10 +368,11 @@ function toMetadata(
 	return {
 		piModelId,
 		baseModelId: item.id,
+		selectionModelId,
 		displayName: item.displayName || item.id,
 		defaultParams: cloneParams(defaultParams),
 		...(context ? { context } : {}),
-		contextWindow: getContextWindow(piModelId, context),
+		contextWindow: getContextWindow(piModelId, context, item.id),
 		supportsFast: getParameter(item, "fast") !== undefined,
 		defaultFast: fastValue === "true",
 		supportsReasoning: thinkingLevelMap !== undefined,
@@ -400,18 +404,40 @@ function getContextValues(item: ModelListItem): string[] {
 	return getParameter(item, "context")?.values.map((value) => value.value) ?? [];
 }
 
-function toModelConfigs(item: ModelListItem): ProviderModelConfig[] {
+function getModelIds(item: ModelListItem, reservedBaseModelIds: Set<string>): string[] {
+	const ids = [item.id];
+	for (const rawAlias of item.aliases ?? []) {
+		const alias = rawAlias.trim();
+		if (!alias || alias === item.id || ids.includes(alias) || reservedBaseModelIds.has(alias)) continue;
+		ids.push(alias);
+	}
+	return ids;
+}
+
+function toModelConfigs(
+	item: ModelListItem,
+	usedPiModelIds: Set<string>,
+	reservedBaseModelIds: Set<string>,
+): ProviderModelConfig[] {
 	const defaultParams = getDefaultParams(item);
 	const contextValues = getContextValues(item);
 	const contexts = contextValues.length > 0 ? contextValues : [undefined];
+	const configs: ProviderModelConfig[] = [];
 
-	return contexts.map((context) => {
-		const params = context ? replaceParam(defaultParams, "context", context) : defaultParams;
-		const piModelId = encodePiModelId(item.id, context);
-		const metadata = toMetadata(item, piModelId, params, context);
-		metadataByPiModelId.set(piModelId, metadata);
-		return toModelConfig(metadata, getModelName(item, context));
-	});
+	for (const selectionModelId of getModelIds(item, reservedBaseModelIds)) {
+		const alias = selectionModelId === item.id ? undefined : selectionModelId;
+		for (const context of contexts) {
+			const params = context ? replaceParam(defaultParams, "context", context) : defaultParams;
+			const piModelId = encodePiModelId(selectionModelId, context);
+			if (usedPiModelIds.has(piModelId)) continue;
+			usedPiModelIds.add(piModelId);
+			const metadata = toMetadata(item, piModelId, selectionModelId, params, context);
+			metadataByPiModelId.set(piModelId, metadata);
+			configs.push(toModelConfig(metadata, getModelName(item, context, alias)));
+		}
+	}
+
+	return configs;
 }
 
 function sortModelsByBaseId(items: ModelListItem[]): ModelListItem[] {
@@ -420,7 +446,9 @@ function sortModelsByBaseId(items: ModelListItem[]): ModelListItem[] {
 
 function registerModelItems(items: ModelListItem[]): ProviderModelConfig[] {
 	metadataByPiModelId.clear();
-	return sortModelsByBaseId(items).flatMap(toModelConfigs);
+	const usedPiModelIds = new Set<string>();
+	const reservedBaseModelIds = new Set(items.map((item) => item.id));
+	return sortModelsByBaseId(items).flatMap((item) => toModelConfigs(item, usedPiModelIds, reservedBaseModelIds));
 }
 
 export function getCursorModelMetadata(modelId: string): CursorModelMetadata | undefined {
@@ -501,7 +529,7 @@ export function buildCursorModelSelection(
 		setParam(params, "fast", fastEnabled ? "true" : "false");
 	}
 
-	return params.length > 0 ? { id: metadata.baseModelId, params } : { id: metadata.baseModelId };
+	return params.length > 0 ? { id: metadata.selectionModelId, params } : { id: metadata.selectionModelId };
 }
 
 function useFallbackModels(options: DiscoverModelsOptions, issue: CursorModelFallbackIssue): ProviderModelConfig[] {

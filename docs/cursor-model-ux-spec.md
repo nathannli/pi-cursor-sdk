@@ -20,7 +20,8 @@ Current implementation notes:
 - Cursor-side thinking remains visible. Cursor internal tool activity is recorded from SDK events and scrubbed. In interactive TTY sessions, supported completed `read`, `bash`, and `ls` activity is replayed through pi's native tool-call rendering path with recorded Cursor results, so the TUI can show native green cards without forcing Cursor to call pi tools or rerunning Cursor's reads/shell commands. Native replay wrappers are registered only for tool names not already owned by another extension; conflicting tools use the bounded scrubbed transcript fallback. `PI_CURSOR_NATIVE_TOOL_DISPLAY=0` disables native replay, and `PI_CURSOR_REGISTER_NATIVE_TOOLS=0` is a registration-only opt-out that keeps the transcript fallback without shadowing pi tool names. When these native cards are emitted, the provider mirrors Codex's turn shape as Cursor SDK completions arrive: assistant `toolUse`, pi `toolResult`s, live post-tool Cursor thinking/text, any later Cursor tool batches as further `toolUse` turns, then Cursor's final assistant answer. Non-interactive runs keep bounded scrubbed transcript output instead, preserving `pi -p` assistant text output. Cursor text deltas stream live when native tool replay is not active.
 - Cursor SDK usage events report cumulative internal agent/tool/cache work, not the replayable pi prompt context. The extension reports approximate prompt/output usage for pi context display and compaction decisions instead of copying raw Cursor SDK usage. When native replay splits one Cursor SDK run into multiple pi turns, prompt input is counted once for the run; later synthetic replay turns report `input: 0` and only their own output estimate.
 - For models without a catalog `context` parameter, context windows are not hardcoded. The extension ships a bundled SDK-derived default/non-Max cache generated from `createAgentPlatform().checkpointStore.loadLatest(agentId).tokenDetails.maxTokens`. Successful runs can update a local override cache, but model discovery does not probe models at startup.
-- Max Mode context windows are distinct from default/non-Max context windows. `@cursor/sdk` 1.0.12 exposes internal protobuf fields named `maxMode`/`max_mode`, but the public `ModelSelection` type and the local executor path do not pass a Max Mode selector for local agent runs. Do not advertise Max Mode context windows unless the SDK catalog exposes an exact parameter/variant or the SDK public API adds a Max Mode selector that the extension actually sends.
+- Max Mode context windows are distinct from default/non-Max context windows. `@cursor/sdk` 1.0.13 documentation says the SDK may enable Max Mode automatically when a selected model requires it, but the public local-agent `ModelSelection` path still does not expose a manual Max Mode selector. Do not advertise Max Mode context windows unless the SDK catalog exposes an exact parameter/variant or the SDK public API adds a Max Mode selector that the extension actually sends.
+- `@cursor/sdk` 1.0.13 adds latest-style `ModelListItem.aliases`. The extension registers those aliases as pi model IDs (with the same context suffixes when applicable) and sends the alias back in `ModelSelection.id`, while sharing Cursor-only state such as fast defaults with the underlying catalog `id`.
 
 ## Goal
 
@@ -69,6 +70,7 @@ Users can persist the stored key through `/login` -> `Use an API key` -> `Cursor
 For each model, use:
 
 - `model.id`
+- `model.aliases`
 - `model.displayName`
 - `model.parameters`
 - `model.variants`
@@ -135,8 +137,8 @@ Register a `cursor` provider with `pi.registerProvider()`.
 
 Rules:
 
-- Register one pi model for each Cursor base model when there is no Cursor `context` parameter.
-- Register one pi model per Cursor `context` value when the model exposes a `context` parameter.
+- Register one pi model for each Cursor base model and SDK alias when there is no Cursor `context` parameter.
+- Register one pi model per Cursor `context` value for each Cursor base model and SDK alias when the model exposes a `context` parameter.
 - Do not encode `reasoning`, `effort`, `thinking`, or `fast` into pi model IDs.
 - Prefer stable, readable `@<context>` suffixes that do not conflict with pi's final `:<thinking>` suffix parser.
 - Sort Cursor models by base ID, then context value in Cursor SDK order before calling `pi.registerProvider()`. Registration order matters for `/model` display and model cycling; `--list-models` sorts output separately.
@@ -177,7 +179,7 @@ Reason:
 
 Each registered model must set:
 
-- `id`: context-qualified pi model ID when needed.
+- `id`: context-qualified pi model ID when needed. For SDK aliases, this uses the alias as the pi-visible ID and the alias is sent back to Cursor as `ModelSelection.id`.
 - `name`: human-readable Cursor display name plus context when useful.
 - `reasoning`: `true` only if a Cursor `reasoning`, `effort`, or `thinking` parameter can map to pi thinking. This controls pi's thinking UI and `pi --list-models` `thinking` column; it must not be used to claim whether the Cursor model can think internally. Cursor SDK models are thinking-capable even when this is `false`.
 - `thinkingLevelMap`: model-specific pi-to-Cursor mapping for pi UI, clamping, persistence, and footer display.
@@ -186,7 +188,7 @@ Each registered model must set:
 - `input`: supported input types. The installed Cursor SDK accepts `SDKUserMessage.images`, and Cursor models are expected to support image input, so advertise `["text", "image"]`.
 - `cost`: zeroed unless reliable Cursor costs are available.
 
-The extension stores runtime metadata in an internal map keyed by registered pi model ID. That map records the Cursor base model ID, selected context param, default params, and discovered capabilities. `ProviderModelConfig` has no dedicated metadata field, so do not rely on hidden custom fields for this state.
+The extension stores runtime metadata in an internal map keyed by registered pi model ID. That map records the Cursor base catalog model ID, the Cursor selection model ID (base ID or alias), selected context param, default params, and discovered capabilities. `ProviderModelConfig` has no dedicated metadata field, so do not rely on hidden custom fields for this state.
 
 ## Dynamic Capabilities
 

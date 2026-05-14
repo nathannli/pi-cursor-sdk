@@ -234,6 +234,89 @@ describe("discoverModels", () => {
 		expect(getCursorModelMetadata("z-model@long")?.defaultParams).toEqual([{ id: "context", value: "long" }]);
 	});
 
+	it("registers Cursor model aliases with the same params and context variants", async () => {
+		process.env.CURSOR_API_KEY = "test-key-123";
+		mockedList.mockResolvedValueOnce([
+			{
+				id: "gpt-5.5",
+				displayName: "GPT-5.5",
+				aliases: ["gpt-latest", "gpt-latest", ""],
+				parameters: [
+					{ id: "context", displayName: "Context", values: [{ value: "1m" }, { value: "272k" }] },
+					{ id: "reasoning", displayName: "Reasoning", values: [{ value: "none" }, { value: "medium" }] },
+				],
+				variants: [
+					{
+						params: [
+							{ id: "context", value: "1m" },
+							{ id: "reasoning", value: "medium" },
+						],
+						displayName: "GPT-5.5",
+						isDefault: true,
+					},
+				],
+			},
+		]);
+
+		const models = await discoverModels();
+
+		expect(models.map((model) => model.id)).toEqual(["gpt-5.5@1m", "gpt-5.5@272k", "gpt-latest@1m", "gpt-latest@272k"]);
+		expect(models[2].name).toBe("GPT-5.5 (gpt-latest) @ 1m");
+		expect(getCursorModelMetadata("gpt-latest@272k")).toMatchObject({
+			baseModelId: "gpt-5.5",
+			selectionModelId: "gpt-latest",
+			context: "272k",
+		});
+		expect(buildCursorModelSelection("gpt-latest@272k", "medium")).toEqual({
+			id: "gpt-latest",
+			params: [
+				{ id: "context", value: "272k" },
+				{ id: "reasoning", value: "medium" },
+			],
+		});
+	});
+
+	it("skips aliases that collide with another Cursor base model id", async () => {
+		process.env.CURSOR_API_KEY = "test-key-123";
+		mockedList.mockResolvedValueOnce([
+			{
+				id: "model-a",
+				displayName: "Model A",
+				aliases: ["model-b", "model-a-latest"],
+				variants: [{ params: [], displayName: "Model A", isDefault: true }],
+			},
+			{
+				id: "model-b",
+				displayName: "Model B",
+				variants: [{ params: [], displayName: "Model B", isDefault: true }],
+			},
+		]);
+
+		const models = await discoverModels();
+
+		expect(models.map((model) => model.id)).toEqual(["model-a", "model-a-latest", "model-b"]);
+		expect(getCursorModelMetadata("model-b")?.baseModelId).toBe("model-b");
+	});
+
+	it("uses the aliased base model context-window cache for aliases without context params", async () => {
+		process.env.CURSOR_API_KEY = "test-key-123";
+		mockedList.mockResolvedValueOnce([
+			{
+				id: "gpt-5-mini",
+				displayName: "GPT-5 Mini",
+				aliases: ["gpt-mini-latest"],
+				variants: [{ params: [], displayName: "GPT-5 Mini", isDefault: true }],
+			},
+		]);
+
+		const models = await discoverModels();
+
+		expect(models.map((model) => [model.id, model.contextWindow])).toEqual([
+			["gpt-5-mini", 272000],
+			["gpt-mini-latest", 272000],
+		]);
+	});
+
 	it("registers one pi model per Cursor context value", async () => {
 		process.env.CURSOR_API_KEY = "test-key-123";
 		mockedList.mockResolvedValueOnce([
