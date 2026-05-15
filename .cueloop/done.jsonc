@@ -319,6 +319,48 @@
       "blocks": [],
       "relates_to": [],
       "custom_fields": {}
+    },
+    {
+      "id": "RQ-0008",
+      "status": "done",
+      "title": "Add maintenance path for Cursor fallback model/context snapshot drift",
+      "priority": "low",
+      "tags": [
+        "models",
+        "maintenance",
+        "release"
+      ],
+      "scope": [
+        "src/model-discovery.ts",
+        "src/bundled-context-windows.ts",
+        "docs/cursor-model-ux-spec.md",
+        "README.md",
+        "package.json"
+      ],
+      "evidence": [
+        "src/model-discovery.ts:22-160 hardcodes fallback Cursor catalog entries.",
+        "src/bundled-context-windows.ts:1-24 contains a generated context-window snapshot from 2026-05-04.",
+        "Cursor model IDs, aliases, defaults, and context windows can drift as Cursor changes its catalog."
+      ],
+      "plan": [
+        "Add a maintainer script to refresh fallback/catalog snapshots from Cursor.models.list() and checkpoint context metadata.",
+        "Make generated output reviewable and documented; do not store API keys or secrets.",
+        "Update docs with when to run the script before releases.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [
+        "Started by agent to add maintenance path for Cursor fallback model/context snapshot drift.",
+        "Added npm run refresh:cursor-snapshots maintainer script. Fallback Cursor catalog now lives in reviewable generated source src/cursor-fallback-models.generated.ts imported by model discovery. Script refreshes fallback metadata from Cursor.models.list, scrubs known auth material from SDK errors, and optionally merges checkpoint-derived context windows only when --context-windows is provided. README and UX spec document release maintenance path. Validated with node --check scripts/refresh-cursor-model-snapshots.mjs, npm run refresh:cursor-snapshots -- --help, npm test, npm run typecheck, git diff --check. Reviewer subagent reported no material findings after fixes."
+      ],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T17:06:14.707937000Z",
+      "completed_at": "2026-05-15T17:06:14.707937000Z",
+      "started_at": "2026-05-15T16:59:29.255767000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
     }
   ]
 }

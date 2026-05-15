@@ -23,6 +23,7 @@
 	"homepage": "https://github.com/fitchmultz/pi-cursor-sdk#readme",
 	"files": [
 		"src",
+		"scripts/refresh-cursor-model-snapshots.mjs",
 		"README.md",
 		"docs/cursor-model-ux-spec.md",
 		"LICENSE",
@@ -35,7 +36,8 @@
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"test:watch": "vitest"
+		"test:watch": "vitest",
+		"refresh:cursor-snapshots": "node scripts/refresh-cursor-model-snapshots.mjs"
 	},
 	"dependencies": {
 		"@cursor/sdk": "^1.0.13"

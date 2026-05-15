@@ -93,23 +93,20 @@ If a Cursor parameter changes any of those pi-native fields, model registration 
 
 ### Refresh Current Cursor Matrix
 
-Run this whenever Cursor releases or changes models:
+Run this whenever Cursor releases or changes models, and before releases that may ship stale fallback metadata:
 
 ```bash
-node --input-type=module <<'EOF'
-import { Cursor } from '@cursor/sdk';
-
-const models = await Cursor.models.list({ apiKey: process.env.CURSOR_API_KEY });
-for (const model of models) {
-  const options = (model.parameters ?? [])
-    .map((param) => `${param.id}: ${param.values.map((value) => value.value).join(', ')}`)
-    .join(' | ') || 'none';
-  const defaultVariant = model.variants?.find((variant) => variant.isDefault) ?? model.variants?.[0];
-  const defaults = defaultVariant?.params?.map((param) => `${param.id}=${param.value}`).join('; ') || 'none';
-  console.log(`${model.id}\t${model.displayName}\t${options}\t${defaults}`);
-}
-EOF
+CURSOR_API_KEY="your-key" npm run refresh:cursor-snapshots -- --write
 ```
+
+That command refreshes `src/cursor-fallback-models.generated.ts` only. If live local Cursor runs have collected checkpoint-derived context windows, merge them into the bundled default/non-Max snapshot too:
+
+```bash
+CURSOR_API_KEY="your-key" npm run refresh:cursor-snapshots -- --write \
+  --context-windows ~/.pi/agent/cursor-sdk-context-windows.json
+```
+
+The script calls `Cursor.models.list({ apiKey })`, writes `src/cursor-fallback-models.generated.ts`, and updates `src/bundled-context-windows.ts` only when `--context-windows` is provided. It prints model IDs/counts only and scrubs known auth material from SDK errors; it must not print or store API keys. Review the generated diff before committing because Cursor can change aliases, defaults, and parameter meanings.
 
 ## Design Direction
 

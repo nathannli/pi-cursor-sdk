@@ -287,6 +287,21 @@ npm test
 npm run typecheck
 ```
 
+Refresh the reviewable Cursor fallback catalog before releases or after Cursor model changes:
+
+```bash
+CURSOR_API_KEY="your-key" npm run refresh:cursor-snapshots -- --write
+```
+
+Refresh the bundled default/non-Max context-window snapshot only when checkpoint-derived context windows have been collected from live local runs:
+
+```bash
+CURSOR_API_KEY="your-key" npm run refresh:cursor-snapshots -- --write \
+  --context-windows ~/.pi/agent/cursor-sdk-context-windows.json
+```
+
+The refresh script writes public model metadata only and scrubs known auth material from SDK errors. It must not be run with shell tracing that would echo API keys.
+
 Local development run:
 
 ```bash

@@ -1,42 +1,4 @@
 {
   "version": 1,
-  "tasks": [
-    {
-      "id": "RQ-0008",
-      "status": "todo",
-      "title": "Add maintenance path for Cursor fallback model/context snapshot drift",
-      "priority": "low",
-      "tags": [
-        "models",
-        "maintenance",
-        "release"
-      ],
-      "scope": [
-        "src/model-discovery.ts",
-        "src/bundled-context-windows.ts",
-        "docs/cursor-model-ux-spec.md",
-        "README.md",
-        "package.json"
-      ],
-      "evidence": [
-        "src/model-discovery.ts:22-160 hardcodes fallback Cursor catalog entries.",
-        "src/bundled-context-windows.ts:1-24 contains a generated context-window snapshot from 2026-05-04.",
-        "Cursor model IDs, aliases, defaults, and context windows can drift as Cursor changes its catalog."
-      ],
-      "plan": [
-        "Add a maintainer script to refresh fallback/catalog snapshots from Cursor.models.list() and checkpoint context metadata.",
-        "Make generated output reviewable and documented; do not store API keys or secrets.",
-        "Update docs with when to run the script before releases.",
-        "Run npm test and npm run typecheck."
-      ],
-      "notes": [],
-      "request": "From 2026-05-15 extension improvement audit requested by user.",
-      "created_at": "2026-05-15T15:45:25.103158000Z",
-      "updated_at": "2026-05-15T15:45:25.103158000Z",
-      "depends_on": [],
-      "blocks": [],
-      "relates_to": [],
-      "custom_fields": {}
-    }
-  ]
+  "tasks": []
 }
