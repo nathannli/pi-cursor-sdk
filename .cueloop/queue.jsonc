@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "RQ-0002",
+      "status": "todo",
+      "title": "Add prompt/context budgeting before Cursor Agent.send",
+      "priority": "high",
+      "tags": [
+        "context",
+        "cursor-sdk",
+        "performance"
+      ],
+      "scope": [
+        "src/context.ts",
+        "src/cursor-provider.ts",
+        "test/context.test.ts",
+        "test/cursor-provider.test.ts"
+      ],
+      "evidence": [
+        "src/context.ts:70-100 serializes every pi message/tool result into one Cursor prompt.",
+        "src/cursor-provider.ts:585-586 estimates prompt tokens after building the full prompt but does not trim against model.contextWindow.",
+        "Long sessions or large tool outputs can exceed Cursor context despite accurate model metadata."
+      ],
+      "plan": [
+        "Design a budgeted transcript builder that preserves system instructions and the latest user request.",
+        "Trim or summarize oldest turns and large tool outputs with an output-token reserve.",
+        "Add tests for oversized histories and oversized tool results.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:45:25.103158000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    },
+    {
+      "id": "RQ-0003",
+      "status": "todo",
+      "title": "Preserve assistant text emitted before native Cursor tool replay",
+      "priority": "medium",
+      "tags": [
+        "cursor-sdk",
+        "native-tool-replay",
+        "ux"
+      ],
+      "scope": [
+        "src/cursor-provider.ts",
+        "test/cursor-provider.test.ts"
+      ],
+      "evidence": [
+        "src/cursor-provider.ts:753-759 stores pre-tool textDeltas but does not stream them when native replay is enabled before the first tool.",
+        "test/cursor-provider.test.ts:476-522 currently expects firstText to be empty after Cursor emits pre-tool text."
+      ],
+      "plan": [
+        "Queue or emit pre-tool text into the first replay turn before the native tool call.",
+        "Update tests to assert the pre-tool assistant text is preserved.",
+        "Verify native replay still mirrors pi toolUse/toolResult turn shape.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:45:25.103158000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    },
+    {
+      "id": "RQ-0004",
+      "status": "todo",
+      "title": "Add live Cursor model catalog refresh after login/auth changes",
+      "priority": "medium",
+      "tags": [
+        "models",
+        "auth",
+        "pi-extension"
+      ],
+      "scope": [
+        "src/index.ts",
+        "src/model-discovery.ts",
+        "README.md",
+        "docs/cursor-model-ux-spec.md",
+        "test/index.test.ts",
+        "test/model-discovery.test.ts"
+      ],
+      "evidence": [
+        "src/index.ts:10-31 discovers models only during async extension startup.",
+        "src/model-discovery.ts:583-608 falls back and tells users to /reload or restart after auth is added.",
+        "Installed pi registerProvider docs state post-load provider registrations take effect immediately without /reload."
+      ],
+      "plan": [
+        "Add a /cursor-refresh-models command that re-runs discoverModels().",
+        "Call pi.registerProvider('cursor', ...) with the refreshed model list and existing streamSimple config.",
+        "Notify users whether a live catalog replaced fallback models or fallback remains active.",
+        "Update README/spec and tests.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:45:25.103158000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    },
+    {
+      "id": "RQ-0005",
+      "status": "todo",
+      "title": "Improve or explicitly constrain image follow-up behavior",
+      "priority": "medium",
+      "tags": [
+        "images",
+        "multimodal",
+        "ux"
+      ],
+      "scope": [
+        "src/context.ts",
+        "test/context.test.ts",
+        "README.md",
+        "docs/cursor-model-ux-spec.md"
+      ],
+      "evidence": [
+        "src/context.ts:21-37 forwards images only from the latest user message.",
+        "src/context.ts:39-48 replaces historical images with [image omitted from transcript].",
+        "docs/cursor-model-ux-spec.md:15-16 records this as a pending product decision."
+      ],
+      "plan": [
+        "Choose a policy: keep current behavior with explicit prompt limitation, or add opt-in recent-image carry-forward with token/privacy budget.",
+        "Implement the chosen behavior and update tests.",
+        "Update README/spec so users understand multimodal follow-up semantics.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:45:25.103158000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    },
+    {
+      "id": "RQ-0006",
+      "status": "todo",
+      "title": "Use pi session cwd instead of process.cwd where available",
+      "priority": "low",
+      "tags": [
+        "pi-extension",
+        "cwd",
+        "lifecycle"
+      ],
+      "scope": [
+        "src/cursor-native-tool-display.ts",
+        "src/cursor-provider.ts",
+        "test/cursor-provider.test.ts"
+      ],
+      "evidence": [
+        "src/cursor-native-tool-display.ts:119-133 registers native replay tools using process.cwd() despite receiving ExtensionContext.",
+        "src/cursor-provider.ts:573-582 passes process.cwd() to Cursor Agent.create local cwd.",
+        "Installed pi extension docs expose ctx.cwd as the session working directory."
+      ],
+      "plan": [
+        "Replace process.cwd() with ctx.cwd for native tool replay registration.",
+        "Investigate whether provider stream context/options expose session cwd; if not, document limitation or upstream a pi provider option.",
+        "Add/update tests for non-default cwd where feasible.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:45:25.103158000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    },
+    {
+      "id": "RQ-0007",
+      "status": "todo",
+      "title": "Reduce local re-read fallback risk in Cursor tool transcripts",
+      "priority": "low",
+      "tags": [
+        "transcript",
+        "correctness",
+        "cursor-sdk"
+      ],
+      "scope": [
+        "src/cursor-tool-transcript.ts",
+        "test/cursor-tool-transcript.test.ts",
+        "README.md"
+      ],
+      "evidence": [
+        "src/cursor-tool-transcript.ts:218-253 fills empty Cursor read content by reading the current local file.",
+        "That preview may show content Cursor did not actually see if the file changed after Cursor's read."
+      ],
+      "plan": [
+        "Decide whether to remove local read fallback or label it explicitly as a local preview at replay time.",
+        "Adjust transcript and native display output accordingly.",
+        "Update tests and docs for empty Cursor read-result behavior.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:45:25.103158000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    },
+    {
+      "id": "RQ-0008",
+      "status": "todo",
+      "title": "Add maintenance path for Cursor fallback model/context snapshot drift",
+      "priority": "low",
+      "tags": [
+        "models",
+        "maintenance",
+        "release"
+      ],
+      "scope": [
+        "src/model-discovery.ts",
+        "src/bundled-context-windows.ts",
+        "docs/cursor-model-ux-spec.md",
+        "README.md",
+        "package.json"
+      ],
+      "evidence": [
+        "src/model-discovery.ts:22-160 hardcodes fallback Cursor catalog entries.",
+        "src/bundled-context-windows.ts:1-24 contains a generated context-window snapshot from 2026-05-04.",
+        "Cursor model IDs, aliases, defaults, and context windows can drift as Cursor changes its catalog."
+      ],
+      "plan": [
+        "Add a maintainer script to refresh fallback/catalog snapshots from Cursor.models.list() and checkpoint context metadata.",
+        "Make generated output reviewable and documented; do not store API keys or secrets.",
+        "Update docs with when to run the script before releases.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:45:25.103158000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -66,6 +66,30 @@ describe("formatCursorToolTranscript", () => {
 
 			expect(sensitiveTranscript).not.toContain("do-not-show");
 			expect(outsideTranscript).not.toContain("outside content");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+			rmSync(outsideDir, { recursive: true, force: true });
+		}
+	});
+
+	it("does not fill empty Cursor read results through workspace symlinks to outside files", () => {
+		const dir = mkdtempSync(join(tmpdir(), "cursor-tool-transcript-"));
+		const outsideDir = mkdtempSync(join(tmpdir(), "cursor-tool-transcript-outside-"));
+		try {
+			writeFileSync(join(outsideDir, "secret.txt"), "outside secret content\n");
+			symlinkSync(join(outsideDir, "secret.txt"), join(dir, "linked-secret.txt"));
+
+			const transcript = formatCursorToolTranscript(
+				{
+					name: "read",
+					args: { path: join(dir, "linked-secret.txt") },
+					result: { status: "success", value: { content: "", totalLines: 1, fileSize: 23 } },
+				},
+				{ cwd: dir },
+			);
+
+			expect(transcript).toContain("read linked-secret.txt");
+			expect(transcript).not.toContain("outside secret content");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 			rmSync(outsideDir, { recursive: true, force: true });

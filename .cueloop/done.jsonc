@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "RQ-0001",
+      "status": "done",
+      "title": "Fix symlink escape in Cursor read transcript fallback",
+      "priority": "high",
+      "tags": [
+        "security",
+        "cursor-sdk",
+        "transcript"
+      ],
+      "scope": [
+        "src/cursor-tool-transcript.ts",
+        "test/cursor-tool-transcript.test.ts"
+      ],
+      "evidence": [
+        "src/cursor-tool-transcript.ts:194-205 re-reads empty Cursor read results after only a textual inside-cwd check.",
+        "src/cursor-tool-transcript.ts:172-174 checks relative path text, while statSync/openSync follow symlinks.",
+        "test/cursor-tool-transcript.test.ts:43-68 covers sensitive/direct outside files but not symlink-to-outside paths."
+      ],
+      "plan": [
+        "Add a regression test for an in-workspace symlink pointing to an outside file.",
+        "Resolve real paths for cwd and target before inside-cwd and sensitivity checks, or reject symlinks with lstatSync.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [
+        "Started by agent to fix symlink escape in Cursor read transcript fallback.",
+        "Implemented realpath-based preview validation for cwd and target before opening fallback read preview. Added symlink-to-outside regression test. Validated with npm test -- test/cursor-tool-transcript.test.ts, npm test, npm run typecheck. Reviewer subagent reported no material findings."
+      ],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T15:56:28.437515000Z",
+      "completed_at": "2026-05-15T15:56:28.437515000Z",
+      "started_at": "2026-05-15T15:54:25.593372000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
+    }
+  ]
+}

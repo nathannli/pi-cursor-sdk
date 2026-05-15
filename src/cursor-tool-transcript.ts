@@ -1,4 +1,4 @@
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
 const DEFAULT_MAX_TRANSCRIPT_CHARS = 24000;
@@ -194,15 +194,18 @@ function isSensitivePreviewPath(filePath: string): boolean {
 function readFilePreview(path: string, options: TranscriptOptions): string | undefined {
 	const cwd = options.cwd ?? process.cwd();
 	const filePath = resolveFilePath(path, cwd);
-	if (!isPathWithinCwd(filePath, cwd) || isSensitivePreviewPath(filePath)) return undefined;
 
 	const maxChars = options.maxChars ?? DEFAULT_READ_TRANSCRIPT_CHARS;
 	const maxBytes = Math.max(8192, maxChars * 4);
 	let fd: number | undefined;
 	try {
-		const stat = statSync(filePath);
+		const realCwd = realpathSync(cwd);
+		const realFilePath = realpathSync(filePath);
+		if (!isPathWithinCwd(realFilePath, realCwd) || isSensitivePreviewPath(realFilePath)) return undefined;
+
+		const stat = statSync(realFilePath);
 		if (!stat.isFile()) return undefined;
-		fd = openSync(filePath, "r");
+		fd = openSync(realFilePath, "r");
 		const buffer = Buffer.alloc(Math.min(stat.size, maxBytes));
 		const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
 		const text = buffer.toString("utf8", 0, bytesRead);
