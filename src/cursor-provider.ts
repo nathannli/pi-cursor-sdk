@@ -739,6 +739,10 @@ export function streamCursor(
 				}
 
 				if (useNativeToolReplay && canRenderCursorToolNatively(display.toolName) && liveRun) {
+					if (!nativeToolReplayStarted && textDeltas.length > 0) {
+						for (const text of textDeltas) queueCursorNativeEvent(liveRun, { type: "text-delta", text });
+						textDeltas.length = 0;
+					}
 					nativeToolReplayStarted = true;
 					const id = `${nativeReplayId}-tool-${++nativeToolDisplayCounter}`;
 					queueCursorNativeEvent(liveRun, {

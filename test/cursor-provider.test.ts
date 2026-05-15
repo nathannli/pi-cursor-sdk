@@ -479,10 +479,11 @@ describe("streamCursor", () => {
 		const firstText = firstEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
 		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
 
-		expect(firstText).toBe("");
+		expect(firstText).toBe("I am checking files.");
 		expect(firstDone.reason).toBe("toolUse");
 		expect(firstDone.message.stopReason).toBe("toolUse");
-		expect(firstDone.message.content.map((block: any) => block.type)).toEqual(["toolCall"]);
+		expect(firstDone.message.content.map((block: any) => block.type)).toEqual(["text", "toolCall"]);
+		expect(firstDone.message.content[0]).toEqual({ type: "text", text: "I am checking files." });
 		expect(toolCall.name).toBe("read");
 		expect(firstEvents.some((event: any) => event.type === "toolcall_delta")).toBe(true);
 

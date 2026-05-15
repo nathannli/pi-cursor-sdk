@@ -2,39 +2,6 @@
   "version": 1,
   "tasks": [
     {
-      "id": "RQ-0003",
-      "status": "todo",
-      "title": "Preserve assistant text emitted before native Cursor tool replay",
-      "priority": "medium",
-      "tags": [
-        "cursor-sdk",
-        "native-tool-replay",
-        "ux"
-      ],
-      "scope": [
-        "src/cursor-provider.ts",
-        "test/cursor-provider.test.ts"
-      ],
-      "evidence": [
-        "src/cursor-provider.ts:753-759 stores pre-tool textDeltas but does not stream them when native replay is enabled before the first tool.",
-        "test/cursor-provider.test.ts:476-522 currently expects firstText to be empty after Cursor emits pre-tool text."
-      ],
-      "plan": [
-        "Queue or emit pre-tool text into the first replay turn before the native tool call.",
-        "Update tests to assert the pre-tool assistant text is preserved.",
-        "Verify native replay still mirrors pi toolUse/toolResult turn shape.",
-        "Run npm test and npm run typecheck."
-      ],
-      "notes": [],
-      "request": "From 2026-05-15 extension improvement audit requested by user.",
-      "created_at": "2026-05-15T15:45:25.103158000Z",
-      "updated_at": "2026-05-15T15:45:25.103158000Z",
-      "depends_on": [],
-      "blocks": [],
-      "relates_to": [],
-      "custom_fields": {}
-    },
-    {
       "id": "RQ-0004",
       "status": "todo",
       "title": "Add live Cursor model catalog refresh after login/auth changes",

@@ -79,6 +79,44 @@
       "blocks": [],
       "relates_to": [],
       "custom_fields": {}
+    },
+    {
+      "id": "RQ-0003",
+      "status": "done",
+      "title": "Preserve assistant text emitted before native Cursor tool replay",
+      "priority": "medium",
+      "tags": [
+        "cursor-sdk",
+        "native-tool-replay",
+        "ux"
+      ],
+      "scope": [
+        "src/cursor-provider.ts",
+        "test/cursor-provider.test.ts"
+      ],
+      "evidence": [
+        "src/cursor-provider.ts:753-759 stores pre-tool textDeltas but does not stream them when native replay is enabled before the first tool.",
+        "test/cursor-provider.test.ts:476-522 currently expects firstText to be empty after Cursor emits pre-tool text."
+      ],
+      "plan": [
+        "Queue or emit pre-tool text into the first replay turn before the native tool call.",
+        "Update tests to assert the pre-tool assistant text is preserved.",
+        "Verify native replay still mirrors pi toolUse/toolResult turn shape.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [
+        "Started by agent to preserve pre-tool assistant text during native Cursor tool replay.",
+        "Queued buffered pre-tool text deltas into native replay before the first native tool event and cleared the buffer to avoid duplicate fallback replay. Updated native replay test to assert text plus toolCall in the first toolUse turn. Validated with npm test -- test/cursor-provider.test.ts, npm test, npm run typecheck. Reviewer subagent reported no material findings."
+      ],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T16:06:18.803764000Z",
+      "completed_at": "2026-05-15T16:06:18.803764000Z",
+      "started_at": "2026-05-15T16:04:13.282764000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
     }
   ]
 }
