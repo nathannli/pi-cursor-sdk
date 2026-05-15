@@ -122,7 +122,7 @@ function registerAvailableNativeCursorTools(pi: ExtensionAPI, ctx: ExtensionCont
 		return;
 	}
 
-	const cwd = process.cwd();
+	const cwd = ctx.cwd;
 	const skippedToolNames: string[] = [];
 	for (const toolName of NATIVE_CURSOR_TOOL_NAMES) {
 		if (registeredNativeToolNames.has(toolName)) continue;

@@ -202,6 +202,46 @@
       "blocks": [],
       "relates_to": [],
       "custom_fields": {}
+    },
+    {
+      "id": "RQ-0006",
+      "status": "done",
+      "title": "Use pi session cwd instead of process.cwd where available",
+      "priority": "low",
+      "tags": [
+        "pi-extension",
+        "cwd",
+        "lifecycle"
+      ],
+      "scope": [
+        "src/cursor-native-tool-display.ts",
+        "src/cursor-provider.ts",
+        "test/cursor-provider.test.ts"
+      ],
+      "evidence": [
+        "src/cursor-native-tool-display.ts:119-133 registers native replay tools using process.cwd() despite receiving ExtensionContext.",
+        "src/cursor-provider.ts:573-582 passes process.cwd() to Cursor Agent.create local cwd.",
+        "Installed pi extension docs expose ctx.cwd as the session working directory."
+      ],
+      "plan": [
+        "Replace process.cwd() with ctx.cwd for native tool replay registration.",
+        "Investigate whether provider stream context/options expose session cwd; if not, document limitation or upstream a pi provider option.",
+        "Add/update tests for non-default cwd where feasible.",
+        "Run npm test and npm run typecheck."
+      ],
+      "notes": [
+        "Started by agent to use pi session cwd where available.",
+        "Native Cursor tool replay now registers wrapped read/bash/ls tools with ExtensionContext.cwd instead of process.cwd. Provider streamCursor remains on process.cwd because pi-ai Context/SimpleStreamOptions do not expose session cwd; documented in code and added follow-up RQ-0009. Added test proving native read resolves relative paths against session cwd. Validated with npm test -- test/index.test.ts, npm test, npm run typecheck. Reviewer subagent reported no material findings after RQ-0009 follow-up."
+      ],
+      "request": "From 2026-05-15 extension improvement audit requested by user.",
+      "created_at": "2026-05-15T15:45:25.103158000Z",
+      "updated_at": "2026-05-15T16:20:04.637091000Z",
+      "completed_at": "2026-05-15T16:20:04.637091000Z",
+      "started_at": "2026-05-15T16:13:36.989387000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {}
     }
   ]
 }

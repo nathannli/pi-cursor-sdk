@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ExtensionAPI, ExtensionContext, ProviderConfig, RegisteredCommand, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
@@ -24,7 +27,7 @@ const mockedStreamCursor = vi.mocked(streamCursor);
 
 type DiscoverOptions = Parameters<typeof discoverModels>[0];
 type RegisteredTool = ToolDefinition<TSchema, unknown, unknown>;
-type TestExtensionContext = Pick<ExtensionContext, "hasUI"> & {
+type TestExtensionContext = Pick<ExtensionContext, "cwd" | "hasUI"> & {
 	ui: Pick<ExtensionContext["ui"], "notify" | "setStatus">;
 	sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch">;
 };
@@ -42,6 +45,7 @@ function createBuiltinToolInfo(name: string): ToolInfo {
 async function runSessionStartHandlers(pi: ReturnType<typeof createMockPi>, ctxOverrides: Partial<TestExtensionContext> = {}): Promise<void> {
 	const notify = vi.fn();
 	const ctx: TestExtensionContext = {
+		cwd: process.cwd(),
 		hasUI: true,
 		ui: { notify, setStatus: vi.fn() },
 		sessionManager: { getBranch: vi.fn(() => []) },
@@ -213,6 +217,7 @@ describe("extension factory", () => {
 		const notify = vi.fn();
 
 		await pi._commands.get("cursor-refresh-models")!.handler("", {
+			cwd: process.cwd(),
 			hasUI: true,
 			ui: { notify, setStatus: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
@@ -238,6 +243,7 @@ describe("extension factory", () => {
 		const notify = vi.fn();
 
 		await pi._commands.get("cursor-refresh-models")!.handler("", {
+			cwd: process.cwd(),
 			hasUI: true,
 			ui: { notify, setStatus: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
@@ -275,6 +281,7 @@ describe("extension factory", () => {
 
 		const notify = vi.fn();
 		const ctx = {
+			cwd: process.cwd(),
 			hasUI: true,
 			ui: { notify, setStatus: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
@@ -298,11 +305,30 @@ describe("extension factory", () => {
 		await extensionFactory(pi as unknown as ExtensionAPI);
 
 		const notify = vi.fn();
-		const ctx = { hasUI: false, ui: { notify, setStatus: vi.fn() }, sessionManager: { getBranch: vi.fn(() => []) } };
+		const ctx = { cwd: process.cwd(), hasUI: false, ui: { notify, setStatus: vi.fn() }, sessionManager: { getBranch: vi.fn(() => []) } };
 		const sessionHandlers = pi._handlers.get("session_start") ?? [];
 		await sessionHandlers.at(-1)!({}, ctx);
 
 		expect(notify).not.toHaveBeenCalled();
+	});
+
+	it("registers native Cursor tool wrappers with the pi session cwd", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		mockedDiscover.mockResolvedValueOnce([]);
+		const dir = mkdtempSync(join(tmpdir(), "pi-cursor-native-cwd-"));
+		try {
+			writeFileSync(join(dir, "session-file.txt"), "from session cwd\n");
+			const pi = createMockPi();
+			await extensionFactory(pi as unknown as ExtensionAPI);
+			await runSessionStartHandlers(pi, { cwd: dir });
+
+			const readTool = pi._tools.find((tool) => tool.name === "read");
+			const result = await readTool.execute("ordinary-read", { path: "session-file.txt" }, undefined, undefined, {});
+
+			expect(result.content).toEqual([{ type: "text", text: "from session cwd\n" }]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("registered native Cursor tool wrappers return recorded Cursor results without executing built-ins", async () => {

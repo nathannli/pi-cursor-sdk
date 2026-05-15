@@ -575,6 +575,8 @@ export function streamCursor(
 			if (!apiKey) throw new Error(MISSING_API_KEY_MESSAGE);
 			resolvedApiKey = apiKey;
 
+			// pi-ai Context/SimpleStreamOptions do not currently expose ExtensionContext.cwd;
+			// provider calls use the process cwd until pi exposes a session cwd to streamSimple.
 			const cwd = process.cwd();
 			const fastEnabled = getEffectiveFastForModelId(model.id);
 			const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
