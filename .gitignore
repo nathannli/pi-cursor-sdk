@@ -9,12 +9,5 @@ recording/
 demo-script.md
 docs/public-demo-script.md
 
-# CueLoop local/runtime artifacts (do not commit)
-.cueloop/cache/
-.cueloop/logs/
-.cueloop/workspaces/
-.cueloop/lock/
-.cueloop/undo/
-.cueloop/webhooks/
-.cueloop/trust.json
-.cueloop/trust.jsonc
+# CueLoop local/runtime state (do not commit)
+.cueloop/

@@ -220,6 +220,10 @@ function createCursorReplayOnlyToolDefinition(toolName: "cursor_edit" | "cursor_
 		name: toolName,
 		label: `Cursor ${cursorToolName}`,
 		description: `Replay display for a Cursor SDK ${cursorToolName} operation. This tool only returns recorded Cursor results and never mutates files directly.`,
+		promptSnippet: `Render a recorded Cursor SDK ${cursorToolName} operation without mutating files.`,
+		promptGuidelines: [
+			`Use ${toolName} only for replaying Cursor SDK ${cursorToolName} results that were already produced by Cursor; ${toolName} does not perform file mutations.`,
+		],
 		parameters: cursorReplayToolSchema,
 		renderShell: "self",
 		async execute() {
