@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.14 - 2026-05-18
+
+### Changed
+- Refreshed the Cursor fallback model snapshot and bundled default/non-Max context-window cache from the current `@cursor/sdk` 1.0.13 catalog, including Composer 2.5 (`composer-2.5` and `composer-2-5`) with default fast-mode support.
+- Updated README, demo, and maintainer model UX docs to use Composer 2.5 as the primary Composer example.
+
 ## 0.1.13 - 2026-05-18
 
 ### Fixed

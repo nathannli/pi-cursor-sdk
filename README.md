@@ -21,7 +21,7 @@ pi install https://github.com/fitchmultz/pi-cursor-sdk
 2. Start pi with a Cursor model:
 
 ```bash
-pi --model cursor/composer-2
+pi --model cursor/composer-2.5
 ```
 
 3. In pi, run `/login`, choose `Use an API key`, choose `Cursor`, and paste your Cursor API key.
@@ -30,7 +30,7 @@ If pi started without a key, run `/cursor-refresh-models` after `/login` to refr
 
 ## Requirements
 
-- Node.js 18+
+- Node.js 22.19+
 - pi
 - a Cursor API key saved through `/login`, available as `CURSOR_API_KEY`, or passed with pi's `--api-key`
 
@@ -64,7 +64,7 @@ For development from this repository:
 
 ```bash
 npm install
-pi -e . --model cursor/composer-2
+pi -e . --model cursor/composer-2.5
 ```
 
 ## Configure your Cursor API key
@@ -72,7 +72,7 @@ pi -e . --model cursor/composer-2
 Preferred setup:
 
 ```bash
-pi --model cursor/composer-2
+pi --model cursor/composer-2.5
 ```
 
 Then, inside pi:
@@ -89,13 +89,13 @@ Environment setup:
 
 ```bash
 export CURSOR_API_KEY="your-key"
-pi --model cursor/composer-2
+pi --model cursor/composer-2.5
 ```
 
 One-shot setup:
 
 ```bash
-pi --api-key "your-key" --model cursor/composer-2 --cursor-no-fast -p "Say ok only."
+pi --api-key "your-key" --model cursor/composer-2.5 --cursor-no-fast -p "Say ok only."
 ```
 
 Discovery uses pi's native resolution order for this extension: `--api-key`, the stored `cursor` key in `~/.pi/agent/auth.json`, then `CURSOR_API_KEY`.
@@ -118,7 +118,7 @@ Expected behavior:
 Smoke test:
 
 ```bash
-pi --model cursor/composer-2 --cursor-no-fast -p "Reply with: ok"
+pi --model cursor/composer-2.5 --cursor-no-fast -p "Reply with: ok"
 ```
 
 ## Choosing a model
@@ -126,7 +126,7 @@ pi --model cursor/composer-2 --cursor-no-fast -p "Reply with: ok"
 Choose Cursor models interactively with `/model`, or pass a model on the command line:
 
 ```bash
-pi --model cursor/composer-2
+pi --model cursor/composer-2.5
 pi --model cursor/gpt-5.5@1m
 pi --model cursor/gpt-5.5@272k
 pi --model cursor/claude-opus-4-7@300k
@@ -180,10 +180,10 @@ For one run, force fast on or off without changing saved defaults:
 
 ```bash
 pi --model cursor/gpt-5.5@1m --cursor-fast -p "Say ok only"
-pi --model cursor/composer-2 --cursor-no-fast -p "Say ok only"
+pi --model cursor/composer-2.5 --cursor-no-fast -p "Say ok only"
 ```
 
-`composer-2` can default to fast. Use `--cursor-no-fast` for a one-shot no-fast `composer-2` run. In print mode (`-p`), `--cursor-no-fast` is silent and does not write `~/.pi/agent/cursor-sdk.json`.
+Composer 2 and Composer 2.5 can default to fast. Use `--cursor-no-fast` for a one-shot no-fast Composer run. In print mode (`-p`), `--cursor-no-fast` is silent and does not write `~/.pi/agent/cursor-sdk.json`.
 
 In interactive mode, the footer only shows fast mode when fast is enabled:
 
@@ -199,14 +199,11 @@ Images from the latest user message are forwarded to Cursor. Historical images a
 
 ## Fallback models
 
-If no key is available from `/login`, `CURSOR_API_KEY`, or `--api-key`, model discovery fails, or discovery returns no models, the extension registers conservative fallback Cursor models and notifies interactive users when possible:
+If no key is available from `/login`, `CURSOR_API_KEY`, or `--api-key`, model discovery fails, or discovery returns no models, the extension registers a bundled fallback snapshot of the latest reviewed Cursor SDK model catalog and notifies interactive users when possible.
 
-- `composer-2`
-- `gpt-5.5@1m`, `gpt-5.5@272k`
-- `claude-sonnet-4-6@1m`, `claude-sonnet-4-6@200k`
-- `claude-opus-4-7@1m`, `claude-opus-4-7@300k`
+The fallback snapshot includes Composer 2.5 (`composer-2.5` and `composer-2-5`), Composer 2, GPT, Claude, Gemini, Grok, Kimi, and other model IDs exposed by the reviewed `Cursor.models.list()` output. The exact checked-in snapshot lives in `src/cursor-fallback-models.generated.ts`.
 
-Fallback models are a conservative startup model list. Actual Cursor runs still need a key from `/login`, `CURSOR_API_KEY`, or `--api-key`. If you add auth after startup, run `/cursor-refresh-models` to refresh the full live Cursor model catalog without restarting pi.
+Actual Cursor runs still need a key from `/login`, `CURSOR_API_KEY`, or `--api-key`. If you add auth after startup, run `/cursor-refresh-models` to refresh the full live Cursor model catalog without restarting pi.
 
 ## Limits
 
@@ -229,13 +226,13 @@ You can also restart pi with a key in the same shell or launcher that starts pi:
 
 ```bash
 export CURSOR_API_KEY="your-key"
-pi --model cursor/composer-2
+pi --model cursor/composer-2.5
 ```
 
 Or run a one-shot command:
 
 ```bash
-pi --api-key "your-key" --model cursor/composer-2 -p "Say ok only"
+pi --api-key "your-key" --model cursor/composer-2.5 -p "Say ok only"
 ```
 
 ### `pi --list-models cursor` shows no Cursor models
@@ -273,7 +270,7 @@ Cursor SDK local agents load MCP servers from Cursor setting sources and inline 
 Cursor native replay is a UI enhancement for interactive TTY sessions. If another extension already owns `read`, `bash`, `ls`, `cursor_edit`, or `cursor_write`, this extension skips only the conflicting native replay wrapper and uses the scrubbed Cursor activity transcript for that tool instead. To disable Cursor native replay registration entirely, start pi with:
 
 ```bash
-PI_CURSOR_NATIVE_TOOL_DISPLAY=0 pi --model cursor/composer-2
+PI_CURSOR_NATIVE_TOOL_DISPLAY=0 pi --model cursor/composer-2.5
 ```
 
 `PI_CURSOR_REGISTER_NATIVE_TOOLS=0` is also accepted as a registration-only opt-out.
@@ -306,7 +303,7 @@ Local development run:
 
 ```bash
 npm install
-CURSOR_API_KEY="your-key" pi -e . --model cursor/composer-2
+CURSOR_API_KEY="your-key" pi -e . --model cursor/composer-2.5
 ```
 
 Maintainer design notes live in [`docs/cursor-model-ux-spec.md`](docs/cursor-model-ux-spec.md).

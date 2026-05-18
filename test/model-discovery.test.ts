@@ -56,19 +56,25 @@ describe("discoverModels", () => {
 		vi.clearAllMocks();
 	});
 
-	it("returns context-qualified fallback models when no API key", async () => {
+	it("returns generated fallback models when no API key", async () => {
 		delete process.env.CURSOR_API_KEY;
 		const issues: CursorModelFallbackIssue[] = [];
 		const models = await discoverModels({ onFallback: (issue) => issues.push(issue) });
-		expect(models.map((model) => model.id)).toEqual([
-			"claude-opus-4-7@1m",
-			"claude-opus-4-7@300k",
-			"claude-sonnet-4-6@1m",
-			"claude-sonnet-4-6@200k",
-			"composer-2",
-			"gpt-5.5@1m",
-			"gpt-5.5@272k",
-		]);
+		const modelIds = models.map((model) => model.id);
+		expect(modelIds).toEqual(
+			expect.arrayContaining([
+				"claude-opus-4-7@1m",
+				"claude-opus-4-7@300k",
+				"claude-sonnet-4-6@1m",
+				"claude-sonnet-4-6@200k",
+				"composer-2",
+				"composer-2.5",
+				"composer-2-5",
+				"gpt-5.5@1m",
+				"gpt-5.5@272k",
+			]),
+		);
+		expect(modelIds.length).toBeGreaterThan(20);
 		expect(issues).toEqual([
 			expect.objectContaining({
 				reason: "missing-api-key",
@@ -750,20 +756,39 @@ describe("discoverModels", () => {
 		});
 	});
 
-	it("keeps fallback model IDs aligned with the documented fallback list", async () => {
+	it("keeps the fallback snapshot aligned with the current Composer 2.5 catalog shape", async () => {
 		delete process.env.CURSOR_API_KEY;
 
 		const models = await discoverModels();
+		const modelIds = models.map((model) => model.id);
 
-		expect(models.map((model) => model.id)).toEqual([
-			"claude-opus-4-7@1m",
-			"claude-opus-4-7@300k",
-			"claude-sonnet-4-6@1m",
-			"claude-sonnet-4-6@200k",
-			"composer-2",
-			"gpt-5.5@1m",
-			"gpt-5.5@272k",
-		]);
+		expect(modelIds).toEqual(expect.arrayContaining(["composer-2.5", "composer-2-5", "composer-2"]));
+		expect(getCursorModelMetadata("composer-2.5")).toEqual(
+			expect.objectContaining({
+				baseModelId: "composer-2.5",
+				selectionModelId: "composer-2.5",
+				contextWindow: 200000,
+				supportsFast: true,
+				defaultFast: true,
+			}),
+		);
+		expect(getCursorModelMetadata("composer-2-5")).toEqual(
+			expect.objectContaining({
+				baseModelId: "composer-2.5",
+				selectionModelId: "composer-2-5",
+				contextWindow: 200000,
+				supportsFast: true,
+				defaultFast: true,
+			}),
+		);
+		expect(buildCursorModelSelection("composer-2.5", "off")).toEqual({
+			id: "composer-2.5",
+			params: [{ id: "fast", value: "true" }],
+		});
+		expect(buildCursorModelSelection("composer-2.5", "off", false)).toEqual({
+			id: "composer-2.5",
+			params: [{ id: "fast", value: "false" }],
+		});
 	});
 
 	it("falls back and reports discovery failure when Cursor.models.list throws", async () => {

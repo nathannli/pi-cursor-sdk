@@ -149,7 +149,7 @@ cursor/gpt-5.5@1m
 cursor/gpt-5.5@272k
 cursor/claude-opus-4-7@1m
 cursor/claude-opus-4-7@300k
-cursor/composer-2
+cursor/composer-2.5
 ```
 
 Avoid colon-based context IDs in the first implementation unless this spec is intentionally changed:
@@ -428,7 +428,7 @@ Use Cursor default variants:
 
 ```text
 gpt-5.5 -> cursor/gpt-5.5@1m, thinking medium, fast=false
-composer-2 -> cursor/composer-2, fast=true
+composer-2.5 -> cursor/composer-2.5, fast=true
 ```
 
 ### Resume Session
@@ -492,7 +492,7 @@ These examples document the capability shapes the extension handles, not an exha
 | Example model shape | Cursor controls | Pi representation |
 |---|---|---|
 | plain model, such as `default` or models with no exposed controls | none | plain model |
-| `composer-2`-style model | fast | plain model + fast extension state |
+| Composer-style model such as `composer-2.5` or `composer-2` | fast | plain model + fast extension state |
 | GPT-style reasoning model with context variants | context, reasoning, fast when exposed | context variants + native thinking + optional fast state |
 | Claude-style thinking model with context variants | thinking, context, effort when exposed | context variants + native thinking + optional fast state |
 | Claude-style thinking model without context variants | thinking and/or effort | plain model + native thinking |
@@ -504,12 +504,12 @@ If Cursor later adds `fast`, `context`, `reasoning`, `effort`, or aliases to a m
 
 ## Detailed Examples
 
-### `composer-2`
+### Composer 2 / 2.5
 
-Initial Cursor default:
+Initial Cursor default for Composer 2.5:
 
 ```text
-pi model: cursor/composer-2
+pi model: cursor/composer-2.5
 Cursor params: fast=true
 pi thinking: off
 Cursor status: cursor fast
