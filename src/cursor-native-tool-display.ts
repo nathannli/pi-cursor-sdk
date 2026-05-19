@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type, type TSchema } from "typebox";
+import { getCursorSessionCwd } from "./cursor-session-cwd.js";
 import type { CursorPiToolDisplay } from "./cursor-tool-transcript.js";
 
 const NATIVE_CURSOR_TOOL_NAMES = ["read", "bash", "ls", "cursor_edit", "cursor_write"] as const;
@@ -24,7 +25,6 @@ export interface CursorNativeToolDisplayItem extends CursorPiToolDisplay {
 
 const registeredNativeToolNames = new Set<NativeCursorToolName>();
 const nativeToolResults = new Map<string, CursorNativeToolDisplayItem>();
-let currentNativeToolCwd = process.cwd();
 
 function readBooleanEnv(name: string): boolean | undefined {
 	const value = process.env[name]?.trim().toLowerCase();
@@ -80,7 +80,6 @@ export const __testUtils = {
 	reset(): void {
 		registeredNativeToolNames.clear();
 		nativeToolResults.clear();
-		currentNativeToolCwd = process.cwd();
 	},
 };
 
@@ -246,8 +245,8 @@ function createNativeCursorToolDefinition(toolName: NativeCursorToolName, cwd: s
 }
 
 function registerNativeCursorTool(pi: ExtensionAPI, toolName: NativeCursorToolName): void {
-	const definition = createNativeCursorToolDefinition(toolName, currentNativeToolCwd);
-	pi.registerTool(wrapNativeCursorTool(definition, () => createNativeCursorToolDefinition(toolName, currentNativeToolCwd)));
+	const definition = createNativeCursorToolDefinition(toolName, getCursorSessionCwd());
+	pi.registerTool(wrapNativeCursorTool(definition, () => createNativeCursorToolDefinition(toolName, getCursorSessionCwd())));
 }
 
 function hasNonBuiltinTool(pi: ExtensionAPI, toolName: NativeCursorToolName): boolean {
@@ -261,7 +260,6 @@ function registerAvailableNativeCursorTools(pi: ExtensionAPI, ctx: ExtensionCont
 		return;
 	}
 
-	currentNativeToolCwd = ctx.cwd;
 	const skippedToolNames: string[] = [];
 	for (const toolName of NATIVE_CURSOR_TOOL_NAMES) {
 		if (registeredNativeToolNames.has(toolName)) continue;

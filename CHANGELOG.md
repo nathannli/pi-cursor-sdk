@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Use the pi session cwd for Cursor `Agent.create`, not only native tool replay display. Completes the 0.1.10 cwd work that previously updated replay registration but left the Cursor agent runtime on `process.cwd()`.
+
 ## 0.1.14 - 2026-05-18
 
 ### Changed

@@ -10,6 +10,7 @@ import {
 import { Agent, createAgentPlatform } from "@cursor/sdk";
 import type { InteractionUpdate, SDKAgent, SettingSource } from "@cursor/sdk";
 import { buildCursorPrompt, type CursorPrompt } from "./context.js";
+import { getCursorSessionCwd } from "./cursor-session-cwd.js";
 import { getEffectiveFastForModelId } from "./cursor-state.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-window-cache.js";
@@ -575,9 +576,9 @@ export function streamCursor(
 			if (!apiKey) throw new Error(MISSING_API_KEY_MESSAGE);
 			resolvedApiKey = apiKey;
 
-			// pi-ai Context/SimpleStreamOptions do not currently expose ExtensionContext.cwd;
-			// provider calls use the process cwd until pi exposes a session cwd to streamSimple.
-			const cwd = process.cwd();
+			// pi-ai Context/SimpleStreamOptions do not expose ExtensionContext.cwd; bridge via session_start
+			// until pi threads session cwd into streamSimple (cwd can change without a new session event).
+			const cwd = getCursorSessionCwd();
 			const fastEnabled = getEffectiveFastForModelId(model.id);
 			const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
 			const settingSources = resolveCursorSettingSources();

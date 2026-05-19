@@ -2,6 +2,7 @@ import type { ExtensionAPI, ProviderConfig, ProviderModelConfig } from "@earendi
 import { discoverModels, type CursorModelFallbackIssue } from "./model-discovery.js";
 import { registerCursorFastControls } from "./cursor-state.js";
 import { registerCursorNativeToolDisplay } from "./cursor-native-tool-display.js";
+import { registerCursorSessionCwd } from "./cursor-session-cwd.js";
 import { streamCursor } from "./cursor-provider.js";
 
 function createCursorProviderConfig(models: ProviderModelConfig[]): ProviderConfig {
@@ -20,6 +21,8 @@ function registerCursorProvider(pi: ExtensionAPI, models: ProviderModelConfig[])
 }
 
 export default async function (pi: ExtensionAPI) {
+	// Session cwd must register before other session_start listeners that depend on it.
+	registerCursorSessionCwd(pi);
 	registerCursorFastControls(pi);
 	registerCursorNativeToolDisplay(pi);
 	let fallbackIssue: CursorModelFallbackIssue | undefined;

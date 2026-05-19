@@ -29,7 +29,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - Run tests: `npm test`
 - Typecheck: `npm run typecheck`
 - Watch tests while developing: `npm run test:watch`
-- Local development run, requires a Cursor key: `CURSOR_API_KEY="your-key" pi -e . --model cursor/composer-2`
+- Local development run, requires a Cursor key: `CURSOR_API_KEY="your-key" pi -e . --model cursor/composer-2.5`
 - List Cursor models, requires pi and usually a Cursor key: `pi --list-models cursor`
 
 There is no lint or format script in `package.json` at this time.

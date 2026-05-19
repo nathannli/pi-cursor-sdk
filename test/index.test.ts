@@ -21,6 +21,7 @@ import {
 	canRenderCursorToolNatively,
 	recordCursorNativeToolDisplay,
 } from "../src/cursor-native-tool-display.js";
+import { __testUtils as cursorSessionCwdTestUtils } from "../src/cursor-session-cwd.js";
 
 const mockedDiscover = vi.mocked(discoverModels);
 const mockedStreamCursor = vi.mocked(streamCursor);
@@ -104,6 +105,7 @@ describe("extension factory", () => {
 		vi.clearAllMocks();
 		delete process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY;
 		delete process.env.PI_CURSOR_REGISTER_NATIVE_TOOLS;
+		cursorSessionCwdTestUtils.reset();
 		nativeToolDisplayTestUtils.reset();
 	});
 

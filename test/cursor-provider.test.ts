@@ -32,6 +32,7 @@ vi.mock("@cursor/sdk", () => {
 });
 
 import { Agent, createAgentPlatform } from "@cursor/sdk";
+import { __testUtils as cursorSessionCwdTestUtils } from "../src/cursor-session-cwd.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
 import { __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
@@ -200,6 +201,7 @@ describe("streamCursor", () => {
 		delete process.env.PI_CURSOR_SETTING_SOURCES;
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		cursorProviderTestUtils.resetCursorNativeReplayIdleDisposeMs();
+		cursorSessionCwdTestUtils.reset();
 		nativeToolDisplayTestUtils.reset();
 		modelDiscoveryTestUtils.registerModelItems(cursorModelItems);
 		// Re-setup default mock return after clearing
