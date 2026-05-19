@@ -524,6 +524,96 @@ describe("streamCursor", () => {
 		expect(replayDone.message.content).toEqual([{ type: "text", text: "Final answer only." }]);
 	});
 
+	it("replays Cursor grep activity through native bash display", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+			opts.onDelta({
+				update: {
+					type: "tool-call-started",
+					toolCall: { type: "grep", args: { pattern: "sem_reindex", path: "src" } },
+					callId: "c1",
+				},
+			});
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						type: "grep",
+						args: { pattern: "sem_reindex", path: "src" },
+						result: {
+							status: "success",
+							value: {
+								workspaceResults: {
+									src: {
+										type: "files",
+										output: { files: ["src/tools/reindex.ts"] },
+									},
+								},
+							},
+						},
+					},
+					callId: "c1",
+				},
+			});
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
+		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const trace = firstEvents.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+
+		expect(firstDone.reason).toBe("toolUse");
+		expect(toolCall.name).toBe("bash");
+		expect(toolCall.arguments).toEqual({ command: 'grep "sem_reindex" src' });
+		expect(trace).not.toContain("src/tools/reindex.ts");
+
+		const bashTool = registeredTools.find((tool) => tool.name === "bash");
+		const toolResult = await bashTool!.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
+		expect(toolResult.content[0].text).toContain("src/tools/reindex.ts");
+
+		resolveRun({ id: "run-1", status: "finished", result: "Done." });
+
+		const replayContext = makeContext();
+		replayContext.messages = [
+			...replayContext.messages,
+			firstDone.message,
+			{
+				role: "toolResult",
+				toolCallId: toolCall.id,
+				toolName: "bash",
+				content: toolResult.content,
+				details: toolResult.details,
+				isError: false,
+				timestamp: 2,
+			},
+		];
+		await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
+	});
+
 	it("replays Cursor edit activity through a replay-only native tool", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		const registeredTools: RegisteredTool[] = [];

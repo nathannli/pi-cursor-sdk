@@ -87,6 +87,7 @@ function normalizeToolName(name: string): string {
 		case "run_terminal_cmd":
 		case "terminal":
 		case "bash":
+		case "shell":
 			return "shell";
 		case "grep_search":
 		case "search":
@@ -304,17 +305,13 @@ function formatLs(args: Record<string, unknown>, result: NormalizedResult, optio
 }
 
 function formatGlob(args: Record<string, unknown>, result: NormalizedResult, options: TranscriptOptions): string {
-	const pattern = typeof args.globPattern === "string" ? args.globPattern : "*";
-	const targetDirectory = typeof args.targetDirectory === "string" ? formatDisplayPath(args.targetDirectory, options.cwd) : undefined;
-	const header = targetDirectory ? `glob ${pattern} in ${targetDirectory}` : `glob ${pattern}`;
+	const header = `$ ${synthesizeGlobBashCommand(args, options)}`;
 	if (result.status === "error") return joinSections(header, formatError(result.error));
+	return joinSections(header, getGlobBody(result, options));
+}
 
-	const value = asRecord(result.value);
-	const files = getArray(value, "files")?.filter((entry): entry is string => typeof entry === "string") ?? [];
-	if (files.length === 0) return joinSections(header, stringifyUnknown(result.value));
-	const limited = limitItems(files, options);
-	const body = limited.omitted > 0 ? `${limited.items.join("\n")}\n... (${limited.omitted} more files truncated)` : limited.items.join("\n");
-	return joinSections(header, body);
+function formatSearchCount(totalMatches: number): string {
+	return totalMatches === 1 ? "1 match" : `${totalMatches} matches`;
 }
 
 function collectSearchResults(value: unknown): string[] {
@@ -350,23 +347,60 @@ function collectSearchResults(value: unknown): string[] {
 				lines.push(`${getString(countRecord, "file") ?? ""}: ${getNumber(countRecord, "count") ?? 0}`.trim());
 			}
 		} else {
+			const totalMatches = getNumber(outputRecord, "totalMatches");
+			if (totalMatches !== undefined) {
+				if (totalMatches === 0) continue;
+				lines.push(formatSearchCount(totalMatches));
+				continue;
+			}
 			lines.push(stringifyUnknown(outputValue));
 		}
+	}
+
+	const topLevelTotalMatches = getNumber(record, "totalMatches");
+	if (lines.length === 0 && topLevelTotalMatches !== undefined) {
+		return topLevelTotalMatches === 0 ? ["(no matches)"] : [formatSearchCount(topLevelTotalMatches)];
 	}
 	return lines.filter(Boolean);
 }
 
-function formatGrep(args: Record<string, unknown>, result: NormalizedResult, options: TranscriptOptions): string {
+function synthesizeGrepBashCommand(args: Record<string, unknown>, options: TranscriptOptions): string {
 	const pattern = typeof args.pattern === "string" ? args.pattern : "";
 	const path = typeof args.path === "string" ? formatDisplayPath(args.path, options.cwd) : undefined;
 	const glob = typeof args.glob === "string" ? args.glob : undefined;
-	const header = ["grep", pattern && JSON.stringify(pattern), path ?? glob].filter(Boolean).join(" ");
-	if (result.status === "error") return joinSections(header, formatError(result.error));
+	return ["grep", pattern && JSON.stringify(pattern), path ?? glob].filter(Boolean).join(" ");
+}
 
+function synthesizeGlobBashCommand(args: Record<string, unknown>, options: TranscriptOptions): string {
+	const pattern = typeof args.globPattern === "string" ? args.globPattern : "*";
+	const targetDirectory = typeof args.targetDirectory === "string" ? formatDisplayPath(args.targetDirectory, options.cwd) : undefined;
+	return targetDirectory ? `glob ${pattern} in ${targetDirectory}` : `glob ${pattern}`;
+}
+
+function getGrepBody(result: NormalizedResult, options: TranscriptOptions): string {
 	const lines = collectSearchResults(result.value);
 	const limited = limitItems(lines, options);
 	const body = limited.omitted > 0 ? `${limited.items.join("\n")}\n... (${limited.omitted} more matches truncated)` : limited.items.join("\n");
-	return joinSections(header, limitText(body || stringifyUnknown(result.value), options));
+	return limitText(body || stringifyUnknown(result.value), options);
+}
+
+function getGlobBody(result: NormalizedResult, options: TranscriptOptions): string {
+	const value = asRecord(result.value);
+	const files = getArray(value, "files")?.filter((entry): entry is string => typeof entry === "string") ?? [];
+	if (files.length === 0) {
+		const totalMatches = getNumber(value, "totalMatches");
+		if (totalMatches === 0) return "(no files)";
+		return stringifyUnknown(result.value);
+	}
+	const limited = limitItems(files, options);
+	const body = limited.omitted > 0 ? `${limited.items.join("\n")}\n... (${limited.omitted} more files truncated)` : limited.items.join("\n");
+	return limitText(body, options);
+}
+
+function formatGrep(args: Record<string, unknown>, result: NormalizedResult, options: TranscriptOptions): string {
+	const header = `$ ${synthesizeGrepBashCommand(args, options)}`;
+	if (result.status === "error") return joinSections(header, formatError(result.error));
+	return joinSections(header, getGrepBody(result, options));
 }
 
 function formatWrite(args: Record<string, unknown>, result: NormalizedResult, options: TranscriptOptions): string {
@@ -531,6 +565,26 @@ export function buildCursorPiToolDisplay(toolCall: unknown, options: TranscriptO
 			toolName: "bash",
 			args,
 			result: textToolResult(result.status === "error" ? formatError(result.error) : limitText(shellOutput.text, options)),
+			isError,
+		};
+	}
+
+	if (name === "grep") {
+		const isError = result.status === "error";
+		return {
+			toolName: "bash",
+			args: { command: synthesizeGrepBashCommand(args, options) },
+			result: textToolResult(isError ? formatError(result.error) : getGrepBody(result, options)),
+			isError,
+		};
+	}
+
+	if (name === "glob") {
+		const isError = result.status === "error";
+		return {
+			toolName: "bash",
+			args: { command: synthesizeGlobBashCommand(args, options) },
+			result: textToolResult(isError ? formatError(result.error) : getGlobBody(result, options)),
 			isError,
 		};
 	}

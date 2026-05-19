@@ -227,6 +227,54 @@ describe("formatCursorToolTranscript", () => {
 		});
 	});
 
+	it("builds native pi bash display data for Cursor grep and glob calls", () => {
+		const grepDisplay = buildCursorPiToolDisplay({
+			type: "grep",
+			args: { pattern: "getActiveTools|sem_reindex", path: "src" },
+			result: {
+				status: "success",
+				value: {
+					workspaceResults: {
+						src: {
+							type: "files",
+							output: { files: ["src/tools/reindex.ts", "src/tools/status.ts"] },
+						},
+					},
+				},
+			},
+		});
+		const globDisplay = buildCursorPiToolDisplay({
+			type: "glob",
+			args: { globPattern: "**/*.ts", targetDirectory: "src" },
+			result: { status: "success", value: { files: ["src/index.ts", "src/context.ts"] } },
+		});
+		const emptyGrepDisplay = buildCursorPiToolDisplay({
+			type: "grep",
+			args: { pattern: "missing", path: "src" },
+			result: { status: "success", value: { totalMatches: 0 } },
+		});
+		const emptyGlobDisplay = buildCursorPiToolDisplay({
+			type: "glob",
+			args: { globPattern: "**/*.missing", targetDirectory: "src" },
+			result: { status: "success", value: { files: [], totalMatches: 0 } },
+		});
+
+		expect(grepDisplay).toMatchObject({
+			toolName: "bash",
+			args: { command: 'grep "getActiveTools|sem_reindex" src' },
+			result: { content: [{ type: "text", text: "src/tools/reindex.ts\nsrc/tools/status.ts" }] },
+			isError: false,
+		});
+		expect(globDisplay).toMatchObject({
+			toolName: "bash",
+			args: { command: "glob **/*.ts in src" },
+			result: { content: [{ type: "text", text: "src/index.ts\nsrc/context.ts" }] },
+			isError: false,
+		});
+		expect(emptyGrepDisplay.result.content[0].text).toBe("(no matches)");
+		expect(emptyGlobDisplay.result.content[0].text).toBe("(no files)");
+	});
+
 	it("labels native read display local previews when Cursor read content is unavailable", () => {
 		const dir = mkdtempSync(join(tmpdir(), "cursor-tool-display-"));
 		try {
