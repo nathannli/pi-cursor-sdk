@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionHandler, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge.js";
@@ -32,6 +32,11 @@ interface CursorQuestionDetails {
 	answers: CursorQuestionAnswer[];
 	uiAvailable: boolean;
 	cancelled: boolean;
+}
+
+interface CursorQuestionToolExtensionApi extends Pick<ExtensionAPI, "getActiveTools" | "registerTool" | "setActiveTools"> {
+	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
+	on(event: "model_select", handler: (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => Promise<void> | void): void;
 }
 
 type RawQuestionOption = string | { label?: string; value?: string; description?: string };
@@ -186,7 +191,7 @@ function syncCursorQuestionToolForModel(pi: Pick<ExtensionAPI, "getActiveTools" 
 	pi.setActiveTools([...activeToolNames]);
 }
 
-export function registerCursorQuestionTool(pi: ExtensionAPI): void {
+export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): void {
 	pi.registerTool({
 		name: CURSOR_ASK_QUESTION_TOOL_NAME,
 		label: "Cursor question",

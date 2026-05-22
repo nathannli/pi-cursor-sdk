@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { discoverModels, type CursorModelFallbackIssue } from "./model-discovery.js";
 import { registerCursorFastControls } from "./cursor-state.js";
 import { registerCursorNativeToolDisplay } from "./cursor-native-tool-display.js";
@@ -6,6 +6,20 @@ import { registerCursorPiToolBridge } from "./cursor-pi-tool-bridge.js";
 import { registerCursorQuestionTool } from "./cursor-question-tool.js";
 import { registerCursorSessionCwd } from "./cursor-session-cwd.js";
 import { streamCursor } from "./cursor-provider.js";
+
+type CursorExtensionApi =
+	& Pick<ExtensionAPI, "registerProvider">
+	& {
+		registerCommand(name: string, options: {
+			description?: string;
+			handler: (args: string, ctx: Pick<ExtensionContext, "hasUI"> & { ui: Pick<ExtensionContext["ui"], "notify"> }) => Promise<void> | void;
+		}): void;
+	}
+	& Parameters<typeof registerCursorSessionCwd>[0]
+	& Parameters<typeof registerCursorFastControls>[0]
+	& Parameters<typeof registerCursorNativeToolDisplay>[0]
+	& Parameters<typeof registerCursorQuestionTool>[0]
+	& Parameters<typeof registerCursorPiToolBridge>[0];
 
 function createCursorProviderConfig(models: ProviderModelConfig[]): ProviderConfig {
 	return {
@@ -18,11 +32,11 @@ function createCursorProviderConfig(models: ProviderModelConfig[]): ProviderConf
 	};
 }
 
-function registerCursorProvider(pi: ExtensionAPI, models: ProviderModelConfig[]): void {
+function registerCursorProvider(pi: Pick<ExtensionAPI, "registerProvider">, models: ProviderModelConfig[]): void {
 	pi.registerProvider("cursor", createCursorProviderConfig(models));
 }
 
-export default async function (pi: ExtensionAPI) {
+export default async function (pi: CursorExtensionApi) {
 	// Session cwd must register before other session_start listeners that depend on it.
 	registerCursorSessionCwd(pi);
 	registerCursorFastControls(pi);

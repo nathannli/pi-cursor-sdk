@@ -38,7 +38,7 @@ describe("cursor-session-cwd", () => {
 		const sessionDir = mkdtempSync(join(tmpdir(), "pi-cursor-session-cwd-"));
 		try {
 			const pi = createMockPi();
-			registerCursorSessionCwd(pi as unknown as ExtensionAPI);
+			registerCursorSessionCwd(pi);
 			pi.emitSessionStart(sessionDir);
 
 			expect(getCursorSessionCwd()).toBe(sessionDir);
@@ -52,7 +52,7 @@ describe("cursor-session-cwd", () => {
 		const secondDir = mkdtempSync(join(tmpdir(), "pi-cursor-session-cwd-b-"));
 		try {
 			const pi = createMockPi();
-			registerCursorSessionCwd(pi as unknown as ExtensionAPI);
+			registerCursorSessionCwd(pi);
 
 			pi.emitSessionStart(firstDir);
 			expect(getCursorSessionCwd()).toBe(firstDir);

@@ -1,4 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionHandler, SessionStartEvent } from "@earendil-works/pi-coding-agent";
+
+interface CursorSessionCwdExtensionApi {
+	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
+}
 
 const state = {
 	sessionCwd: process.cwd(),
@@ -21,7 +25,7 @@ function resetCursorSessionCwd(): void {
 	state.sessionCwd = process.cwd();
 }
 
-export function registerCursorSessionCwd(pi: ExtensionAPI): void {
+export function registerCursorSessionCwd(pi: CursorSessionCwdExtensionApi): void {
 	pi.on("session_start", (_event, ctx) => {
 		setCursorSessionCwd(ctx.cwd);
 	});

@@ -12,6 +12,8 @@ import {
 	highlightCode,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type ExtensionHandler,
+	type SessionStartEvent,
 	type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Image, Text, type Component } from "@earendil-works/pi-tui";
@@ -44,6 +46,13 @@ export interface CursorNativeToolDisplayItem extends CursorPiToolDisplay {
 
 const registeredNativeToolNames = new Set<NativeCursorToolName>();
 const nativeToolResults = new Map<string, CursorNativeToolDisplayItem>();
+
+type CursorNativeToolRegistryApi = Pick<ExtensionAPI, "getActiveTools" | "getAllTools" | "registerTool" | "setActiveTools">;
+
+interface CursorNativeToolDisplayExtensionApi extends CursorNativeToolRegistryApi {
+	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
+	on(event: "model_select", handler: (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => Promise<void> | void): void;
+}
 
 function readBooleanEnv(name: string): boolean | undefined {
 	const value = process.env[name]?.trim().toLowerCase();
@@ -566,12 +575,12 @@ function createNativeCursorToolDefinition(toolName: NativeCursorToolName, cwd: s
 	throw new Error(`Unsupported Cursor native replay tool: ${toolName}`);
 }
 
-function registerNativeCursorTool(pi: ExtensionAPI, toolName: NativeCursorToolName): void {
+function registerNativeCursorTool(pi: Pick<ExtensionAPI, "registerTool">, toolName: NativeCursorToolName): void {
 	const definition = createNativeCursorToolDefinition(toolName, getCursorSessionCwd());
 	pi.registerTool(wrapNativeCursorTool(definition, () => createNativeCursorToolDefinition(toolName, getCursorSessionCwd())));
 }
 
-function hasNonBuiltinTool(pi: ExtensionAPI, toolName: NativeCursorToolName): boolean {
+function hasNonBuiltinTool(pi: Pick<ExtensionAPI, "getAllTools">, toolName: NativeCursorToolName): boolean {
 	const existingTool = pi.getAllTools().find((tool) => tool.name === toolName);
 	return existingTool !== undefined && existingTool.sourceInfo.source !== "builtin";
 }
@@ -582,7 +591,7 @@ function isCursorModel(model: ExtensionContext["model"]): boolean {
 	return model?.provider === "cursor" || model?.api === "cursor-sdk";
 }
 
-function syncRegisteredNativeCursorToolsForModel(pi: ExtensionAPI, model: ExtensionContext["model"]): void {
+function syncRegisteredNativeCursorToolsForModel(pi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools">, model: ExtensionContext["model"]): void {
 	if (registeredNativeToolNames.size === 0) return;
 	const activeToolNames = new Set(pi.getActiveTools());
 	let changed = false;
@@ -602,7 +611,7 @@ function syncRegisteredNativeCursorToolsForModel(pi: ExtensionAPI, model: Extens
 	if (changed) pi.setActiveTools([...activeToolNames]);
 }
 
-function registerAvailableNativeCursorTools(pi: ExtensionAPI, ctx: NativeRegistrationContext): void {
+function registerAvailableNativeCursorTools(pi: CursorNativeToolRegistryApi, ctx: NativeRegistrationContext): void {
 	if (!isCursorNativeToolRegistrationRequested()) {
 		registeredNativeToolNames.clear();
 		return;
@@ -629,7 +638,7 @@ function registerAvailableNativeCursorTools(pi: ExtensionAPI, ctx: NativeRegistr
 	}
 }
 
-export function registerCursorNativeToolDisplay(pi: ExtensionAPI): void {
+export function registerCursorNativeToolDisplay(pi: CursorNativeToolDisplayExtensionApi): void {
 	pi.on("session_start", (_event, ctx) => {
 		registerAvailableNativeCursorTools(pi, ctx);
 	});

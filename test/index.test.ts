@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ExtensionAPI, ExtensionContext, ProviderConfig, RegisteredCommand, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ProviderConfig, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import { Type, type TSchema } from "typebox";
 
@@ -37,6 +37,10 @@ type TestExtensionContext = Pick<ExtensionContext, "cwd" | "hasUI" | "model"> & 
 	sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch">;
 };
 type TestEventHandler = (event: unknown, ctx: TestExtensionContext) => Promise<void> | void;
+type TestRegisteredCommand = {
+	description?: string;
+	handler: (args: string, ctx: TestExtensionContext) => Promise<void> | void;
+};
 
 function createBuiltinToolInfo(name: string): ToolInfo {
 	return {
@@ -79,7 +83,7 @@ async function runModelSelectHandlers(
 
 function createMockPi(existingTools?: ToolInfo[]) {
 	const registered: Array<{ name: string; config: ProviderConfig }> = [];
-	const commands = new Map<string, RegisteredCommand>();
+	const commands = new Map<string, TestRegisteredCommand>();
 	const tools: RegisteredTool[] = [];
 	const handlers = new Map<string, TestEventHandler[]>();
 	let activeToolNames = ["read", "bash", "edit", "write"];
@@ -89,7 +93,7 @@ function createMockPi(existingTools?: ToolInfo[]) {
 			registered.push({ name, config });
 		}),
 		registerFlag: vi.fn(),
-		registerCommand: vi.fn((name: string, command: RegisteredCommand) => {
+		registerCommand: vi.fn((name: string, command: TestRegisteredCommand) => {
 			commands.set(name, command);
 		}),
 		registerTool: vi.fn((tool: RegisteredTool) => {
@@ -153,7 +157,7 @@ describe("extension factory", () => {
 
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		expect(pi.registerFlag).toHaveBeenCalledWith(
@@ -222,7 +226,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		expect(pi._activeToolNames()).toContain("cursor");
@@ -250,7 +254,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		const select = vi.fn().mockResolvedValue("Web app");
@@ -286,14 +290,14 @@ describe("extension factory", () => {
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
 
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		expect(cursorPiToolBridgeTestUtils.getRegisteredBridgeForTests()?.isEnabled()).toBe(true);
 		expect(pi.on).toHaveBeenCalledWith("session_shutdown", expect.any(Function));
 		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 
-		const snapshot = buildCursorPiToolBridgeSnapshot(pi as Pick<ExtensionAPI, "getActiveTools" | "getAllTools">);
+		const snapshot = buildCursorPiToolBridgeSnapshot(pi);
 		expect(snapshot.piToolNameToMcpToolName.get(CURSOR_ASK_QUESTION_TOOL_NAME)).toBe("pi__cursor_ask_question");
 		expect(snapshot.tools.find((tool) => tool.piToolName === CURSOR_ASK_QUESTION_TOOL_NAME)?.description).toContain("Ask the user");
 	});
@@ -304,7 +308,7 @@ describe("extension factory", () => {
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
 
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		expect(cursorPiToolBridgeTestUtils.getRegisteredBridgeForTests()?.isEnabled()).toBe(false);
@@ -334,7 +338,7 @@ describe("extension factory", () => {
 		]);
 
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 
 		expect(pi.registerProvider).toHaveBeenCalledOnce();
 		const [call] = pi._registered;
@@ -366,15 +370,16 @@ describe("extension factory", () => {
 		];
 		mockedDiscover.mockResolvedValueOnce(startupModels).mockResolvedValueOnce(refreshedModels);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		const notify = vi.fn();
 
 		await pi._commands.get("cursor-refresh-models")!.handler("", {
 			cwd: process.cwd(),
 			hasUI: true,
-			ui: { notify, setStatus: vi.fn() },
+			model: undefined,
+			ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
-		} as unknown as ExtensionContext);
+		});
 
 		expect(mockedDiscover).toHaveBeenCalledTimes(2);
 		expect(pi.registerProvider).toHaveBeenCalledTimes(2);
@@ -392,15 +397,16 @@ describe("extension factory", () => {
 				return [];
 			});
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		const notify = vi.fn();
 
 		await pi._commands.get("cursor-refresh-models")!.handler("", {
 			cwd: process.cwd(),
 			hasUI: true,
-			ui: { notify, setStatus: vi.fn() },
+			model: undefined,
+			ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
-		} as unknown as ExtensionContext);
+		});
 
 		expect(pi.registerProvider).toHaveBeenCalledTimes(2);
 		expect(notify).toHaveBeenCalledWith(
@@ -430,7 +436,7 @@ describe("extension factory", () => {
 		});
 
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 
 		const notify = vi.fn();
 		const ctx = {
@@ -455,7 +461,7 @@ describe("extension factory", () => {
 		});
 
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 
 		const notify = vi.fn();
 		const ctx = { cwd: process.cwd(), hasUI: false, ui: { notify, setStatus: vi.fn() }, sessionManager: { getBranch: vi.fn(() => []) } };
@@ -473,7 +479,7 @@ describe("extension factory", () => {
 			throw new Error("runtime tool actions are unavailable during extension load");
 		});
 
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 
 		expect(pi._tools.map((tool) => tool.name)).toEqual([CURSOR_ASK_QUESTION_TOOL_NAME]);
 		expect(canRenderCursorToolNatively("grep")).toBe(false);
@@ -486,7 +492,7 @@ describe("extension factory", () => {
 		try {
 			writeFileSync(join(dir, "session-file.txt"), "from session cwd\n");
 			const pi = createMockPi();
-			await extensionFactory(pi as unknown as ExtensionAPI);
+			await extensionFactory(pi);
 			await runSessionStartHandlers(pi, { cwd: dir });
 
 			const readTool = pi._tools.find((tool) => tool.name === "read");
@@ -507,7 +513,7 @@ describe("extension factory", () => {
 			writeFileSync(join(firstDir, "session-file.txt"), "from first cwd\n");
 			writeFileSync(join(secondDir, "session-file.txt"), "from second cwd\n");
 			const pi = createMockPi();
-			await extensionFactory(pi as unknown as ExtensionAPI);
+			await extensionFactory(pi);
 			await runSessionStartHandlers(pi, { cwd: firstDir });
 			await runSessionStartHandlers(pi, { cwd: secondDir });
 
@@ -526,7 +532,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		recordCursorNativeToolDisplay({
@@ -556,7 +562,7 @@ describe("extension factory", () => {
 		setCapabilities({ images: null, trueColor: false, hyperlinks: false });
 		try {
 			const pi = createMockPi();
-			await extensionFactory(pi as unknown as ExtensionAPI);
+			await extensionFactory(pi);
 			await runSessionStartHandlers(pi);
 
 			const generateImageTool = pi._tools.find((tool) => tool.name === "cursor_generate_image");
@@ -591,7 +597,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 		const theme = { fg: (_style: string, text: string) => text, bold: (text: string) => text } as never;
 		const cursorTool = pi._tools.find((tool) => tool.name === "cursor");
@@ -617,7 +623,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 		const theme = { fg: (_style: string, text: string) => text, bold: (text: string) => text } as never;
 		const options = { expanded: false, isPartial: false } as never;
@@ -669,7 +675,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 		const theme = {
 			fg: (style: string, text: string) =>
@@ -729,7 +735,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 		const theme = {
 			fg: (style: string, text: string) =>
@@ -849,7 +855,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		recordCursorNativeToolDisplay({
@@ -870,7 +876,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		expect(pi._tools.map((tool) => tool.name)).toEqual([CURSOR_ASK_QUESTION_TOOL_NAME]);
@@ -882,7 +888,7 @@ describe("extension factory", () => {
 		process.env.PI_CURSOR_REGISTER_NATIVE_TOOLS = "0";
 		mockedDiscover.mockResolvedValueOnce([]);
 		const pi = createMockPi();
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		expect(pi._tools.map((tool) => tool.name)).toEqual([CURSOR_ASK_QUESTION_TOOL_NAME]);
@@ -909,7 +915,7 @@ describe("extension factory", () => {
 			createBuiltinToolInfo("find"),
 			createBuiltinToolInfo("ls"),
 		]);
-		await extensionFactory(pi as unknown as ExtensionAPI);
+		await extensionFactory(pi);
 		await runSessionStartHandlers(pi);
 
 		expect(pi._tools.map((tool) => tool.name)).toEqual([

@@ -36,13 +36,14 @@ vi.mock("@cursor/sdk", () => {
 import { Agent, createAgentPlatform } from "@cursor/sdk";
 import { __testUtils as cursorSessionCwdTestUtils } from "../src/cursor-session-cwd.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
+import { estimateCursorPromptMessageTokens } from "../src/context.js";
 import { registerCursorPiToolBridge, __testUtils as cursorPiToolBridgeTestUtils } from "../src/cursor-pi-tool-bridge.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
 import { __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
 import { __testUtils as nativeToolDisplayTestUtils, registerCursorNativeToolDisplay } from "../src/cursor-native-tool-display.js";
-import type { ModelListItem } from "@cursor/sdk";
-import type { Context, Model } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ModelListItem, SendOptions } from "@cursor/sdk";
+import type { AssistantMessage, AssistantMessageEvent, Context, Model, ToolCall } from "@earendil-works/pi-ai";
+import type { ExtensionContext, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
 
 // Access the mocks via the module
@@ -81,7 +82,7 @@ function registerBridgeForProviderTest(options: { active: string[]; tools: ToolI
 			if (event === "session_shutdown") sessionShutdownHandlers.push(handler);
 		}),
 	};
-	registerCursorPiToolBridge(pi as unknown as ExtensionAPI);
+	registerCursorPiToolBridge(pi);
 	return { pi, sessionShutdownHandlers };
 }
 
@@ -114,12 +115,94 @@ function makeContext(): Context {
 	};
 }
 
-async function collectEvents(stream: ReturnType<typeof streamCursor>) {
-	const events: unknown[] = [];
+async function collectEvents(stream: ReturnType<typeof streamCursor>): Promise<AssistantMessageEvent[]> {
+	const events: AssistantMessageEvent[] = [];
 	for await (const event of stream) {
 		events.push(event);
 	}
 	return events;
+}
+
+type AssistantStreamEventType = AssistantMessageEvent["type"];
+type AssistantStreamEvent<TType extends AssistantStreamEventType> = Extract<AssistantMessageEvent, { type: TType }>;
+type CursorDeltaHandler = NonNullable<SendOptions["onDelta"]>;
+type CursorStepHandler = NonNullable<SendOptions["onStep"]>;
+type CursorToolStreamEventType = "toolcall_start" | "toolcall_delta" | "toolcall_end";
+
+const CURSOR_TOOL_STREAM_EVENT_TYPES = new Set<AssistantStreamEventType>(["toolcall_start", "toolcall_delta", "toolcall_end"]);
+
+function isEventType<TType extends AssistantStreamEventType>(
+	event: AssistantMessageEvent,
+	type: TType,
+): event is AssistantStreamEvent<TType> {
+	return event.type === type;
+}
+
+function collectTextDeltas(events: readonly AssistantMessageEvent[]): string {
+	return events.filter((event): event is AssistantStreamEvent<"text_delta"> => isEventType(event, "text_delta")).map((event) => event.delta).join("");
+}
+
+function collectThinkingDeltas(events: readonly AssistantMessageEvent[]): string {
+	return events.filter((event): event is AssistantStreamEvent<"thinking_delta"> => isEventType(event, "thinking_delta")).map((event) => event.delta).join("");
+}
+
+function getRequiredEvent<TType extends AssistantStreamEventType>(
+	events: readonly AssistantMessageEvent[],
+	type: TType,
+): AssistantStreamEvent<TType> {
+	const event = events.find((candidate): candidate is AssistantStreamEvent<TType> => isEventType(candidate, type));
+	if (!event) throw new Error(`Expected ${type} event`);
+	return event;
+}
+
+function getEventsOfType<TType extends AssistantStreamEventType>(
+	events: readonly AssistantMessageEvent[],
+	type: TType,
+): AssistantStreamEvent<TType>[] {
+	return events.filter((event): event is AssistantStreamEvent<TType> => isEventType(event, type));
+}
+
+function hasEventType(events: readonly AssistantMessageEvent[], type: AssistantStreamEventType): boolean {
+	return events.some((event) => event.type === type);
+}
+
+function isCursorToolStreamEvent(event: AssistantMessageEvent): event is AssistantStreamEvent<CursorToolStreamEventType> {
+	return CURSOR_TOOL_STREAM_EVENT_TYPES.has(event.type);
+}
+
+function getDoneEvent(events: readonly AssistantMessageEvent[]): AssistantStreamEvent<"done"> {
+	return getRequiredEvent(events, "done");
+}
+
+function getErrorEvent(events: readonly AssistantMessageEvent[]): AssistantStreamEvent<"error"> {
+	return getRequiredEvent(events, "error");
+}
+
+function getTextEndEvent(events: readonly AssistantMessageEvent[]): AssistantStreamEvent<"text_end"> {
+	return getRequiredEvent(events, "text_end");
+}
+
+function isToolCallBlock(block: AssistantMessage["content"][number]): block is ToolCall {
+	return block.type === "toolCall";
+}
+
+type CursorAgentCreateOptions = NonNullable<Parameters<typeof Agent.create>[0]>;
+type CursorAgentPlatformForTest = Awaited<ReturnType<typeof createAgentPlatform>>;
+
+function getCreatedAgentOptions(callIndex = 0): CursorAgentCreateOptions {
+	const options = mockedCreate.mock.calls[callIndex]?.[0];
+	if (!options) throw new Error(`Expected Agent.create call ${callIndex}`);
+	return options;
+}
+
+function createMockAgentPlatform(
+	loadLatest = vi.fn().mockResolvedValue(undefined),
+): CursorAgentPlatformForTest {
+	return {
+		checkpointStore: {
+			loadLatest,
+		},
+	} as CursorAgentPlatformForTest;
 }
 
 async function registerNativeToolDisplayForTest(registeredTools: RegisteredTool[]): Promise<void> {
@@ -152,7 +235,7 @@ async function registerNativeToolDisplayForTest(registeredTools: RegisteredTool[
 		setActiveTools: vi.fn((toolNames: string[]) => {
 			activeToolNames = [...toolNames];
 		}),
-	} as unknown as ExtensionAPI);
+	});
 	for (const handler of handlers) {
 		await handler({ reason: "startup" }, { cwd: process.cwd(), hasUI: false, ui: { notify: vi.fn() } });
 	}
@@ -251,15 +334,11 @@ describe("streamCursor", () => {
 			send: vi.fn(),
 			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
 		});
-		mockedCreateAgentPlatform.mockResolvedValue({
-			checkpointStore: {
-				loadLatest: vi.fn().mockResolvedValue(undefined),
-			},
-		} as any);
+		mockedCreateAgentPlatform.mockResolvedValue(createMockAgentPlatform());
 	});
 
 	it("emits text deltas as pi text stream events", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "text-delta", text: "Hello " } });
 			opts.onDelta({ update: { type: "text-delta", text: "world" } });
 			return {
@@ -280,18 +359,18 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
 
-		const textDeltas = events.filter((e: any) => e.type === "text_delta");
+		const textDeltas = getEventsOfType(events, "text_delta");
 		expect(textDeltas).toHaveLength(2);
 		expect(textDeltas[0].delta).toBe("Hello ");
 		expect(textDeltas[1].delta).toBe("world");
 
-		const done = events.find((e: any) => e.type === "done");
+		const done = getDoneEvent(events);
 		expect(done).toBeDefined();
 	});
 
 	it("emits createPlan args as final visible text when native replay is unavailable", async () => {
 		const plan = "Plan:\n1. Create calculator UI.\n2. Implement addition and subtraction.\n3. Add tests.";
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "text-delta", text: "Switching to plan mode.\n" } });
 			opts.onDelta({ update: { type: "tool-call-completed", toolCall: { name: "createPlan", args: { plan }, result: { status: "success", value: {} } }, callId: "plan-1" } });
 			return {
@@ -310,9 +389,9 @@ describe("streamCursor", () => {
 		});
 
 		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const text = events.filter((e: any) => e.type === "text_delta").map((event: any) => event.delta).join("");
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((event: any) => event.delta).join("");
-		const done = events.find((e: any) => e.type === "done") as any;
+		const text = collectTextDeltas(events);
+		const trace = collectThinkingDeltas(events);
+		const done = getDoneEvent(events);
 
 		expect(text).toBe(`Switching to plan mode.\n${plan}`);
 		expect(trace).toContain("Create calculator UI");
@@ -320,7 +399,7 @@ describe("streamCursor", () => {
 	});
 
 	it("emits thinking deltas as pi thinking stream events", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "thinking-delta", text: "hmm" } });
 			opts.onDelta({ update: { type: "thinking-delta", text: " let me think" } });
 			opts.onDelta({ update: { type: "thinking-completed" } });
@@ -343,15 +422,15 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
 
-		const thinkingDeltas = events.filter((e: any) => e.type === "thinking_delta");
+		const thinkingDeltas = getEventsOfType(events, "thinking_delta");
 		expect(thinkingDeltas).toHaveLength(2);
 
-		const thinkingEnd = events.find((e: any) => e.type === "thinking_end");
+		const thinkingEnd = events.find((event) => event.type === "thinking_end");
 		expect(thinkingEnd).toBeDefined();
 	});
 
 	it("does not emit pi tool call events for cursor tool deltas", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read_file" }, callId: "c1" } });
 			opts.onDelta({ update: { type: "tool-call-completed", toolCall: { name: "read_file" }, callId: "c1" } });
 			opts.onDelta({ update: { type: "text-delta", text: "done" } });
@@ -373,14 +452,12 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
 
-		const toolEvents = events.filter((e: any) =>
-			["toolcall_start", "toolcall_delta", "toolcall_end"].includes(e.type),
-		);
+		const toolEvents = events.filter(isCursorToolStreamEvent);
 		expect(toolEvents).toHaveLength(0);
 	});
 
 	it("surfaces cursor tool results as pi-like trace transcript without polluting final text", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -411,9 +488,9 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
-		const text = events.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const done = events.find((e: any) => e.type === "done") as any;
+		const trace = collectThinkingDeltas(events);
+		const text = collectTextDeltas(events);
+		const done = getDoneEvent(events);
 
 		expect(trace).toContain("read README.md");
 		expect(trace).toContain("# pi-cursor-sdk");
@@ -421,7 +498,7 @@ describe("streamCursor", () => {
 		expect(trace).not.toContain("call c1");
 		expect(trace).toContain("Cursor summary: Inspected files");
 		expect(text).toBe("done");
-		expect(done.message.content.map((block: any) => block.type)).toEqual(["thinking", "thinking", "text"]);
+		expect(done.message.content.map((block) => block.type)).toEqual(["thinking", "thinking", "text"]);
 	});
 
 	it("uses Cursor onStep tool-call results when delta tool completion is absent", async () => {
@@ -453,14 +530,14 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("read README.md");
 		expect(trace).toContain("# pi-cursor-sdk");
 	});
 
 	it("does not mark a started tool incomplete when onStep reports its result without a completion delta", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void; onStep: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler; onStep: CursorStepHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onStep({
 				step: {
@@ -489,7 +566,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("read README.md");
 		expect(trace).toContain("# pi-cursor-sdk");
@@ -497,7 +574,7 @@ describe("streamCursor", () => {
 	});
 
 	it("silently discards started Cursor tool calls that never complete", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			return {
 				id: "run-1",
@@ -516,17 +593,17 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
-		const text = events.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
+		const text = collectTextDeltas(events);
 
 		expect(trace).not.toContain("Cursor tool started without a completion event");
 		expect(trace).not.toContain("Cursor SDK emitted tool-call-started but no tool-call-completed event");
 		expect(text).toBe("done");
-		expect(events.some((event: any) => event.type === "toolcall_start")).toBe(false);
+		expect(hasEventType(events, "toolcall_start")).toBe(false);
 	});
 
 	it("still surfaces explicit completed Cursor tool errors", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "shell", args: { command: "cat missing.txt" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -556,14 +633,14 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("$ cat missing.txt");
 		expect(trace).toContain("Error: missing.txt: No such file");
 	});
 
 	it("still surfaces explicit onStep Cursor tool errors", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void; onStep: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler; onStep: CursorStepHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "missing.txt" } }, callId: "c1" } });
 			opts.onStep({
 				step: {
@@ -593,7 +670,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("read missing.txt");
 		expect(trace).toContain("Error: missing.txt: No such file");
@@ -601,7 +678,7 @@ describe("streamCursor", () => {
 	});
 
 	it("dedupes a completed tool call reported through both delta and step callbacks", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void; onStep: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler; onStep: CursorStepHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onStep({
 				step: {
@@ -640,7 +717,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace.match(/read README\.md/g)).toHaveLength(1);
 		expect(trace.match(/# pi-cursor-sdk/g)).toHaveLength(1);
@@ -658,7 +735,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "text-delta", text: "I am checking files." } });
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onDelta({
@@ -689,17 +766,17 @@ describe("streamCursor", () => {
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
 		expect(runWait).toHaveBeenCalledTimes(1);
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const firstText = firstEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const firstText = collectTextDeltas(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 		expect(firstText).toBe("I am checking files.");
 		expect(firstDone.reason).toBe("toolUse");
 		expect(firstDone.message.stopReason).toBe("toolUse");
-		expect(firstDone.message.content.map((block: any) => block.type)).toEqual(["text", "toolCall"]);
+		expect(firstDone.message.content.map((block) => block.type)).toEqual(["text", "toolCall"]);
 		expect(firstDone.message.content[0]).toEqual({ type: "text", text: "I am checking files." });
 		expect(toolCall.name).toBe("read");
-		expect(firstEvents.some((event: any) => event.type === "toolcall_delta")).toBe(true);
+		expect(hasEventType(firstEvents, "toolcall_delta")).toBe(true);
 
 		const readTool = registeredTools.find((tool) => tool.name === "read");
 		const toolResult = await readTool.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
@@ -727,8 +804,8 @@ describe("streamCursor", () => {
 		];
 
 		const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const replayDone = replayEvents.find((e: any) => e.type === "done") as any;
+		const replayText = collectTextDeltas(replayEvents);
+		const replayDone = getDoneEvent(replayEvents);
 
 		expect(mockedCreate).toHaveBeenCalledTimes(1);
 		expect(replayText).toBe("Final answer only.");
@@ -749,7 +826,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { toolName: "run_terminal_cmd", args: { command } }, callId: "shell-1" } });
 			opts.onDelta({ update: { type: "shell-output-delta", event: { case: "stdout", value: { data: "background job done\n" } } } });
 			opts.onDelta({
@@ -779,8 +856,8 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 		expect(firstDone.reason).toBe("toolUse");
 		expect(toolCall.name).toBe("bash");
@@ -810,12 +887,12 @@ describe("streamCursor", () => {
 		];
 
 		const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-		const replayText = replayEvents.filter((event: any) => event.type === "text_delta").map((event: any) => event.delta).join("");
+		const replayText = collectTextDeltas(replayEvents);
 		expect(replayText).toBe("Done.");
 	});
 
 	it("drops shell-output-delta fallback data when overlapping shell calls make attribution ambiguous", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "shell", args: { command: "sleep 1" } }, callId: "shell-1" } });
 			opts.onDelta({ update: { type: "shell-output-delta", event: { case: "stdout", value: { data: "partial first output\n" } } } });
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "shell", args: { command: "sleep 2" } }, callId: "shell-2" } });
@@ -853,7 +930,7 @@ describe("streamCursor", () => {
 		});
 
 		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const trace = events.filter((event: any) => event.type === "thinking_delta").map((event: any) => event.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("$ sleep 1");
 		expect(trace).toContain("$ sleep 2");
@@ -863,7 +940,7 @@ describe("streamCursor", () => {
 	});
 
 	it("prefers completed shell stdout over Cursor shell-output-delta fallback data", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "shell", args: { command: "printf done" } }, callId: "shell-1" } });
 			opts.onDelta({ update: { type: "shell-output-delta", event: { case: "stdout", value: { data: "delta output\n" } } } });
 			opts.onDelta({
@@ -893,7 +970,7 @@ describe("streamCursor", () => {
 		});
 
 		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const trace = events.filter((event: any) => event.type === "thinking_delta").map((event: any) => event.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("completed output");
 		expect(trace).not.toContain("delta output");
@@ -911,7 +988,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "createPlan", args: {} }, callId: "plan-1" } });
 			opts.onDelta({
 				update: {
@@ -937,11 +1014,11 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 		expect(firstDone.reason).toBe("toolUse");
-		expect(firstDone.message.content.map((block: any) => block.type)).toEqual(["toolCall"]);
+		expect(firstDone.message.content.map((block) => block.type)).toEqual(["toolCall"]);
 		expect(toolCall.name).toBe("cursor");
 		expect(toolCall.arguments).toMatchObject({ totalCount: 0 });
 
@@ -968,8 +1045,8 @@ describe("streamCursor", () => {
 		];
 
 		const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const replayDone = replayEvents.find((e: any) => e.type === "done") as any;
+		const replayText = collectTextDeltas(replayEvents);
+		const replayDone = getDoneEvent(replayEvents);
 
 		expect(mockedCreate).toHaveBeenCalledTimes(1);
 		expect(replayText).toBe("Final Cursor plan text.");
@@ -989,7 +1066,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "text-delta", text: "Compiling the tool inventory and execution status.\n" } });
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "createPlan", args: {} }, callId: "plan-1" } });
 			opts.onDelta({
@@ -1016,13 +1093,13 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const firstText = firstEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const firstText = collectTextDeltas(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 		expect(firstText).toBe("Compiling the tool inventory and execution status.\n");
 		expect(firstDone.reason).toBe("toolUse");
-		expect(firstDone.message.content.map((block: any) => block.type)).toEqual(["text", "toolCall"]);
+		expect(firstDone.message.content.map((block) => block.type)).toEqual(["text", "toolCall"]);
 		expect(toolCall.name).toBe("cursor");
 
 		const cursorTool = registeredTools.find((tool) => tool.name === "cursor");
@@ -1045,8 +1122,8 @@ describe("streamCursor", () => {
 		];
 
 		const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const replayDone = replayEvents.find((e: any) => e.type === "done") as any;
+		const replayText = collectTextDeltas(replayEvents);
+		const replayDone = getDoneEvent(replayEvents);
 
 		expect(replayText).toBe("Final plan:\n1. Summarize available tools.\n2. Report execution status.");
 		expect(replayText).not.toContain("Compiling the tool inventory");
@@ -1060,7 +1137,7 @@ describe("streamCursor", () => {
 		const registeredTools: RegisteredTool[] = [];
 		await registerNativeToolDisplayForTest(registeredTools);
 
-		let onDelta: ((args: { update: any }) => void) | undefined;
+		let onDelta: CursorDeltaHandler | undefined;
 		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
 		const runWait = vi.fn(
 			() =>
@@ -1068,8 +1145,8 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
-			onDelta = opts.onDelta as (args: { update: any }) => void;
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			onDelta = opts.onDelta;
 			onDelta({ update: { type: "tool-call-started", toolCall: { name: "createPlan", args: {} }, callId: "plan-1" } });
 			onDelta({
 				update: {
@@ -1095,8 +1172,8 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 		const cursorTool = registeredTools.find((tool) => tool.name === "cursor");
 		const toolResult = await cursorTool!.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
 
@@ -1115,7 +1192,7 @@ describe("streamCursor", () => {
 			},
 		];
 
-		const replayEvents: any[] = [];
+		const replayEvents: AssistantMessageEvent[] = [];
 		let sawPostReplayText: () => void = () => {};
 		const postReplayTextSeen = new Promise<void>((resolve) => {
 			sawPostReplayText = resolve;
@@ -1136,8 +1213,8 @@ describe("streamCursor", () => {
 		resolveRun({ id: "run-1", status: "finished", result: "Final Cursor plan text." });
 		await replayDonePromise;
 
-		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const replayDone = replayEvents.find((e: any) => e.type === "done") as any;
+		const replayText = collectTextDeltas(replayEvents);
+		const replayDone = getDoneEvent(replayEvents);
 
 		expect(replayText).toBe("Compiling after replay.\nFinal Cursor plan text.");
 		expect(replayDone.reason).toBe("stop");
@@ -1159,7 +1236,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -1189,8 +1266,8 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 		const readTool = registeredTools.find((tool) => tool.name === "read");
 		const toolResult = await readTool!.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
 
@@ -1213,13 +1290,13 @@ describe("streamCursor", () => {
 		await Promise.resolve();
 		resolveRun({ id: "run-1", status: "finished", result: "Done." });
 		const replayEvents = await replayEventsPromise;
-		const replayDone = replayEvents.find((e: any) => e.type === "done") as any;
-		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+		const replayDone = getDoneEvent(replayEvents);
+		const replayText = collectTextDeltas(replayEvents);
 
 		expect(replayDone.reason).toBe("stop");
 		expect(replayText).toBe("Done.");
 		expect(replayDone.message.content).toEqual([{ type: "text", text: "Done." }]);
-		expect(replayDone.message.content.some((block: any) => block.type === "toolCall")).toBe(false);
+		expect(replayDone.message.content.some(isToolCallBlock)).toBe(false);
 		expect(nativeToolDisplayTestUtils.nativeToolResultCount()).toBe(0);
 	});
 
@@ -1235,7 +1312,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			return {
 				id: "run-1",
@@ -1257,16 +1334,161 @@ describe("streamCursor", () => {
 		await vi.waitFor(() => expect(runWait).toHaveBeenCalledTimes(1));
 		resolveRun({ id: "run-1", status: "finished", result: "Done." });
 		const events = await eventsPromise;
-		const done = events.find((e: any) => e.type === "done") as any;
-		const text = events.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const done = getDoneEvent(events);
+		const text = collectTextDeltas(events);
+		const trace = collectThinkingDeltas(events);
 
 		expect(done.reason).toBe("stop");
 		expect(text).toBe("Done.");
 		expect(trace).not.toContain("Cursor tool started without a completion event");
 		expect(done.message.content).toEqual([{ type: "text", text: "Done." }]);
-		expect(events.some((event: any) => event.type === "toolcall_start")).toBe(false);
+		expect(hasEventType(events, "toolcall_start")).toBe(false);
 		expect(nativeToolDisplayTestUtils.nativeToolResultCount()).toBe(0);
+	});
+
+	it("counts thinking plus tool-call replay turns as nonzero assistant activity", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "thinking-delta", text: "Need to inspect the file." } });
+			opts.onDelta({ update: { type: "thinking-completed" } });
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "read",
+						result: { status: "success", value: { content: "# pi-cursor-sdk" } },
+					},
+					callId: "c1",
+				},
+			});
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const done = getDoneEvent(events);
+
+		expect(done.reason).toBe("toolUse");
+		expect(done.message.content.map((block) => block.type)).toEqual(["thinking", "toolCall"]);
+		expect(done.message.usage.output).toBeGreaterThan(0);
+		expect(done.message.usage.totalTokens).toBeGreaterThan(done.message.usage.input);
+
+		const toolCall = done.message.content.find(isToolCallBlock);
+		const readTool = registeredTools.find((tool) => tool.name === "read");
+		const toolResult = await readTool!.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
+		const replayContext = makeContext();
+		replayContext.messages = [
+			...replayContext.messages,
+			done.message,
+			{
+				role: "toolResult" as const,
+				toolCallId: toolCall.id,
+				toolName: "read",
+				content: toolResult.content,
+				details: toolResult.details,
+				isError: false,
+				timestamp: 2,
+			},
+		];
+		resolveRun({ id: "run-1", status: "finished", result: "" });
+		await Promise.resolve();
+		await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+	});
+
+	it("gives empty final replay turns context total without recounting the original prompt", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "read",
+						result: { status: "success", value: { content: "# pi-cursor-sdk" } },
+					},
+					callId: "c1",
+				},
+			});
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
+		const readTool = registeredTools.find((tool) => tool.name === "read");
+		const toolResult = await readTool!.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
+		const toolResultMessage = {
+			role: "toolResult" as const,
+			toolCallId: toolCall.id,
+			toolName: "read",
+			content: toolResult.content,
+			details: toolResult.details,
+			isError: false,
+			timestamp: 2,
+		};
+		const replayContext = makeContext();
+		replayContext.messages = [...replayContext.messages, firstDone.message, toolResultMessage];
+
+		expect(runWait).toHaveBeenCalledTimes(1);
+		resolveRun({ id: "run-1", status: "finished", result: "" });
+		await Promise.resolve();
+
+		const finalEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
+		const finalDone = getDoneEvent(finalEvents);
+
+		expect(finalDone.reason).toBe("stop");
+		expect(finalDone.message.content).toEqual([]);
+		expect(finalDone.message.usage.input).toBe(estimateCursorPromptMessageTokens(toolResultMessage));
+		expect(finalDone.message.usage.input).toBeLessThan(firstDone.message.usage.input);
+		expect(finalDone.message.usage.output).toBe(0);
+		expect(finalDone.message.usage.totalTokens).toBeGreaterThan(finalDone.message.usage.input);
 	});
 
 	it("replays Cursor grep activity through native grep display", async () => {
@@ -1281,7 +1503,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({
 				update: {
 					type: "tool-call-started",
@@ -1327,9 +1549,9 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
-		const trace = firstEvents.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
+		const trace = collectThinkingDeltas(firstEvents);
 
 		expect(firstDone.reason).toBe("toolUse");
 		expect(toolCall.name).toBe("grep");
@@ -1375,7 +1597,7 @@ describe("streamCursor", () => {
 						resolveRun = resolve;
 					}),
 			);
-			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 				opts.onDelta({ update: { type: "tool-call-started", toolCall: { type: "edit", args: { path: targetPath } }, callId: "c1" } });
 				opts.onDelta({
 					update: {
@@ -1408,8 +1630,8 @@ describe("streamCursor", () => {
 			});
 
 			const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-			const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-			const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+			const firstDone = getDoneEvent(firstEvents);
+			const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 			expect(toolCall.name).toBe("cursor");
 			expect(toolCall.arguments).toMatchObject({ path: targetPath });
@@ -1455,7 +1677,7 @@ describe("streamCursor", () => {
 				},
 			];
 			const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-			const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+			const replayText = collectTextDeltas(replayEvents);
 			expect(replayText).toBe("Done.");
 			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		} finally {
@@ -1479,7 +1701,7 @@ describe("streamCursor", () => {
 						resolveRun = resolve;
 					}),
 			);
-			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 				opts.onDelta({
 					update: { type: "tool-call-started", toolCall: { type: "write", args: { path: targetPath } }, callId: "c1" },
 				});
@@ -1514,8 +1736,8 @@ describe("streamCursor", () => {
 			});
 
 			const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-			const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-			const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+			const firstDone = getDoneEvent(firstEvents);
+			const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 			expect(toolCall.name).toBe("cursor");
 			expect(toolCall.arguments).toMatchObject({ path: targetPath, activityTitle: "Cursor write", activitySummary: targetPath });
@@ -1548,7 +1770,7 @@ describe("streamCursor", () => {
 				},
 			];
 			const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-			const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+			const replayText = collectTextDeltas(replayEvents);
 			expect(replayText).toBe("Done.");
 			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		} finally {
@@ -1572,7 +1794,7 @@ describe("streamCursor", () => {
 						resolveRun = resolve;
 					}),
 			);
-			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 				opts.onDelta({
 					update: {
 						type: "tool-call-started",
@@ -1611,8 +1833,8 @@ describe("streamCursor", () => {
 			});
 
 			const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-			const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-			const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+			const firstDone = getDoneEvent(firstEvents);
+			const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 			expect(toolCall.name).toBe("edit");
 			expect(toolCall.arguments).toEqual({ path: targetPath, edits: [{ oldText: "old\n", newText: "new\n" }] });
@@ -1643,7 +1865,7 @@ describe("streamCursor", () => {
 				},
 			];
 			const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-			const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+			const replayText = collectTextDeltas(replayEvents);
 			expect(replayText).toBe("Done.");
 			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		} finally {
@@ -1667,7 +1889,7 @@ describe("streamCursor", () => {
 						resolveRun = resolve;
 					}),
 			);
-			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 				opts.onDelta({
 					update: { type: "tool-call-started", toolCall: { type: "write", args: { path: targetPath, content: "new\n" } }, callId: "c1" },
 				});
@@ -1702,8 +1924,8 @@ describe("streamCursor", () => {
 			});
 
 			const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-			const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-			const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+			const firstDone = getDoneEvent(firstEvents);
+			const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 			expect(toolCall.name).toBe("write");
 			expect(toolCall.name).not.toContain("cursor");
@@ -1740,7 +1962,7 @@ describe("streamCursor", () => {
 				},
 			];
 			const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
-			const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+			const replayText = collectTextDeltas(replayEvents);
 			expect(replayText).toBe("Done.");
 			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		} finally {
@@ -1756,7 +1978,7 @@ describe("streamCursor", () => {
 
 		const mockDispose = vi.fn().mockResolvedValue(undefined);
 		const runWait = vi.fn(() => new Promise<{ id: string; status: "finished"; result: string }>(() => {}));
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -1785,7 +2007,7 @@ describe("streamCursor", () => {
 		});
 
 		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const done = events.find((e: any) => e.type === "done") as any;
+		const done = getDoneEvent(events);
 
 		expect(done.reason).toBe("toolUse");
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
@@ -1811,7 +2033,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -1840,8 +2062,8 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 		const readTool = registeredTools.find((tool) => tool.name === "read");
 		const toolResult = await readTool.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
 
@@ -1867,7 +2089,7 @@ describe("streamCursor", () => {
 		await Promise.resolve();
 		controller.abort();
 		const replayEvents = await replayEventsPromise;
-		const error = replayEvents.find((e: any) => e.type === "error") as any;
+		const error = getErrorEvent(replayEvents);
 
 		expect(error.reason).toBe("aborted");
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
@@ -1895,7 +2117,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -1924,8 +2146,8 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 		const readTool = registeredTools.find((tool) => tool.name === "read");
 		const toolResult = await readTool!.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
@@ -1951,14 +2173,20 @@ describe("streamCursor", () => {
 				abortedReads += 1;
 				return abortedReads >= 2;
 			},
+			onabort: null,
+			reason: undefined,
+			throwIfAborted() {
+				if (this.aborted) throw this.reason;
+			},
 			addEventListener: vi.fn(),
 			removeEventListener: vi.fn(),
-		} as unknown as AbortSignal;
+			dispatchEvent: vi.fn(() => true),
+		} satisfies AbortSignal;
 		const replayEvents = await Promise.race([
 			collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key", signal: fakeSignal })),
 			new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timed out waiting for aborted replay")), 100)),
 		]);
-		const error = replayEvents.find((e: any) => e.type === "error") as any;
+		const error = getErrorEvent(replayEvents);
 
 		expect(error.reason).toBe("aborted");
 		expect(fakeSignal.addEventListener).not.toHaveBeenCalled();
@@ -1979,7 +2207,7 @@ describe("streamCursor", () => {
 		const registeredTools: RegisteredTool[] = [];
 		await registerNativeToolDisplayForTest(registeredTools);
 
-		let onDelta: ((args: { update: any }) => void) | undefined;
+		let onDelta: CursorDeltaHandler | undefined;
 		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
 		const runWait = vi.fn(
 			() =>
@@ -1987,8 +2215,8 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
-			onDelta = opts.onDelta as (args: { update: any }) => void;
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			onDelta = opts.onDelta;
 			onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			onDelta({
 				update: {
@@ -2017,8 +2245,8 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 		const readTool = registeredTools.find((tool) => tool.name === "read");
 		const toolResult = await readTool.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
 
@@ -2038,7 +2266,7 @@ describe("streamCursor", () => {
 		];
 
 		const replayStream = streamCursor(makeModel(), replayContext, { apiKey: "test-key" });
-		const replayEvents: any[] = [];
+		const replayEvents: AssistantMessageEvent[] = [];
 		let sawLiveText: () => void = () => {};
 		const liveTextSeen = new Promise<void>((resolve) => {
 			sawLiveText = resolve;
@@ -2062,16 +2290,108 @@ describe("streamCursor", () => {
 		resolveRun({ id: "run-1", status: "finished", result: "Final answer." });
 		await replayDone;
 
-		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const replayThinking = replayEvents.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
-		const finalDone = replayEvents.find((e: any) => e.type === "done") as any;
+		const replayText = collectTextDeltas(replayEvents);
+		const replayThinking = collectThinkingDeltas(replayEvents);
+		const finalDone = getDoneEvent(replayEvents);
 
 		expect(runWait).toHaveBeenCalledTimes(1);
 		expect(replayThinking).toBe("Streaming thought.");
 		expect(replayText).toBe("Final answer.");
 		expect(finalDone.reason).toBe("stop");
-		expect(finalDone.message.content.map((block: any) => block.type)).toEqual(["thinking", "text"]);
-		expect(replayEvents.find((event: any) => event.type === "text_end")?.contentIndex).toBe(1);
+		expect(finalDone.message.content.map((block) => block.type)).toEqual(["thinking", "text"]);
+		expect(getTextEndEvent(replayEvents)?.contentIndex).toBe(1);
+	});
+
+	it("trims current-turn post-tool native replay final text when streamed text is only a word prefix", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let onDelta: CursorDeltaHandler | undefined;
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			onDelta = opts.onDelta;
+			onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "read",
+						result: { status: "success", value: { content: "# pi-cursor-sdk" } },
+					},
+					callId: "c1",
+				},
+			});
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
+		const readTool = registeredTools.find((tool) => tool.name === "read");
+		const toolResult = await readTool.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
+
+		const replayContext = makeContext();
+		replayContext.messages = [
+			...replayContext.messages,
+			firstDone.message,
+			{
+				role: "toolResult",
+				toolCallId: toolCall.id,
+				toolName: "read",
+				content: toolResult.content,
+				details: toolResult.details,
+				isError: false,
+				timestamp: 2,
+			},
+		];
+
+		const replayEvents: AssistantMessageEvent[] = [];
+		let sawLiveText: () => void = () => {};
+		const liveTextSeen = new Promise<void>((resolve) => {
+			sawLiveText = resolve;
+		});
+		const replayDone = (async () => {
+			for await (const event of streamCursor(makeModel(), replayContext, { apiKey: "test-key" })) {
+				replayEvents.push(event);
+				if (event.type === "text_delta" && event.delta === "Disconnect") sawLiveText();
+			}
+		})();
+
+		await Promise.resolve();
+		onDelta?.({ update: { type: "text-delta", text: "Disconnect" } });
+		await Promise.race([
+			liveTextSeen,
+			new Promise((_, reject) => setTimeout(() => reject(new Error("timed out waiting for live Cursor text")), 500)),
+		]);
+		resolveRun({ id: "run-1", status: "finished", result: "Disconnecting the CDP session..." });
+		await replayDone;
+
+		const replayText = collectTextDeltas(replayEvents);
+		const finalDone = getDoneEvent(replayEvents);
+
+		expect(runWait).toHaveBeenCalledTimes(1);
+		expect(replayText).toBe("Disconnecting the CDP session...");
+		expect(finalDone.reason).toBe("stop");
 	});
 
 	it("queues post-tool thinking and text that arrive before the native tool-use turn closes", async () => {
@@ -2086,7 +2406,7 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -2119,12 +2439,12 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const toolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
 		const readTool = registeredTools.find((tool) => tool.name === "read");
 		const toolResult = await readTool.execute(toolCall.id, toolCall.arguments, undefined, undefined, {});
 
-		expect(firstDone.message.content.map((block: any) => block.type)).toEqual(["toolCall"]);
+		expect(firstDone.message.content.map((block) => block.type)).toEqual(["toolCall"]);
 
 		const replayContext = makeContext();
 		replayContext.messages = [
@@ -2142,7 +2462,7 @@ describe("streamCursor", () => {
 		];
 
 		const replayStream = streamCursor(makeModel(), replayContext, { apiKey: "test-key" });
-		const replayEvents: any[] = [];
+		const replayEvents: AssistantMessageEvent[] = [];
 		let sawLiveText: () => void = () => {};
 		const liveTextSeen = new Promise<void>((resolve) => {
 			sawLiveText = resolve;
@@ -2161,14 +2481,14 @@ describe("streamCursor", () => {
 		resolveRun({ id: "run-1", status: "finished", result: "Final answer." });
 		await replayDone;
 
-		const replayText = replayEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const replayThinking = replayEvents.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
-		const finalDone = replayEvents.find((e: any) => e.type === "done") as any;
+		const replayText = collectTextDeltas(replayEvents);
+		const replayThinking = collectThinkingDeltas(replayEvents);
+		const finalDone = getDoneEvent(replayEvents);
 
 		expect(replayThinking).toBe("Post-tool thought.");
 		expect(replayText).toBe("Final answer.");
-		expect(finalDone.message.content.map((block: any) => block.type)).toEqual(["thinking", "text"]);
-		expect(replayEvents.find((event: any) => event.type === "text_end")?.contentIndex).toBe(1);
+		expect(finalDone.message.content.map((block) => block.type)).toEqual(["thinking", "text"]);
+		expect(getTextEndEvent(replayEvents)?.contentIndex).toBe(1);
 	});
 
 
@@ -2177,7 +2497,7 @@ describe("streamCursor", () => {
 		const registeredTools: RegisteredTool[] = [];
 		await registerNativeToolDisplayForTest(registeredTools);
 
-		let onDelta: ((args: { update: any }) => void) | undefined;
+		let onDelta: CursorDeltaHandler | undefined;
 		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
 		const runWait = vi.fn(
 			() =>
@@ -2185,8 +2505,8 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
-			onDelta = opts.onDelta as (args: { update: any }) => void;
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			onDelta = opts.onDelta;
 			onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			onDelta({
 				update: {
@@ -2215,8 +2535,8 @@ describe("streamCursor", () => {
 		});
 
 		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const firstToolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const firstToolCall = firstDone.message.content.find(isToolCallBlock);
 		const readTool = registeredTools.find((tool) => tool.name === "read");
 		const firstToolResult = await readTool.execute(firstToolCall.id, firstToolCall.arguments, undefined, undefined, {});
 
@@ -2236,7 +2556,7 @@ describe("streamCursor", () => {
 		];
 
 		const secondStream = streamCursor(makeModel(), secondContext, { apiKey: "test-key" });
-		const secondEvents: any[] = [];
+		const secondEvents: AssistantMessageEvent[] = [];
 		let sawSecondTool: () => void = () => {};
 		const secondToolSeen = new Promise<void>((resolve) => {
 			sawSecondTool = resolve;
@@ -2267,11 +2587,11 @@ describe("streamCursor", () => {
 		]);
 		await secondDonePromise;
 
-		const secondText = secondEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+		const secondText = collectTextDeltas(secondEvents);
 		expect(secondText).toBe("Gathering context.\n");
 
-		const secondToolCall = (secondEvents.find((event: any) => event.type === "done") as any).message.content.find(
-			(block: any) => block.type === "toolCall",
+		const secondToolCall = (getDoneEvent(secondEvents)).message.content.find(
+			isToolCallBlock,
 		);
 		const grepTool = registeredTools.find((tool) => tool.name === "grep");
 		const secondToolResult = await grepTool.execute(secondToolCall.id, secondToolCall.arguments, undefined, undefined, {});
@@ -2289,7 +2609,7 @@ describe("streamCursor", () => {
 				isError: false,
 				timestamp: 2,
 			},
-			(secondEvents.find((event: any) => event.type === "done") as any).message,
+			(getDoneEvent(secondEvents)).message,
 			{
 				role: "toolResult",
 				toolCallId: secondToolCall.id,
@@ -2305,8 +2625,8 @@ describe("streamCursor", () => {
 		await Promise.resolve();
 		resolveRun({ id: "run-1", status: "finished", result: "Gathering context.\n" });
 		const finalEvents = await finalEventsPromise;
-		const finalText = finalEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
-		const finalDone = finalEvents.find((e: any) => e.type === "done") as any;
+		const finalText = collectTextDeltas(finalEvents);
+		const finalDone = getDoneEvent(finalEvents);
 
 		expect(finalText).toBe("");
 		expect(finalDone.message.content).toEqual([]);
@@ -2318,7 +2638,7 @@ describe("streamCursor", () => {
 		const registeredTools: RegisteredTool[] = [];
 		await registerNativeToolDisplayForTest(registeredTools);
 
-		let onDelta: ((args: { update: any }) => void) | undefined;
+		let onDelta: CursorDeltaHandler | undefined;
 		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
 		const runWait = vi.fn(
 			() =>
@@ -2326,8 +2646,8 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
-			onDelta = opts.onDelta as (args: { update: any }) => void;
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			onDelta = opts.onDelta;
 			onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
 			onDelta({
 				update: {
@@ -2358,18 +2678,19 @@ describe("streamCursor", () => {
 
 		const context = makeContext();
 		const firstEvents = await collectEvents(streamCursor(makeModel(), context, { apiKey: "test-key" }));
-		const firstDone = firstEvents.find((e: any) => e.type === "done") as any;
-		const firstToolCall = firstDone.message.content.find((block: any) => block.type === "toolCall");
+		const firstDone = getDoneEvent(firstEvents);
+		const firstToolCall = firstDone.message.content.find(isToolCallBlock);
 		const firstToolResult = await readTool.execute(firstToolCall.id, firstToolCall.arguments, undefined, undefined, {});
-		context.messages.push(firstDone.message, {
-			role: "toolResult",
+		const firstToolResultMessage = {
+			role: "toolResult" as const,
 			toolCallId: firstToolCall.id,
 			toolName: "read",
 			content: firstToolResult.content,
 			details: firstToolResult.details,
 			isError: false,
 			timestamp: 2,
-		});
+		};
+		context.messages.push(firstDone.message, firstToolResultMessage);
 
 		const secondStream = streamCursor(makeModel(), context, { apiKey: "test-key" });
 		const secondDonePromise = collectEvents(secondStream);
@@ -2387,18 +2708,19 @@ describe("streamCursor", () => {
 			},
 		});
 		const secondEvents = await secondDonePromise;
-		const secondDone = secondEvents.find((e: any) => e.type === "done") as any;
-		const secondToolCall = secondDone.message.content.find((block: any) => block.type === "toolCall");
+		const secondDone = getDoneEvent(secondEvents);
+		const secondToolCall = secondDone.message.content.find(isToolCallBlock);
 		const secondToolResult = await readTool.execute(secondToolCall.id, secondToolCall.arguments, undefined, undefined, {});
-		context.messages.push(secondDone.message, {
-			role: "toolResult",
+		const secondToolResultMessage = {
+			role: "toolResult" as const,
 			toolCallId: secondToolCall.id,
 			toolName: "read",
 			content: secondToolResult.content,
 			details: secondToolResult.details,
 			isError: false,
 			timestamp: 3,
-		});
+		};
+		context.messages.push(secondDone.message, secondToolResultMessage);
 
 		const finalStream = streamCursor(makeModel(), context, { apiKey: "test-key" });
 		const finalEventsPromise = collectEvents(finalStream);
@@ -2406,20 +2728,31 @@ describe("streamCursor", () => {
 		onDelta?.({ update: { type: "text-delta", text: "Final answer." } });
 		resolveRun({ id: "run-1", status: "finished", result: "Final answer." });
 		const finalEvents = await finalEventsPromise;
-		const finalDone = finalEvents.find((e: any) => e.type === "done") as any;
-		const finalText = finalEvents.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+		const finalDone = getDoneEvent(finalEvents);
+		const finalText = collectTextDeltas(finalEvents);
 
 		expect(runWait).toHaveBeenCalledTimes(1);
 		expect(firstDone.message.usage.input).toBeGreaterThan(0);
-		expect(secondDone.message.usage.input).toBe(0);
-		expect(finalDone.message.usage.input).toBe(0);
-		expect(secondDone.message.content.map((block: any) => block.type)).toEqual(["text", "toolCall"]);
+		expect(firstDone.message.usage.output).toBeGreaterThan(0);
+		expect(firstDone.message.usage.totalTokens).toBeGreaterThan(firstDone.message.usage.input + firstDone.message.usage.output);
+		expect(secondDone.message.usage.input).toBe(estimateCursorPromptMessageTokens(firstToolResultMessage));
+		expect(secondDone.message.usage.input).toBeGreaterThan(0);
+		expect(secondDone.message.usage.input).toBeLessThan(firstDone.message.usage.input);
+		expect(secondDone.message.usage.output).toBeGreaterThan(0);
+		expect(secondDone.message.usage.totalTokens).toBeGreaterThan(secondDone.message.usage.input + secondDone.message.usage.output);
+		expect(finalDone.message.usage.input).toBe(estimateCursorPromptMessageTokens(secondToolResultMessage));
+		expect(finalDone.message.usage.input).not.toBe(estimateCursorPromptMessageTokens(firstToolResultMessage) + estimateCursorPromptMessageTokens(secondToolResultMessage));
+		expect(finalDone.message.usage.input).toBeGreaterThan(0);
+		expect(finalDone.message.usage.input).toBeLessThan(firstDone.message.usage.input);
+		expect(finalDone.message.usage.output).toBeGreaterThan(0);
+		expect(finalDone.message.usage.totalTokens).toBeGreaterThan(finalDone.message.usage.input + finalDone.message.usage.output);
+		expect(secondDone.message.content.map((block) => block.type)).toEqual(["text", "toolCall"]);
 		expect(finalText).toBe("Final answer.");
 		expect(finalDone.message.content).toEqual([{ type: "text", text: "Final answer." }]);
 	});
 
 	it("streams Cursor text deltas live and only falls back to final result when no deltas arrive", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "text-delta", text: "Final " } });
 			opts.onDelta({ update: { type: "text-delta", text: "answer." } });
 			return {
@@ -2439,14 +2772,40 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const text = events.filter((e: any) => e.type === "text_delta").map((e: any) => e.delta).join("");
+		const text = collectTextDeltas(events);
 
 		expect(text).toBe("Final answer.");
-		expect(events.filter((e: any) => e.type === "text_delta")).toHaveLength(2);
+		expect(getEventsOfType(events, "text_delta")).toHaveLength(2);
+	});
+
+	it("trims same-turn final text when streamed text is only a word prefix", async () => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "text-delta", text: "Disconnect" } });
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "Disconnecting the CDP session..." }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const text = collectTextDeltas(events);
+		const done = getDoneEvent(events);
+
+		expect(text).toBe("Disconnecting the CDP session...");
+		expect(done.message.content).toEqual([{ type: "text", text: "Disconnecting the CDP session..." }]);
 	});
 
 	it("omits raw cursor call ids while rendering completed cursor tools", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({
 				update: {
 					type: "tool-call-started",
@@ -2481,7 +2840,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("$ date\n");
 		expect(trace).toContain("Sat May  9");
@@ -2491,7 +2850,7 @@ describe("streamCursor", () => {
 	});
 
 	it("keeps distinct completed tool calls with identical display payloads", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			for (const callId of ["c1", "c2"]) {
 				opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "shell", args: { command: "date" } }, callId } });
 				opts.onDelta({
@@ -2522,14 +2881,14 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace.match(/\$ date/g)).toHaveLength(2);
 		expect(trace.match(/Thu May 14/g)).toHaveLength(2);
 	});
 
 	it("keeps distinct completed tool calls with identical payloads even without started events", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			for (const callId of ["c1", "c2"]) {
 				opts.onDelta({
 					update: {
@@ -2560,14 +2919,14 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace.match(/\$ date/g)).toHaveLength(2);
 		expect(trace.match(/Thu May 14/g)).toHaveLength(2);
 	});
 
 	it("scrubs secrets from cursor tool transcript output", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "secrets.txt" } }, callId: "c1" } });
 			opts.onDelta({
 				update: {
@@ -2599,7 +2958,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "super-secret-key-12345" });
 		const events = await collectEvents(stream);
-		const trace = events.filter((e: any) => e.type === "thinking_delta").map((e: any) => e.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("read secrets.txt");
 		expect(trace).toContain("[redacted]");
@@ -2608,7 +2967,7 @@ describe("streamCursor", () => {
 	});
 
 	it("keeps late cursor thinking in the saved content order after live text", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({ update: { type: "text-delta", text: "Final answer" } });
 			opts.onDelta({ update: { type: "thinking-delta", text: "late trace" } });
 			opts.onDelta({ update: { type: "thinking-completed" } });
@@ -2629,7 +2988,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const done = events.find((e: any) => e.type === "done") as any;
+		const done = getDoneEvent(events);
 
 		expect(done.message.content).toEqual([
 			{ type: "text", text: "Final answer" },
@@ -2638,7 +2997,7 @@ describe("streamCursor", () => {
 	});
 
 	it("uses pi prompt/output estimates instead of Cursor cumulative internal usage", async () => {
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({
 				update: {
 					type: "turn-ended",
@@ -2668,7 +3027,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
-		const done = events.find((e: any) => e.type === "done") as any;
+		const done = getDoneEvent(events);
 
 		expect(done.message.usage.input).toBeGreaterThan(0);
 		expect(done.message.usage.output).toBe(1);
@@ -2691,7 +3050,7 @@ describe("streamCursor", () => {
 
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key", signal: controller.signal });
 		const events = await collectEvents(stream);
-		const error = events.find((e: any) => e.type === "error") as any;
+		const error = getErrorEvent(events);
 
 		expect(error.reason).toBe("aborted");
 		expect(error.error.stopReason).toBe("aborted");
@@ -2703,11 +3062,10 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: undefined });
 		const events = await collectEvents(stream);
 
-		const error = events.find((e: any) => e.type === "error");
-		expect(error).toBeDefined();
-		expect((error as any).error.errorMessage).toContain("/login");
-		expect((error as any).error.errorMessage).toContain("CURSOR_API_KEY");
-		expect((error as any).error.errorMessage).toContain("--api-key");
+		const error = getErrorEvent(events);
+		expect(error.error.errorMessage).toContain("/login");
+		expect(error.error.errorMessage).toContain("CURSOR_API_KEY");
+		expect(error.error.errorMessage).toContain("--api-key");
 	});
 
 	it("treats unresolved CURSOR_API_KEY provider placeholders as a missing API key", async () => {
@@ -2717,9 +3075,9 @@ describe("streamCursor", () => {
 			const stream = streamCursor(makeModel(), makeContext(), { apiKey: "CURSOR_API_KEY" });
 			const events = await collectEvents(stream);
 
-			const error = events.find((e: any) => e.type === "error");
+			const error = getErrorEvent(events);
 			expect(error).toBeDefined();
-			expect((error as any).error.errorMessage).toBe(
+			expect(error.error.errorMessage).toBe(
 				"Cursor SDK runs require a Cursor API key. Run /login -> Use an API key -> Cursor, set CURSOR_API_KEY before starting pi, or restart pi with --api-key.",
 			);
 			expect(mockedCreate).not.toHaveBeenCalled();
@@ -2769,13 +3127,12 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
 
-		const error = events.find((e: any) => e.type === "error");
-		expect(error).toBeDefined();
-		expect((error as any).error.errorMessage).toContain("Cursor SDK request failed");
-		expect((error as any).error.errorMessage).toContain("/login");
-		expect((error as any).error.errorMessage).toContain("CURSOR_API_KEY");
-		expect((error as any).error.errorMessage).toContain("--api-key");
-		expect((error as any).error.errorMessage).not.toBe("Error");
+		const error = getErrorEvent(events);
+		expect(error.error.errorMessage).toContain("Cursor SDK request failed");
+		expect(error.error.errorMessage).toContain("/login");
+		expect(error.error.errorMessage).toContain("CURSOR_API_KEY");
+		expect(error.error.errorMessage).toContain("--api-key");
+		expect(error.error.errorMessage).not.toBe("Error");
 	});
 
 	it("labels likely auth failures without leaking the supplied API key", async () => {
@@ -2784,8 +3141,8 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "super-secret-key-12345" });
 		const events = await collectEvents(stream);
 
-		const error = events.find((e: any) => e.type === "error");
-		const message = (error as any).error.errorMessage;
+		const error = getErrorEvent(events);
+		const message = error.error.errorMessage;
 		expect(message).toContain("invalid or unauthorized");
 		expect(message).toContain("/login");
 		expect(message).toContain("CURSOR_API_KEY");
@@ -2842,7 +3199,7 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "super-secret-key-12345" });
 		const events = await collectEvents(stream);
 
-		const error = events.find((e: any) => e.type === "error") as any;
+		const error = getErrorEvent(events);
 		const message = error.error.errorMessage;
 		expect(message).toContain('"apiKey":"[redacted]"');
 		expect(message).toContain('"token":"[redacted]"');
@@ -3015,7 +3372,7 @@ describe("streamCursor", () => {
 		process.env.PI_CODING_AGENT_DIR = tmpAgentDir;
 		try {
 			const loadLatest = vi.fn().mockResolvedValue({ tokenDetails: { usedTokens: 8435, maxTokens: 201000 } });
-			mockedCreateAgentPlatform.mockResolvedValue({ checkpointStore: { loadLatest } } as any);
+			mockedCreateAgentPlatform.mockResolvedValue(createMockAgentPlatform(loadLatest));
 			const mockSend = vi.fn().mockResolvedValue({
 				id: "run-1",
 				agentId: "agent-1",
@@ -3069,7 +3426,7 @@ describe("streamCursor", () => {
 
 		await collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
 
-		const createOptions = mockedCreate.mock.calls[0]?.[0] as any;
+		const createOptions = getCreatedAgentOptions();
 		expect(createOptions.local).toEqual({ cwd: process.cwd(), settingSources: ["all"] });
 		expect(createOptions.mcpServers?.pi_tools?.type).toBe("http");
 		const url = new URL(createOptions.mcpServers.pi_tools.url);
@@ -3102,7 +3459,7 @@ describe("streamCursor", () => {
 		});
 
 		await collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
-		expect((mockedCreate.mock.calls[0]?.[0] as any).mcpServers).toBeUndefined();
+		expect(getCreatedAgentOptions().mcpServers).toBeUndefined();
 
 		await cursorPiToolBridgeTestUtils.resetRegisteredBridgeForTests();
 		vi.clearAllMocks();
@@ -3121,7 +3478,7 @@ describe("streamCursor", () => {
 		});
 
 		await collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
-		expect((mockedCreate.mock.calls[0]?.[0] as any).mcpServers?.pi_tools?.type).toBe("http");
+		expect(getCreatedAgentOptions().mcpServers?.pi_tools?.type).toBe("http");
 	});
 
 	it("omits bridge MCP servers from Agent.create when disabled or when the active snapshot is empty", async () => {
@@ -3146,7 +3503,7 @@ describe("streamCursor", () => {
 		});
 
 		await collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
-		expect((mockedCreate.mock.calls[0]?.[0] as any).mcpServers).toBeUndefined();
+		expect(getCreatedAgentOptions().mcpServers).toBeUndefined();
 
 		await cursorPiToolBridgeTestUtils.resetRegisteredBridgeForTests();
 		delete process.env.PI_CURSOR_PI_TOOL_BRIDGE;
@@ -3163,7 +3520,7 @@ describe("streamCursor", () => {
 		});
 
 		await collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
-		expect((mockedCreate.mock.calls[0]?.[0] as any).mcpServers).toBeUndefined();
+		expect(getCreatedAgentOptions().mcpServers).toBeUndefined();
 	});
 
 	it("emits bridge MCP requests as real pi tool calls and resumes the same Cursor run after tool results", async () => {
@@ -3179,8 +3536,8 @@ describe("streamCursor", () => {
 			],
 		});
 
-		let onDelta: ((args: { update: any }) => void) | undefined;
-		let onStep: ((args: { step: any }) => void) | undefined;
+		let onDelta: CursorDeltaHandler | undefined;
+		let onStep: CursorStepHandler | undefined;
 		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
 		const runWait = vi.fn(
 			() =>
@@ -3188,9 +3545,9 @@ describe("streamCursor", () => {
 					resolveRun = resolve;
 				}),
 		);
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void; onStep: (a: unknown) => void }) => {
-			onDelta = opts.onDelta as (args: { update: any }) => void;
-			onStep = opts.onStep as (args: { step: any }) => void;
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler; onStep: CursorStepHandler }) => {
+			onDelta = opts.onDelta;
+			onStep = opts.onStep;
 			return {
 				id: "run-1",
 				agentId: "agent-1",
@@ -3209,7 +3566,7 @@ describe("streamCursor", () => {
 
 		const firstEventsPromise = collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
 		await vi.waitFor(() => expect(mockSend).toHaveBeenCalled());
-		const createOptions = mockedCreate.mock.calls[0]?.[0] as any;
+		const createOptions = getCreatedAgentOptions();
 		const { client, transport } = await connectMcpClient(createOptions.mcpServers.pi_tools.url);
 		try {
 			const readCallPromise = client.callTool({ name: "pi__read", arguments: { path: "README.md" } });
@@ -3239,12 +3596,12 @@ describe("streamCursor", () => {
 			onDelta?.({ update: { type: "tool-call-started", callId: "mcp-bash-start-only", toolCall: { name: "mcp", args: { toolName: "pi__bash" } } } });
 
 			const firstEvents = await firstEventsPromise;
-			const firstDone = firstEvents.find((event: any) => event.type === "done") as any;
-			const toolCalls = firstDone.message.content.filter((block: any) => block.type === "toolCall");
-			const trace = firstEvents.filter((event: any) => event.type === "thinking_delta").map((event: any) => event.delta).join("");
+			const firstDone = getDoneEvent(firstEvents);
+			const toolCalls = firstDone.message.content.filter(isToolCallBlock);
+			const trace = collectThinkingDeltas(firstEvents);
 
 			expect(firstDone.reason).toBe("toolUse");
-			expect(toolCalls.map((toolCall: any) => toolCall.name)).toEqual(["read", "bash"]);
+			expect(toolCalls.map((toolCall) => toolCall.name)).toEqual(["read", "bash"]);
 			expect(toolCalls[0].id).not.toBe(toolCalls[1].id);
 			expect(toolCalls[0].id).toContain("cursor-pi-bridge-");
 			expect(toolCalls[0].arguments).toEqual({ path: "README.md" });
@@ -3254,26 +3611,28 @@ describe("streamCursor", () => {
 			expect(trace).not.toContain("Cursor tool started without a completion event");
 			expect(nativeToolDisplayTestUtils.nativeToolResultCount()).toBe(0);
 
+			const readToolResultMessage = {
+				role: "toolResult" as const,
+				toolCallId: toolCalls[0].id,
+				toolName: "read",
+				content: [{ type: "text" as const, text: "file contents" }],
+				isError: false,
+				timestamp: 2,
+			};
+			const bashToolResultMessage = {
+				role: "toolResult" as const,
+				toolCallId: toolCalls[1].id,
+				toolName: "bash",
+				content: [{ type: "text" as const, text: "/repo" }],
+				isError: false,
+				timestamp: 3,
+			};
 			const replayContext = makeContext();
 			replayContext.messages = [
 				...replayContext.messages,
 				firstDone.message,
-				{
-					role: "toolResult",
-					toolCallId: toolCalls[0].id,
-					toolName: "read",
-					content: [{ type: "text", text: "file contents" }],
-					isError: false,
-					timestamp: 2,
-				},
-				{
-					role: "toolResult",
-					toolCallId: toolCalls[1].id,
-					toolName: "bash",
-					content: [{ type: "text", text: "/repo" }],
-					isError: false,
-					timestamp: 3,
-				},
+				readToolResultMessage,
+				bashToolResultMessage,
 			];
 
 			const replayEventsPromise = collectEvents(streamCursor(makeModel("composer-2"), replayContext, { apiKey: "test-key" }));
@@ -3281,14 +3640,96 @@ describe("streamCursor", () => {
 			await expect(bashCallPromise).resolves.toMatchObject({ content: [{ type: "text", text: "/repo" }] });
 			resolveRun({ id: "run-1", status: "finished", result: "Bridge complete." });
 			const replayEvents = await replayEventsPromise;
-			const replayText = replayEvents.filter((event: any) => event.type === "text_delta").map((event: any) => event.delta).join("");
-			const replayDone = replayEvents.find((event: any) => event.type === "done") as any;
+			const replayText = collectTextDeltas(replayEvents);
+			const replayDone = getDoneEvent(replayEvents);
 
 			expect(mockedCreate).toHaveBeenCalledTimes(1);
 			expect(mockSend).toHaveBeenCalledTimes(1);
 			expect(runWait).toHaveBeenCalledTimes(1);
 			expect(replayText).toBe("Bridge complete.");
 			expect(replayDone.reason).toBe("stop");
+			expect(replayDone.message.usage.input).toBe(
+				estimateCursorPromptMessageTokens(readToolResultMessage) + estimateCursorPromptMessageTokens(bashToolResultMessage),
+			);
+		} finally {
+			await client.close().catch(() => undefined);
+			await transport.close().catch(() => undefined);
+		}
+	});
+
+	it("does not trim final text when pre-tool text is only a word prefix", async () => {
+		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";
+		registerBridgeForProviderTest({
+			active: ["read"],
+			tools: [createBuiltinToolInfo("read", Type.Object({ path: Type.String() }), "Read files")],
+		});
+
+		let onDelta: CursorDeltaHandler | undefined;
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			onDelta = opts.onDelta;
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEventsPromise = collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
+		await vi.waitFor(() => expect(mockSend).toHaveBeenCalled());
+		const createOptions = getCreatedAgentOptions();
+		const { client, transport } = await connectMcpClient(createOptions.mcpServers.pi_tools.url);
+		try {
+			onDelta?.({ update: { type: "text-delta", text: "Disconnect" } });
+			const readCallPromise = client.callTool({ name: "pi__read", arguments: { path: "README.md" } });
+			const firstEvents = await firstEventsPromise;
+			const firstText = collectTextDeltas(firstEvents);
+			const firstDone = getDoneEvent(firstEvents);
+			const [toolCall] = firstDone.message.content.filter(isToolCallBlock);
+
+			expect(firstText).toBe("Disconnect");
+			expect(toolCall.name).toBe("read");
+
+			const replayContext = makeContext();
+			replayContext.messages = [
+				...replayContext.messages,
+				firstDone.message,
+				{
+					role: "toolResult",
+					toolCallId: toolCall.id,
+					toolName: "read",
+					content: [{ type: "text", text: "file contents" }],
+					isError: false,
+					timestamp: 2,
+				},
+			];
+
+			const finalEventsPromise = collectEvents(streamCursor(makeModel("composer-2"), replayContext, { apiKey: "test-key" }));
+			await expect(readCallPromise).resolves.toMatchObject({ content: [{ type: "text", text: "file contents" }] });
+			resolveRun({ id: "run-1", status: "finished", result: "Disconnecting the CDP session per your choice." });
+			const finalEvents = await finalEventsPromise;
+			const finalText = collectTextDeltas(finalEvents);
+			const finalDone = getDoneEvent(finalEvents);
+
+			expect(mockedCreate).toHaveBeenCalledTimes(1);
+			expect(runWait).toHaveBeenCalledTimes(1);
+			expect(finalText).toBe("Disconnecting the CDP session per your choice.");
+			expect(finalDone.message.content).toEqual([{ type: "text", text: "Disconnecting the CDP session per your choice." }]);
 		} finally {
 			await client.close().catch(() => undefined);
 			await transport.close().catch(() => undefined);
@@ -3300,7 +3741,7 @@ describe("streamCursor", () => {
 			active: ["read"],
 			tools: [createBridgeToolInfo("read", Type.Object({ path: Type.String() }), "Read files")],
 		});
-		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: (a: unknown) => void }) => {
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({
 				update: {
 					type: "tool-call-completed",
@@ -3329,11 +3770,11 @@ describe("streamCursor", () => {
 		});
 
 		const events = await collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
-		const trace = events.filter((event: any) => event.type === "thinking_delta").map((event: any) => event.delta).join("");
+		const trace = collectThinkingDeltas(events);
 
 		expect(trace).toContain("external_search");
 		expect(trace).toContain("external result");
-		expect(events.some((event: any) => event.type === "toolcall_start")).toBe(false);
+		expect(hasEventType(events, "toolcall_start")).toBe(false);
 	});
 
 	it("rejects pending bridge MCP waits and clears live runs on idle disposal", async () => {
@@ -3362,12 +3803,12 @@ describe("streamCursor", () => {
 
 		const firstEventsPromise = collectEvents(streamCursor(makeModel("composer-2"), makeContext(), { apiKey: "test-key" }));
 		await vi.waitFor(() => expect(mockSend).toHaveBeenCalled());
-		const createOptions = mockedCreate.mock.calls[0]?.[0] as any;
+		const createOptions = getCreatedAgentOptions();
 		const { client, transport } = await connectMcpClient(createOptions.mcpServers.pi_tools.url);
 		try {
 			const callErrorPromise = client.callTool({ name: "pi__read", arguments: { path: "README.md" } }).catch((error: unknown) => error);
 			const firstEvents = await firstEventsPromise;
-			const firstDone = firstEvents.find((event: any) => event.type === "done") as any;
+			const firstDone = getDoneEvent(firstEvents);
 
 			expect(firstDone.reason).toBe("toolUse");
 			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
@@ -3844,8 +4285,8 @@ describe("streamCursor", () => {
 		const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
 		const events = await collectEvents(stream);
 
-		const textEnd = events.find((e: any) => e.type === "text_end");
+		const textEnd = getTextEndEvent(events);
 		expect(textEnd).toBeDefined();
-		expect((textEnd as any).content).toBe("fallback text");
+		expect(textEnd.content).toBe("fallback text");
 	});
 });

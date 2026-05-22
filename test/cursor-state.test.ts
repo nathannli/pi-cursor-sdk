@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerCursorFastControls, getEffectiveFastForModelId, __testUtils } from "../src/cursor-state.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
 import type { ModelListItem } from "@cursor/sdk";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const modelItems: ModelListItem[] = [
 	{
@@ -46,13 +47,33 @@ const modelItems: ModelListItem[] = [
 	},
 ];
 
+type CursorFastTestModel = Pick<NonNullable<ExtensionContext["model"]>, "id" | "provider">;
+type CursorFastTestContext = {
+	model: CursorFastTestModel | undefined;
+	ui: {
+		setStatus: ReturnType<typeof vi.fn>;
+		notify: ReturnType<typeof vi.fn>;
+	};
+	sessionManager: {
+		getBranch: ReturnType<typeof vi.fn<() => unknown[]>>;
+	};
+};
+type CursorFastTestCommand = {
+	description?: string;
+	handler: (args: string, ctx: CursorFastTestContext) => Promise<void> | void;
+};
+type CursorFastTestHandler = (
+	event: { model?: CursorFastTestModel },
+	ctx: CursorFastTestContext,
+) => Promise<void> | void;
+
 function createHarness(options: { modelId?: string; provider?: string; branch?: unknown[]; cursorFastFlag?: boolean; cursorNoFastFlag?: boolean } = {}) {
-	const commands = new Map<string, any>();
-	const handlers = new Map<string, any>();
+	const commands = new Map<string, CursorFastTestCommand>();
+	const handlers = new Map<string, CursorFastTestHandler>();
 	const pi = {
 		registerFlag: vi.fn(),
-		registerCommand: vi.fn((name: string, command: any) => commands.set(name, command)),
-		on: vi.fn((event: string, handler: any) => handlers.set(event, handler)),
+		registerCommand: vi.fn((name: string, command: CursorFastTestCommand) => commands.set(name, command)),
+		on: vi.fn((event: string, handler: CursorFastTestHandler) => handlers.set(event, handler)),
 		getFlag: vi.fn((name: string) => {
 			if (name === "cursor-fast") return options.cursorFastFlag ?? false;
 			if (name === "cursor-no-fast") return options.cursorNoFastFlag ?? false;
@@ -60,7 +81,7 @@ function createHarness(options: { modelId?: string; provider?: string; branch?: 
 		}),
 		appendEntry: vi.fn(),
 	};
-	const ctx = {
+	const ctx: CursorFastTestContext = {
 		model: options.modelId
 			? {
 					provider: options.provider ?? "cursor",
@@ -75,7 +96,7 @@ function createHarness(options: { modelId?: string; provider?: string; branch?: 
 			getBranch: vi.fn(() => options.branch ?? []),
 		},
 	};
-	registerCursorFastControls(pi as any);
+	registerCursorFastControls(pi);
 	return { pi, ctx, commands, handlers };
 }
 

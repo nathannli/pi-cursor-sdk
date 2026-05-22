@@ -1,5 +1,6 @@
 import type { Context, Message, ToolCall } from "@earendil-works/pi-ai";
 import type { SDKImage } from "@cursor/sdk";
+import { getCursorPiBridgeContractText } from "./cursor-bridge-contract.js";
 import { getCursorReplayPromptLabel } from "./cursor-tool-names.js";
 
 export interface CursorPrompt {
@@ -13,7 +14,8 @@ export interface CursorPromptOptions {
 	imageTokenEstimate?: number;
 }
 
-const DEFAULT_CHARS_PER_TOKEN = 4;
+export const CURSOR_APPROX_CHARS_PER_TOKEN = 4;
+export const CURSOR_IMAGE_TOKEN_ESTIMATE = 1200;
 const SECTION_SEPARATOR = "\n\n";
 
 function isTextBlock(block: { type: string }): block is { type: "text"; text: string } {
@@ -131,7 +133,7 @@ function applyPromptBudget(
 		return [...sectionsBeforeMessages, ...messageSections.map((section) => section.text), ...sectionsAfterMessages];
 	}
 
-	const charsPerToken = options.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN;
+	const charsPerToken = options.charsPerToken ?? CURSOR_APPROX_CHARS_PER_TOKEN;
 	const maxChars = Math.max(1, Math.floor(maxInputTokens * charsPerToken));
 	const requiredMessageSections = messageSections.filter((section) => section.index === latestUserMessageIndex);
 	const requiredCost = [...sectionsBeforeMessages, ...requiredMessageSections.map((section) => section.text), ...sectionsAfterMessages].reduce(
@@ -167,11 +169,30 @@ function applyPromptBudget(
 	return [...sectionsBeforeMessages, ...budgetNotice, ...includedMessages, ...sectionsAfterMessages];
 }
 
+export function estimateCursorTextTokens(text: string, options: Pick<CursorPromptOptions, "charsPerToken"> = {}): number {
+	const charsPerToken = options.charsPerToken ?? CURSOR_APPROX_CHARS_PER_TOKEN;
+	return Math.ceil(text.length / charsPerToken);
+}
+
+export function estimateCursorPromptTokens(prompt: CursorPrompt, options: Pick<CursorPromptOptions, "charsPerToken" | "imageTokenEstimate"> = {}): number {
+	return estimateCursorTextTokens(prompt.text, options) + prompt.images.length * (options.imageTokenEstimate ?? CURSOR_IMAGE_TOKEN_ESTIMATE);
+}
+
+export function estimateCursorPromptMessageTokens(message: Message, options: Pick<CursorPromptOptions, "charsPerToken"> = {}): number {
+	const text = formatMessage(message);
+	return text ? estimateCursorTextTokens(text, options) : 0;
+}
+
+export function estimateCursorContextTokens(context: Context, options: CursorPromptOptions = {}): number {
+	return estimateCursorPromptTokens(buildCursorPrompt(context, options), options);
+}
+
 export function buildCursorPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
 	const sectionsBeforeMessages: string[] = [
 		[
 			"Cursor SDK tool boundary:",
 			"You can call only tools actually exposed by Cursor SDK in this run. Pi tool names, replay tool names, and transcript tool names are context only, not callable capabilities.",
+			getCursorPiBridgeContractText(),
 			"If asked to list or exercise available tools, list and exercise Cursor SDK tools only; do not claim access to pi-side tools from the system prompt unless Cursor exposes an equivalent tool that runs.",
 			"Use pi__cursor_ask_question for material choices if exposed.",
 			"Web: use Cursor web/search/browser/MCP or say web search is not configured; do not claim WebSearch/WebFetch unless Cursor executes them.",

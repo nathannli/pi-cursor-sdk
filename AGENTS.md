@@ -73,7 +73,8 @@ Use a short written plan before multi-file behavior changes, SDK integration cha
 - NEVER store Cursor API keys in repo files, `~/.pi/agent/cursor-sdk.json`, tests, logs, snapshots, or docs examples.
 - Scrub Cursor SDK errors and output that may contain API keys, bearer tokens, cookies, sessions, or auth headers.
 - Ambient Cursor settings/rules loading is enabled by default through `PI_CURSOR_SETTING_SOURCES=all`; keep SDK startup log filtering intact so settings/skills output does not corrupt pi's TUI.
-- Live `pi`/Cursor smoke tests may call external services and require `CURSOR_API_KEY`; run them only when needed and report if skipped.
+- Live `pi`/Cursor smoke tests may call external services and require `CURSOR_API_KEY`; run them for Cursor provider/runtime changes. If a key is unavailable, report live smoke as release-blocked instead of skipped-ready.
+- For Cursor provider/runtime changes, follow `docs/cursor-live-smoke-checklist.md`. Assume every runtime surface is in scope. Use real `pi -e . --cursor-no-fast --model cursor/composer-2.5` invocations, a temporary `--session-dir`, manual observation, and no secret printing. Do not mark release-ready with optional/deferred/mostly-passing smoke items outstanding.
 
 ## Progress updates and handoff
 

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { getCursorModelMetadata } from "./model-discovery.js";
 
@@ -15,6 +15,23 @@ interface CursorFastEntryData {
 
 interface CursorGlobalConfig {
 	fastDefaults?: Record<string, boolean>;
+}
+
+type CursorFastControlsModel = Pick<NonNullable<ExtensionContext["model"]>, "id" | "provider"> | undefined;
+
+type CursorFastControlsContext = {
+	model: CursorFastControlsModel;
+	ui: Pick<ExtensionContext["ui"], "notify" | "setStatus">;
+	sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch">;
+};
+
+interface CursorFastControlsExtensionApi extends Pick<ExtensionAPI, "appendEntry" | "getFlag" | "registerFlag"> {
+	registerCommand(name: string, options: {
+		description?: string;
+		handler: (args: string, ctx: CursorFastControlsContext) => Promise<void> | void;
+	}): void;
+	on(event: "session_start", handler: (event: SessionStartEvent, ctx: CursorFastControlsContext) => Promise<void> | void): void;
+	on(event: "model_select", handler: (event: { model: ExtensionContext["model"] }, ctx: CursorFastControlsContext) => Promise<void> | void): void;
 }
 
 const sessionFastPreferences = new Map<string, boolean>();
@@ -56,7 +73,7 @@ function saveGlobalFastPreferences(): void {
 	writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 }
 
-function restoreSessionFastPreferences(ctx: ExtensionContext): void {
+function restoreSessionFastPreferences(ctx: { sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> }): void {
 	sessionFastPreferences.clear();
 	for (const entry of ctx.sessionManager.getBranch()) {
 		if (entry.type !== "custom" || entry.customType !== FAST_ENTRY_TYPE) continue;
@@ -74,7 +91,7 @@ function getEffectiveFast(baseModelId: string, modelId: string): boolean | undef
 	return sessionFastPreferences.get(baseModelId) ?? globalFastPreferences.get(baseModelId) ?? metadata.defaultFast;
 }
 
-function updateCursorStatus(ctx: ExtensionContext, model = ctx.model): void {
+function updateCursorStatus(ctx: { model: CursorFastControlsModel; ui: Pick<ExtensionContext["ui"], "setStatus"> }, model = ctx.model): void {
 	if (model?.provider !== CURSOR_PROVIDER) {
 		ctx.ui.setStatus("cursor", undefined);
 		return;
@@ -88,7 +105,7 @@ function updateCursorStatus(ctx: ExtensionContext, model = ctx.model): void {
 	ctx.ui.setStatus("cursor", fast ? "cursor fast" : undefined);
 }
 
-function getCurrentCursorMetadata(ctx: ExtensionContext) {
+function getCurrentCursorMetadata(ctx: { model: CursorFastControlsModel }) {
 	const model = ctx.model;
 	if (model?.provider !== CURSOR_PROVIDER) return undefined;
 	return getCursorModelMetadata(model.id);
@@ -102,7 +119,7 @@ function restoreMapValue(map: Map<string, boolean>, key: string, previous: boole
 	}
 }
 
-function persistFastPreference(pi: ExtensionAPI, baseModelId: string, fast: boolean): void {
+function persistFastPreference(pi: Pick<ExtensionAPI, "appendEntry">, baseModelId: string, fast: boolean): void {
 	const previousSession = sessionFastPreferences.get(baseModelId);
 	const previousGlobal = globalFastPreferences.get(baseModelId);
 	let savedGlobal = false;
@@ -132,7 +149,7 @@ export function getEffectiveFastForModelId(modelId: string): boolean | undefined
 	return getEffectiveFast(metadata.baseModelId, modelId);
 }
 
-export function registerCursorFastControls(pi: ExtensionAPI): void {
+export function registerCursorFastControls(pi: CursorFastControlsExtensionApi): void {
 	pi.registerFlag("cursor-fast", {
 		description: "Force Cursor fast mode for this run when the selected Cursor model supports it",
 		type: "boolean",

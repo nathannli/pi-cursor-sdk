@@ -159,7 +159,7 @@ describe("extension session cwd integration", () => {
 		const sessionDir = mkdtempSync(join(tmpdir(), "pi-cursor-index-agent-cwd-"));
 		try {
 			const pi = createMockPi();
-			await extensionFactory(pi as unknown as ExtensionAPI);
+			await extensionFactory(pi);
 			await runSessionStartHandlers(pi, { cwd: sessionDir });
 
 			expect(pi.registerProvider).toHaveBeenCalledOnce();

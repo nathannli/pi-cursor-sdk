@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildCursorPrompt } from "../src/context.js";
+import {
+	buildCursorPrompt,
+	CURSOR_IMAGE_TOKEN_ESTIMATE,
+	estimateCursorContextTokens,
+	estimateCursorPromptMessageTokens,
+} from "../src/context.js";
 import type { Context, UserMessage, AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 
 describe("buildCursorPrompt", () => {
@@ -75,6 +80,7 @@ describe("buildCursorPrompt", () => {
 			messages: [
 				{
 					role: "assistant",
+					// @ts-expect-error Exercises defensive formatting for legacy runtime data from older pi transcripts.
 					content: "Legacy assistant text",
 					api: "cursor-sdk",
 					provider: "cursor",
@@ -82,7 +88,7 @@ describe("buildCursorPrompt", () => {
 					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
 					stopReason: "stop",
 					timestamp: 2,
-				} as unknown as AssistantMessage,
+				},
 			],
 		};
 		const result = buildCursorPrompt(ctx);
@@ -201,6 +207,77 @@ describe("buildCursorPrompt", () => {
 		expect(result.text).not.toContain("Tool call (cursor_edit");
 		expect(result.text).not.toContain("Tool call (cursor_mcp");
 		expect(result.text).not.toContain("Tool result (cursor_write");
+	});
+
+	it("estimates assistant prompt-message tokens from replayed text and tool calls but not thinking", () => {
+		const assistant = {
+			role: "assistant",
+			content: [
+				{ type: "thinking", thinking: "hidden reasoning" },
+				{ type: "text", text: "I will inspect the directory." },
+				{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "ls" } },
+			],
+			api: "cursor-sdk",
+			provider: "cursor",
+			model: "test",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			stopReason: "toolUse",
+			timestamp: 2,
+		} satisfies AssistantMessage;
+
+		const expected = 'Assistant: I will inspect the directory.\nTool call (bash, call tc1): {"command":"ls"}';
+		expect(estimateCursorPromptMessageTokens(assistant, { charsPerToken: 1 })).toBe(expected.length);
+		expect(expected).not.toContain("hidden reasoning");
+	});
+
+	it("estimates tool-result prompt-message tokens from replayed tool result text", () => {
+		const toolResult = {
+			role: "toolResult",
+			toolCallId: "tc1",
+			toolName: "bash",
+			content: [{ type: "text", text: "README.md" }],
+			isError: false,
+			timestamp: 3,
+		} satisfies ToolResultMessage;
+
+		expect(estimateCursorPromptMessageTokens(toolResult, { charsPerToken: 1 })).toBe("Tool result (bash, call tc1): README.md".length);
+	});
+
+	it("estimates tool-result image prompt content as the replay placeholder text", () => {
+		const toolResult = {
+			role: "toolResult",
+			toolCallId: "tc1",
+			toolName: "read_image",
+			content: [{ type: "image", data: "base64", mimeType: "image/png" }],
+			isError: false,
+			timestamp: 3,
+		} satisfies ToolResultMessage;
+
+		expect(estimateCursorPromptMessageTokens(toolResult, { charsPerToken: 1 })).toBe(
+			"Tool result (read_image, call tc1): [image omitted from transcript]".length,
+		);
+	});
+
+	it("estimates context tokens from the budgeted Cursor prompt and latest user image reserve", () => {
+		const ctx: Context = {
+			messages: [
+				{ role: "user", content: `old ${"x".repeat(200)}`, timestamp: 1 } satisfies UserMessage,
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "latest request" },
+						{ type: "image", data: "newbase64", mimeType: "image/png" },
+					],
+					timestamp: 2,
+				} satisfies UserMessage,
+			],
+		};
+		const options = { maxInputTokens: 80, charsPerToken: 1, imageTokenEstimate: CURSOR_IMAGE_TOKEN_ESTIMATE };
+		const prompt = buildCursorPrompt(ctx, options);
+
+		expect(prompt.text).not.toContain("old ");
+		expect(prompt.images).toHaveLength(1);
+		expect(estimateCursorContextTokens(ctx, options)).toBe(prompt.text.length + CURSOR_IMAGE_TOKEN_ESTIMATE);
 	});
 
 	it("formats assistant tool calls before tool results", () => {
@@ -336,7 +413,7 @@ describe("buildCursorPrompt", () => {
 			],
 		};
 
-		const result = buildCursorPrompt(ctx, { maxInputTokens: 1500, charsPerToken: 1 });
+		const result = buildCursorPrompt(ctx, { maxInputTokens: 2200, charsPerToken: 1 });
 
 		expect(result.text).toContain("User: latest request");
 		expect(result.text).toContain("User: recent request");
@@ -360,7 +437,7 @@ describe("buildCursorPrompt", () => {
 			],
 		};
 
-		const result = buildCursorPrompt(ctx, { maxInputTokens: 1150, charsPerToken: 1 });
+		const result = buildCursorPrompt(ctx, { maxInputTokens: 1800, charsPerToken: 1 });
 
 		expect(result.text).toContain("User: latest request");
 		expect(result.text).toContain("User: recent request");
@@ -384,6 +461,10 @@ describe("buildCursorPrompt", () => {
 		const result = buildCursorPrompt(ctx);
 		expect(result.text.indexOf("Cursor SDK tool boundary:")).toBeLessThan(result.text.indexOf("System instructions from pi:"));
 		expect(result.text).toContain("Pi tool names, replay tool names, and transcript tool names are context only");
+		expect(result.text).toContain("pi__* names are live Cursor MCP bridge tool names only when exposed in the current run");
+		expect(result.text).toContain("Call the pi__* MCP tool name, not the real pi tool name shown in pi history or transcripts");
+		expect(result.text).toContain("Bridged calls execute through normal pi tool flow");
+		expect(result.text).toContain("Cursor-native host tools, settings, plugins, and configured MCP servers are separate from the pi bridge");
 		expect(result.text).toContain("do not claim access to pi-side tools from the system prompt");
 		expect(result.text).toContain("do not claim WebSearch/WebFetch unless Cursor executes them");
 		expect(result.text).not.toContain("do not use SwitchMode");
