@@ -5,15 +5,19 @@
 ### Changed
 
 - Bump pi dev dependency baseline to `0.75.5` for read-tool collapsed-card rendering, package update fixes, and other upstream pi changes. Cursor edit replay remains display-only via `diffString`; pi's new SDK `details.patch` field is not required because Cursor agents do not execute pi's edit tool.
-
-### Added
-
-- Add packaged smoke-script entrypoints for the partial live smoke helper, steering RPC smoke, and smoke JSONL validator.
+- Rework live-run internals into dedicated coordination/drain/turn/partial-content modules (`cursor-live-run-coordinator.ts`, `cursor-provider-live-run-drain.ts`, `cursor-provider-turn-coordinator.ts`, `cursor-partial-content-emitter.ts`) while preserving the provider's external contract.
+- Complete phase-2 remediation for #23/#24/#25 by splitting bridge ownership across snapshot/server/run/abort/diagnostics/MCP/types modules, splitting native replay ownership across state/registration/replay/tools modules, and unifying tool completion routing through `resolveToolCompletion`.
+- Replace monolithic provider test coverage with focused stream/bridge/replay/live-run suites plus shared harness helpers.
+- Promote smoke automation into packaged entrypoints (`npm run smoke:live`, `npm run smoke:steering`, `npm run smoke:jsonl`) and make helper retry/polling behavior explicit (TUI answer/footer polling plus deterministic tmux cleanup).
 
 ### Fixed
 
-- Suppress late Cursor SDK hook-load compatibility warnings (`[hooks] …`) during first-send workspace bootstrap so they do not corrupt pi's TUI when ambient setting sources load Claude/Cursor hook configs.
-- Handle pi steering/follow-up user messages that arrive while a live Cursor SDK run is still active across split replay or bridge tool-use turns. Resume the pending live run instead of issuing a second `Agent.send()` on the same pooled agent, and chain an incremental send for steering text after tool results when the in-flight run completes.
+- Resolve startup noise issue #17 by extending Cursor SDK bootstrap filtering to late hook compatibility warnings and ripgrep/ignore-mapping output while preserving non-startup logs.
+- Fix steering/follow-up delivery for active pooled Cursor runs by resuming/waiting on the in-flight run and sending incremental follow-up text after pending tool/result flow completes instead of issuing a second concurrent `Agent.send()`.
+- Resolve issue #19 with a canonical edit-diff fallback resolver (`diffString → diff → unifiedDiff → patch`) shared by replay and transcript formatting paths.
+- Resolve issue #20 by updating the token-tracking investigation note to mark the `0.75.3` observation as point-in-time and call out the current `0.75.5` development baseline.
+- Resolve issue #21 by decomposing prior 1k+ provider/transcript/bridge/test monoliths into ownership-scoped modules.
+- Harden bridge diagnostics and secret scrubbing so debug JSONL stays run-safe and allowlisted without endpoint path material, raw args/results, or credential payloads.
 
 ## 0.1.16 - 2026-05-22
 

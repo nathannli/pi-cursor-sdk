@@ -274,4 +274,3 @@ export function firstNonEmptyLine(text: string): string | undefined {
 export function truncateArg(value: string, maxLength = 120): string {
 	return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }
-

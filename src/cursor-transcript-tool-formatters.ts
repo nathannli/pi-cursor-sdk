@@ -626,4 +626,3 @@ export function formatFallback(name: string, args: Record<string, unknown>, resu
 	const argsText = Object.keys(args).length > 0 ? `${stringifyUnknown(args)}\n\n` : "";
 	return joinSections(header, limitText(`${argsText}${stringifyUnknown(result.value)}`.trim(), options));
 }
-
