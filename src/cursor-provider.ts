@@ -196,6 +196,7 @@ function suppressCursorSdkOutput<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 const CURSOR_SDK_STARTUP_NOISE_PATTERNS = [
+	"[hooks]",
 	"managed_skills.",
 	"CursorPluginsAgentSkillsService load completed",
 	"LocalCursorRulesService load completed",

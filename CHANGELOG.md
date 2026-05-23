@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Suppress late Cursor SDK hook-load compatibility warnings (`[hooks] …`) during first-send workspace bootstrap so they do not corrupt pi's TUI when ambient setting sources load Claude/Cursor hook configs.
+
 ## 0.1.16 - 2026-05-22
 
 ### Added

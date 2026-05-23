@@ -4322,11 +4322,18 @@ describe("streamCursor", () => {
 		const consoleSpy = vi.spyOn(console, "log").mockImplementation((message?: unknown) => {
 			process.stdout.write(`${String(message)}\n`);
 		});
+		const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation((message?: unknown) => {
+			process.stderr.write(`${String(message)}\n`);
+		});
 		try {
 			const mockSend = vi.fn().mockImplementation(async () => {
 				process.stdout.write("VISIBLE non-startup stdout\n");
 				process.stderr.write("VISIBLE non-startup stderr\n");
 				console.log("VISIBLE non-startup console");
+				console.warn(
+					'[hooks] SessionStart trigger matcher "startup" is not supported in Cursor, hooks will fire for all triggers',
+				);
+				console.warn('[hooks] Tool "Glob" is not supported in Cursor and will be ignored');
 				process.stdout.write('18:05:57.959 INFO  managed_skills.removed ctx=syncBuiltinSkills meta={skill_id: "clone"}\n');
 				process.stderr.write('18:05:57.961 INFO  managed_skills.removed ctx=syncBuiltinSkills meta={skill_id: "cursor"}\n');
 				console.log('18:05:57.962 INFO  managed_skills.removed ctx=syncBuiltinSkills meta={skill_id: "cursor-sdk"}');
@@ -4360,6 +4367,8 @@ describe("streamCursor", () => {
 			process.stderr.write = originalStderrWrite;
 		}
 
+		expect(stdoutChunks.join("")).not.toContain("[hooks]");
+		expect(stderrChunks.join("")).not.toContain("[hooks]");
 		expect(stdoutChunks.join("")).not.toContain("managed_skills.removed");
 		expect(stderrChunks.join("")).not.toContain("managed_skills.removed");
 		expect(stdoutChunks.join("")).not.toContain("UNEXPECTED startup");
@@ -4373,7 +4382,12 @@ describe("streamCursor", () => {
 		expect(consoleSpy).not.toHaveBeenCalledWith("UNEXPECTED startup console with test-key");
 		expect(consoleSpy).not.toHaveBeenCalledWith('18:05:57.962 INFO  managed_skills.removed ctx=syncBuiltinSkills meta={skill_id: "cursor-sdk"}');
 		expect(consoleSpy).toHaveBeenCalledWith("VISIBLE non-startup console");
+		expect(consoleWarnSpy).not.toHaveBeenCalledWith(
+			'[hooks] SessionStart trigger matcher "startup" is not supported in Cursor, hooks will fire for all triggers',
+		);
+		expect(consoleWarnSpy).not.toHaveBeenCalledWith('[hooks] Tool "Glob" is not supported in Cursor and will be ignored');
 		consoleSpy.mockRestore();
+		consoleWarnSpy.mockRestore();
 	});
 
 	it("allows Cursor setting sources to be narrowed", async () => {
