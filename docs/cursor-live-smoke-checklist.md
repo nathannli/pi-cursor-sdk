@@ -22,13 +22,13 @@ mkdir -p "$SMOKE_DIR"
 pi -e . --list-models cursor
 ```
 
-The repo also ships partial automation for the prerequisite/basic/default-settings/non-interactive math/steering/diagnostic/JSONL subset:
+The repo also ships partial automation for the prerequisite/basic/default-settings/non-interactive math/TUI output polling/steering/diagnostic/JSONL subset:
 
 ```bash
 npm run smoke:live
 ```
 
-The script is a helper only; it does not perform the visual/interactive TUI observation in section 3. Release readiness still requires the manual checks below for TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
+The script is a helper only; it polls the section 3 TUI for answer/footer evidence and then cleans up the tmux session, but it does not replace manual visual review of the full TUI checklist. Release readiness still requires the manual checks below for detailed TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
 
 Pass criteria:
 
