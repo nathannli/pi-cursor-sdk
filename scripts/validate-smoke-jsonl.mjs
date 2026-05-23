@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Validate assistant usage fields in pi session JSONL files under a smoke directory.
+ * Validate assistant presence and usage fields in pi session JSONL files under a smoke directory.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 function printHelp() {
-	console.log(`Validate assistant usage metadata in pi smoke session JSONL files.
+	console.log(`Validate assistant presence and usage metadata in pi smoke session JSONL files.
 
 Usage:
   node scripts/validate-smoke-jsonl.mjs <smoke-dir>
@@ -20,9 +20,16 @@ Options:
   -h, --help                    Show this help.
 
 Exit codes:
-  0  all scanned JSONL files have valid assistant usage metadata
-  1  invalid arguments, unreadable directory, or validation failures
+  0  every scanned JSONL file has at least one assistant message and valid assistant usage metadata
+  1  invalid arguments, unreadable directory, invalid JSONL, empty/no-assistant files, or usage validation failures
   2  no JSONL files found under the smoke directory
+
+Enforced invariants:
+  - each scanned JSONL file contains parseable JSONL records
+  - each scanned JSONL file contains at least one persisted assistant message
+  - every persisted assistant message has usage metadata
+  - assistant usage input/output/totalTokens are non-negative numbers
+  - assistant usage cacheRead/cacheWrite are exactly 0
 
 Notes:
   - Prints one JSON summary line per scanned session file.
@@ -48,17 +55,37 @@ function collectJsonlFiles(root) {
 	return files.sort();
 }
 
+function isNonNegativeNumber(value) {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
 function isBadUsage(usage) {
 	return (
-		typeof usage.input !== "number" ||
-		usage.input < 0 ||
-		typeof usage.output !== "number" ||
-		usage.output < 0 ||
-		typeof usage.totalTokens !== "number" ||
-		usage.totalTokens < 0 ||
+		!usage ||
+		typeof usage !== "object" ||
+		!isNonNegativeNumber(usage.input) ||
+		!isNonNegativeNumber(usage.output) ||
+		!isNonNegativeNumber(usage.totalTokens) ||
 		usage.cacheRead !== 0 ||
 		usage.cacheWrite !== 0
 	);
+}
+
+function parseJsonlFile(file) {
+	const lines = readFileSync(file, "utf8")
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const records = [];
+	let parseErrorCount = 0;
+	for (const line of lines) {
+		try {
+			records.push(JSON.parse(line));
+		} catch {
+			parseErrorCount += 1;
+		}
+	}
+	return { lineCount: lines.length, records, parseErrorCount };
 }
 
 function main() {
@@ -66,6 +93,10 @@ function main() {
 	if (args.includes("-h") || args.includes("--help")) {
 		printHelp();
 		return;
+	}
+
+	if (args.length > 1) {
+		fail("too many arguments; pass only the smoke directory");
 	}
 
 	const smokeDir = args[0] ?? process.env.SMOKE_DIR;
@@ -87,24 +118,32 @@ function main() {
 
 	let failures = 0;
 	for (const file of files) {
-		const records = readFileSync(file, "utf8")
-			.trim()
-			.split(/\n+/)
-			.filter(Boolean)
-			.map((line) => JSON.parse(line));
-		const messages = records.filter((record) => record.type === "message").map((record) => record.message);
-		const assistants = messages.filter((message) => message.role === "assistant");
-		const usage = assistants.map((message) => message.usage).filter(Boolean);
-		const badUsage = usage.filter(isBadUsage);
-		if (usage.length !== assistants.length || badUsage.length > 0) failures += 1;
-		console.log(
-			JSON.stringify({
+		let summary;
+		try {
+			const { lineCount, records, parseErrorCount } = parseJsonlFile(file);
+			const messages = records.filter((record) => record.type === "message").map((record) => record.message);
+			const assistants = messages.filter((message) => message?.role === "assistant");
+			const usage = assistants.map((message) => message.usage).filter(Boolean);
+			const badUsage = assistants.map((message) => message.usage).filter(isBadUsage);
+			const fileFailure = lineCount === 0 || parseErrorCount > 0 || assistants.length === 0 || usage.length !== assistants.length || badUsage.length > 0;
+			if (fileFailure) failures += 1;
+			summary = {
 				file: relative(smokeDir, file),
+				lineCount,
+				parseErrorCount,
+				messageCount: messages.length,
 				assistantCount: assistants.length,
 				usageCount: usage.length,
 				badUsageCount: badUsage.length,
-			}),
-		);
+			};
+		} catch (error) {
+			failures += 1;
+			summary = {
+				file: relative(smokeDir, file),
+				readError: error instanceof Error ? error.message : String(error),
+			};
+		}
+		console.log(JSON.stringify(summary));
 	}
 
 	process.exit(failures === 0 ? 0 : 1);

@@ -22,13 +22,13 @@ mkdir -p "$SMOKE_DIR"
 pi -e . --list-models cursor
 ```
 
-The repo also ships partial automation for the prerequisite/basic/default-settings/TUI/steering/diagnostic/JSONL subset:
+The repo also ships partial automation for the prerequisite/basic/default-settings/non-interactive math/steering/diagnostic/JSONL subset:
 
 ```bash
 npm run smoke:live
 ```
 
-The script is a helper only; release readiness still requires the manual checks below for bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
+The script is a helper only; it does not perform the visual/interactive TUI observation in section 3. Release readiness still requires the manual checks below for TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
 
 Pass criteria:
 
@@ -163,7 +163,7 @@ Forbidden fields:
 Run a forbidden-material scan over smoke stderr/captures:
 
 ```bash
-find "$SMOKE_DIR" -type f \( -name '*stderr.txt' -o -name 'capture*.txt' \) -print0 |
+find "$SMOKE_DIR" -type f \( -name '*stderr.txt' -o -name '*capture*.txt' \) -print0 |
   xargs -0 grep -E 'CURSOR_API_KEY|Bearer [A-Za-z0-9._-]+|/cursor-pi-tool-bridge/[^ ]+/mcp|127\.0\.0\.1:[0-9]+/cursor-pi-tool-bridge|apiKey|cookie|session-cookie|secret-token'
 ```
 
@@ -201,12 +201,18 @@ After all live runs, scan JSONL structurally instead of reading raw content into
 node scripts/validate-smoke-jsonl.mjs "$SMOKE_DIR"
 ```
 
-Pass criteria:
+Script-enforced pass criteria:
 
-- Every assistant message has valid usage.
-- Cache fields remain `0`.
-- Tool-heavy runs show nonzero output for visible assistant/tool-call activity.
-- Split runs count consumed tool-result input once on the following assistant turn.
+- Every scanned JSONL file is parseable and non-empty.
+- Every scanned JSONL file contains at least one assistant message.
+- Every assistant message has usage metadata.
+- Assistant usage `input`, `output`, and `totalTokens` are non-negative numbers.
+- Assistant usage `cacheRead` and `cacheWrite` are exactly `0`.
+
+Additional manual usage checks for provider/accounting changes:
+
+- Tool-heavy runs should show nonzero output for visible assistant/tool-call activity.
+- Split runs should count consumed tool-result input once on the following assistant turn.
 
 ## 9. Standard local gates
 

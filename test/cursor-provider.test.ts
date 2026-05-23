@@ -330,6 +330,7 @@ const cursorModelItems: ModelListItem[] = [
 
 describe("streamCursor", () => {
 	beforeEach(async () => {
+		vi.useRealTimers();
 		await cursorPiToolBridgeTestUtils.resetRegisteredBridgeForTests();
 		vi.clearAllMocks();
 		delete process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY;
@@ -1011,6 +1012,253 @@ describe("streamCursor", () => {
 		expect(mockSend).toHaveBeenCalledTimes(1);
 		expect(collectTextDeltas(scopedEvents)).toContain("Late scoped text.");
 		expect(getDoneEvent(scopedEvents).reason).toBe("stop");
+	});
+
+
+	it("does not let idle disposal release an active run while pre-send drain owns it", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		cursorProviderTestUtils.setCursorNativeReplayIdleDisposeMs(10);
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const cancelRun = vi.fn().mockResolvedValue(undefined);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "bash", args: { command: "git status" } }, callId: "c1" } });
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "bash",
+						result: { status: "success", value: { stdout: "clean", stderr: "", exitCode: 0 } },
+					},
+					callId: "c1",
+				},
+			});
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: cancelRun,
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		expect(getDoneEvent(firstEvents).reason).toBe("toolUse");
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
+
+		const scopedEventsPromise = collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
+		expect(cancelRun).not.toHaveBeenCalled();
+		expect(mockSend).toHaveBeenCalledTimes(1);
+
+		resolveRun({ id: "run-1", status: "finished", result: "Scoped final." });
+		const scopedEvents = await scopedEventsPromise;
+
+		expect(collectTextDeltas(scopedEvents)).toBe("Scoped final.");
+		expect(getDoneEvent(scopedEvents).reason).toBe("stop");
+		expect(cancelRun).not.toHaveBeenCalled();
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+	});
+
+	it("chains steering through an additional old-run native tool batch without leaking old text", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		let sendCallCount = 0;
+		let firstOnDelta: CursorDeltaHandler | undefined;
+		const mockSend = vi.fn().mockImplementation(async (_message: { text?: string }, opts: { onDelta: CursorDeltaHandler }) => {
+			sendCallCount += 1;
+			if (sendCallCount === 1) {
+				firstOnDelta = opts.onDelta;
+				opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "bash", args: { command: "git status" } }, callId: "c1" } });
+				opts.onDelta({
+					update: {
+						type: "tool-call-completed",
+						toolCall: {
+							name: "bash",
+							result: { status: "success", value: { stdout: "clean", stderr: "", exitCode: 0 } },
+						},
+						callId: "c1",
+					},
+				});
+				return {
+					id: "run-1",
+					agentId: "agent-1",
+					status: "running",
+					wait: runWait,
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				};
+			}
+
+			return {
+				id: "run-2",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-2", status: "finished", result: "Fresh chained answer." }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const firstDone = getDoneEvent(firstEvents);
+		const firstToolCall = firstDone.message.content.find(isToolCallBlock);
+		const bashTool = registeredTools.find((tool) => tool.name === "bash");
+		const firstToolResult = await bashTool!.execute(firstToolCall!.id, firstToolCall!.arguments, undefined, undefined, {});
+
+		const steerContext = makeContext();
+		steerContext.messages = [
+			...steerContext.messages,
+			firstDone.message,
+			{
+				role: "toolResult",
+				toolCallId: firstToolCall!.id,
+				toolName: "bash",
+				content: firstToolResult.content,
+				details: firstToolResult.details,
+				isError: false,
+				timestamp: 2,
+			},
+			{ role: "user", content: "and push after both tools", timestamp: 3 },
+		];
+
+		const secondToolTurnPromise = collectEvents(streamCursor(makeModel(), steerContext, { apiKey: "test-key" }));
+		await Promise.resolve();
+		firstOnDelta?.({ update: { type: "text-delta", text: "Old run text that should not leak." } });
+		firstOnDelta?.({ update: { type: "tool-call-started", toolCall: { name: "bash", args: { command: "git log -1" } }, callId: "c2" } });
+		firstOnDelta?.({
+			update: {
+				type: "tool-call-completed",
+				toolCall: {
+					name: "bash",
+					result: { status: "success", value: { stdout: "commit abc", stderr: "", exitCode: 0 } },
+				},
+				callId: "c2",
+			},
+		});
+		const secondToolTurnEvents = await secondToolTurnPromise;
+		const secondToolTurnDone = getDoneEvent(secondToolTurnEvents);
+		const secondToolCall = secondToolTurnDone.message.content.find(isToolCallBlock);
+
+		expect(secondToolTurnDone.reason).toBe("toolUse");
+		expect(secondToolCall?.name).toBe("bash");
+		expect(collectTextDeltas(secondToolTurnEvents)).not.toContain("Old run text");
+		expect(mockSend).toHaveBeenCalledTimes(1);
+
+		const secondToolResult = await bashTool!.execute(secondToolCall!.id, secondToolCall!.arguments, undefined, undefined, {});
+		const finalContext = makeContext();
+		finalContext.messages = [
+			...steerContext.messages,
+			secondToolTurnDone.message,
+			{
+				role: "toolResult",
+				toolCallId: secondToolCall!.id,
+				toolName: "bash",
+				content: secondToolResult.content,
+				details: secondToolResult.details,
+				isError: false,
+				timestamp: 4,
+			},
+		];
+
+		const finalEventsPromise = collectEvents(streamCursor(makeModel(), finalContext, { apiKey: "test-key" }));
+		await Promise.resolve();
+		resolveRun({ id: "run-1", status: "finished", result: "Old final answer that should not leak." });
+		const finalEvents = await finalEventsPromise;
+
+		expect(mockSend).toHaveBeenCalledTimes(2);
+		expect(mockedCreate).toHaveBeenCalledTimes(1);
+		const freshPrompt = mockSend.mock.calls[1]?.[0] as { text?: string };
+		expect(freshPrompt.text).toContain("and push after both tools");
+		expect(collectTextDeltas(finalEvents)).toBe("Fresh chained answer.");
+		expect(collectTextDeltas(finalEvents)).not.toContain("Old final answer");
+		expect(getDoneEvent(finalEvents).reason).toBe("stop");
+	});
+
+	it("aborts while waiting for an active scoped live run and releases it once", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		const controller = new AbortController();
+		const mockDispose = vi.fn().mockResolvedValue(undefined);
+		const cancelRun = vi.fn().mockResolvedValue(undefined);
+		const runWait = vi.fn(() => new Promise<{ id: string; status: "finished"; result: string }>(() => {}));
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "bash", args: { command: "git status" } }, callId: "c1" } });
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "bash",
+						result: { status: "success", value: { stdout: "clean", stderr: "", exitCode: 0 } },
+					},
+					callId: "c1",
+				},
+			});
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: cancelRun,
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: mockDispose,
+		});
+
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		expect(getDoneEvent(firstEvents).reason).toBe("toolUse");
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
+
+		const scopedEventsPromise = collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key", signal: controller.signal }));
+		await Promise.resolve();
+		controller.abort();
+		const scopedEvents = await scopedEventsPromise;
+
+		expect(getErrorEvent(scopedEvents).reason).toBe("aborted");
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+		expect(cancelRun).toHaveBeenCalledTimes(1);
+		expect(mockDispose).toHaveBeenCalledTimes(1);
 	});
 
 	it("uses Cursor shell-output-delta as display-only fallback when completed shell output is empty", async () => {
