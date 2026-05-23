@@ -9,10 +9,22 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/index.ts` registers the pi extension, provider, fallback warnings, Cursor fast controls, native replay wrappers, question tool, and pi tool bridge hooks.
 - `src/model-discovery.ts` discovers Cursor models, builds pi model metadata, stores per-model metadata, and defines fallback models.
 - `src/cursor-provider.ts` streams through local `@cursor/sdk` agents, injects local MCP bridge config, resumes live bridge runs, and sanitizes Cursor SDK errors.
+- `src/cursor-provider-live-run-drain.ts` owns live-run drain/replay mirroring, pre-send continuation, and native replay turn emission.
+- `src/cursor-provider-turn-coordinator.ts` owns SDK delta/step handling, tool completion routing, and trace/native-replay emission during a turn.
+- `src/cursor-sdk-output-filter.ts` suppresses Cursor SDK integrator bootstrap noise from pi's TUI.
+- `src/cursor-edit-diff.ts` owns canonical edit diff fallback resolution for replay/display paths.
+- `src/cursor-record-utils.ts` owns shared record/string-key parsing helpers used across bridge and transcript layers.
+- `src/cursor-partial-content-emitter.ts` owns shared thinking/text block emission for live-run drain and turn coordinator paths.
+- `src/cursor-sensitive-text.ts` owns canonical secret scrubbing for provider errors and native replay display.
+- `src/cursor-transcript-tool-specs.ts` owns the unified per-tool transcript and replay display spec registry.
+- `src/cursor-pi-tool-bridge-types.ts` owns shared bridge/MCP type contracts.
+- `src/cursor-env-boolean.ts` owns canonical env boolean parsing for bridge diagnostics and flags.
 - `src/cursor-live-run-coordinator.ts` owns live Cursor run registry/scope matching, queued events, drain leases, idle disposal timers, and release cleanup.
 - `src/cursor-pi-tool-bridge.ts` exposes active pi tools to local Cursor agents through a per-run loopback MCP bridge.
+- `src/cursor-pi-tool-bridge-diagnostics.ts` owns bridge debug diagnostics serialization and stderr logging.
+- `src/cursor-pi-tool-bridge-mcp.ts` owns MCP name/schema conversion and pi-to-MCP content helpers for the bridge.
 - `src/cursor-question-tool.ts` owns the bridge-exposed `cursor_ask_question` pi UI tool.
-- `src/cursor-native-tool-display.ts`, `src/cursor-tool-transcript.ts`, and `src/cursor-tool-names.ts` handle display-only Cursor native tool replay and transcript labels.
+- `src/cursor-native-tool-display.ts`, `src/cursor-tool-transcript.ts`, `src/cursor-transcript-utils.ts`, `src/cursor-transcript-tool-formatters.ts`, and `src/cursor-tool-names.ts` handle display-only Cursor native tool replay and transcript labels.
 - `src/cursor-mcp-timeout-override.ts` owns Cursor SDK MCP call timeout overrides for long-running local MCP tools.
 - `src/cursor-state.ts` owns `/cursor-fast`, `--cursor-fast`, `--cursor-no-fast`, session state, and global fast defaults.
 - `src/context.ts`, `src/context-window-cache.ts`, and `src/bundled-context-windows.ts` handle prompt conversion and context-window caches.
