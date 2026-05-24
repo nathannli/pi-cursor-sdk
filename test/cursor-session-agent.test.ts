@@ -214,6 +214,7 @@ describe("cursor-session-agent", () => {
 					{ role: "assistant", content: [{ type: "text", text: "Ok" }], api: "cursor-sdk", provider: "cursor", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 4 },
 				],
 			}),
+			incrementalSendCount: 0,
 		};
 		const context = makeContext([
 			{ role: "user", content: "Hello", timestamp: 1 },

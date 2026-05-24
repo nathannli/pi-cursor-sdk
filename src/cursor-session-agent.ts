@@ -231,7 +231,13 @@ async function createSessionAgentEntry(
 	};
 }
 
-export { shouldBootstrapCursorSend } from "./context.js";
+export {
+	buildCursorSessionSendPrompt,
+	MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP,
+	planCursorSessionSend,
+	type CursorSessionSendPlan,
+} from "./cursor-session-send-policy.js";
+export { shouldBootstrapCursorContext, shouldBootstrapCursorSend } from "./context.js";
 
 export function commitSessionAgentSend(scopeKey: string, context: Context, bootstrapped: boolean): void {
 	const entry = sessionAgentsByScope.get(scopeKey);

@@ -18,7 +18,6 @@ export interface CursorPromptOptions {
 
 export const CURSOR_APPROX_CHARS_PER_TOKEN = 4;
 export const CURSOR_IMAGE_TOKEN_ESTIMATE = 1200;
-export const CURSOR_INCREMENTAL_SEND_REBOOTSTRAP_THRESHOLD = 20;
 const SECTION_SEPARATOR = "\n\n";
 
 export function getCursorToolTailGuardText(): string {
@@ -309,12 +308,11 @@ export function computeCursorContextFingerprint(context: Context): string {
 	return JSON.stringify(payload);
 }
 
-export function shouldBootstrapCursorSend(
-	sendState: { bootstrapped: boolean; contextFingerprint: string; incrementalSendCount?: number },
+export function shouldBootstrapCursorContext(
+	sendState: { bootstrapped: boolean; contextFingerprint: string },
 	context: Context,
 ): boolean {
 	if (!sendState.bootstrapped) return true;
-	if ((sendState.incrementalSendCount ?? 0) >= CURSOR_INCREMENTAL_SEND_REBOOTSTRAP_THRESHOLD) return true;
 	const previous = parseCursorContextFingerprint(sendState.contextFingerprint);
 	if (!previous) return true;
 	const current = parseCursorContextFingerprint(computeCursorContextFingerprint(context));
@@ -331,6 +329,14 @@ export function shouldBootstrapCursorSend(
 		if (current.messageHashes[index] !== previous.messageHashes[index]) return true;
 	}
 	return false;
+}
+
+/** @deprecated Use planCursorSessionSend() for send mode and shouldBootstrapCursorContext() for context-only checks. */
+export function shouldBootstrapCursorSend(
+	sendState: { bootstrapped: boolean; contextFingerprint: string },
+	context: Context,
+): boolean {
+	return shouldBootstrapCursorContext(sendState, context);
 }
 
 export function buildCursorIncrementalPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
@@ -361,18 +367,6 @@ export function buildCursorIncrementalPrompt(context: Context, options: CursorPr
 		budgetOptions,
 	);
 	return { text: parts.join(SECTION_SEPARATOR), images };
-}
-
-export function buildCursorSendPrompt(
-	context: Context,
-	options: CursorPromptOptions,
-	sendState: { bootstrapped: boolean; contextFingerprint: string; incrementalSendCount?: number },
-): { prompt: CursorPrompt; bootstrap: boolean } {
-	const bootstrap = shouldBootstrapCursorSend(sendState, context);
-	if (bootstrap) {
-		return { prompt: buildCursorPrompt(context, options), bootstrap: true };
-	}
-	return { prompt: buildCursorIncrementalPrompt(context, options), bootstrap: false };
 }
 
 export function buildCursorPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
