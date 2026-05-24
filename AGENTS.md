@@ -30,6 +30,10 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-question-tool.ts` owns the bridge-exposed `cursor_ask_question` pi UI tool.
 - `src/cursor-native-tool-display.ts` re-exports native replay display registration and state APIs.
 - `src/cursor-native-tool-display-registration.ts` owns native replay tool registration and model-scoped activation.
+- `src/cursor-native-replay-routing.ts` owns canonical native replay disposition (`queue_replay` / `inactive_trace` / `transcript_trace`) and context-tool partitioning for drain.
+- `src/cursor-native-replay-trace.ts` owns inactive native replay trace formatting (`title: summary`).
+- `src/cursor-context-tools.ts` owns `context.tools` snapshot helpers at provider stream start.
+- `src/cursor-display-text.ts` owns shared single-line sanitization and 240-char truncation for replay/trace display.
 - `src/cursor-native-tool-display-replay.ts` owns replay card rendering and diff/preview formatting.
 - `src/cursor-native-tool-display-tools.ts` owns native/replay tool definition factories and replay execute wrappers.
 - `src/cursor-native-tool-display-state.ts` owns native replay display state, env gating, and record/consume helpers.

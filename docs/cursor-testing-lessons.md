@@ -19,7 +19,7 @@ Passing hundreds of unit tests did not prove that chain was safe. Regression cov
 - `test/cursor-native-replay-stress.test.ts` — plan strip → resync → grep replay; inactive-tool trace fallbacks
 - `test/cursor-provider-replay-live-run.test.ts` — inactive replay tools emit trace instead of broken `toolUse`
 - `test/cursor-native-replay-trace.test.ts` — shared inactive replay trace formatting
-- `test/cursor-native-replay-routing.test.ts` — canonical `resolveNativeReplayDisposition` routing
+- `test/cursor-native-replay-routing.test.ts` — `resolveNativeReplayDisposition` and `partitionNativeToolsByActiveContext`
 
 When changing provider/runtime behavior, ask whether the bug spans **pi extension lifecycle**, **active tool state**, **provider streaming**, and **persisted JSONL**. If yes, add an integration-style unit test or live smoke coverage for that chain.
 
@@ -30,11 +30,16 @@ Native replay routing intentionally uses two layers:
 1. **Extension resync** (`before_agent_start`, `turn_start`) updates pi's active tool set via `syncRegisteredNativeCursorToolsForModel`. This fixes the common case where plan-mode execute strips `grep`/`find`/`cursor` before the next turn.
 2. **Provider routing** uses the **`context.tools` snapshot** captured when `streamCursor()` starts (`getActiveContextToolNames` in `src/cursor-context-tools.ts`). It does not read live `pi.getActiveTools()` mid-stream.
 
-`resolveNativeReplayDisposition()` in `src/cursor-native-replay-routing.ts` is the single routing decision for both the turn coordinator and live-run drain:
+`src/cursor-native-replay-routing.ts` centralizes provider-side routing against the same `context.tools` snapshot:
 
-- `queue_replay` — tool is in `context.tools` and a live run exists → queue native `toolUse`
-- `inactive_trace` — native replay tool missing from `context.tools` → `formatInactiveCursorReplayTrace()` thinking trace, no broken `toolUse`
-- `transcript_trace` — native replay off or non-native tool → formatted transcript trace
+- **Turn coordinator** calls `resolveNativeReplayDisposition()` per completed SDK tool → `queue_replay` (queue native `toolUse`), `inactive_trace` (`formatInactiveCursorReplayTrace()`), or `transcript_trace`.
+- **Live-run drain** calls `partitionNativeToolsByActiveContext()` on already-queued native tool batches → active tools become `toolUse`; inactive tools get trace only and the batch returns `"handled"` without `toolUse`.
+
+Disposition outcomes:
+
+- `queue_replay` — tool is in `context.tools` and a live run exists
+- `inactive_trace` — native replay tool missing from `context.tools`
+- `transcript_trace` — native replay off or non-native tool
 
 If resync runs but `context.tools` is still stale (e.g. only `read` listed), the provider must **not** emit `toolUse` for inactive tools. `test/cursor-native-replay-stress.test.ts` covers that stale-snapshot path.
 
