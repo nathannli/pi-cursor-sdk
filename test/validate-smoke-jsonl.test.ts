@@ -157,6 +157,26 @@ describe("validate-smoke-jsonl", () => {
 		expect(result.stdout).toContain('"replayErrorCount":0');
 	});
 
+	it("ignores replay error strings in successful read tool results", () => {
+		const smokeDir = makeSmokeDir();
+		writeSessionJsonl(smokeDir, "doc-mention", [
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolName: "read",
+					content: [{ type: "text", text: "The replay scan fails on records containing:\n\n- Tool grep not found\n- Tool cursor not found" }],
+					isError: false,
+				},
+			},
+		]);
+
+		const result = runValidator(smokeDir, ["--replay-errors-only"]);
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('"replayErrorCount":0');
+	});
+
 	it("fails default usage validation with --replay-errors when replay tool failures are present", () => {
 		const smokeDir = makeSmokeDir();
 		writeSessionJsonl(smokeDir, "usage-and-replay", [

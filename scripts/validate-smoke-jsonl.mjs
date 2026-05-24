@@ -41,7 +41,8 @@ Enforced invariants (default mode):
   - assistant usage cacheRead/cacheWrite are exactly 0
 
 Replay error scan (--replay-errors / --replay-errors-only):
-  - no JSONL record contains "Tool grep/cursor/find/ls not found"
+  - no persisted error toolResult or error assistant message contains "Tool grep/cursor/find/ls not found"
+  - successful tool/file reads that mention those strings in docs are ignored
 
 Notes:
   - Prints one JSON summary line per scanned session file (usage mode) or one replay summary line (replay-only mode).
@@ -100,12 +101,35 @@ function parseJsonlFile(file) {
 	return { lineCount: lines.length, records, parseErrorCount };
 }
 
+function getMessageText(message) {
+	if (!message || typeof message !== "object") return "";
+	const parts = [];
+	if (typeof message.errorMessage === "string") parts.push(message.errorMessage);
+	if (Array.isArray(message.content)) {
+		for (const block of message.content) {
+			if (block?.type === "text" && typeof block.text === "string") parts.push(block.text);
+		}
+	}
+	return parts.join("\n");
+}
+
+function isReplayErrorMessage(message, needle) {
+	const text = getMessageText(message);
+	if (!text.includes(needle)) return false;
+	if (message.role === "toolResult" && message.isError === true) return true;
+	if (message.role === "assistant" && (message.stopReason === "error" || typeof message.errorMessage === "string")) {
+		return true;
+	}
+	return false;
+}
+
 function scanReplayErrors(file, records) {
 	const hits = [];
 	for (const [index, record] of records.entries()) {
-		const blob = JSON.stringify(record);
+		const message = record?.type === "message" ? record.message : undefined;
+		if (!message) continue;
 		for (const needle of REPLAY_TOOL_NOT_FOUND) {
-			if (blob.includes(needle)) {
+			if (isReplayErrorMessage(message, needle)) {
 				hits.push({ line: index + 1, needle });
 			}
 		}
