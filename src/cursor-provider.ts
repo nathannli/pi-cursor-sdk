@@ -28,6 +28,7 @@ import {
 	getCursorPromptOptions,
 } from "./cursor-usage-accounting.js";
 import { getCursorSessionCwd } from "./cursor-session-cwd.js";
+import { getActiveContextToolNames } from "./cursor-context-tools.js";
 import { CursorLiveRunAbortError, type CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import {
 	abandonSessionCursorAgent,
@@ -210,7 +211,7 @@ export function streamCursor(
 			const sessionBridgeRun = sessionAgentLease.bridgeRun;
 			const promptInputTokens = estimateCursorPromptInputTokens(prompt, promptOptions);
 			const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();
-			const activeToolNames = context.tools ? new Set(context.tools.map((tool) => tool.name)) : undefined;
+			const activeToolNames = getActiveContextToolNames(context);
 			const nativeReplayId = createCursorNativeReplayId();
 			const textDeltas: string[] = [];
 			const useLiveRun = useNativeToolReplay || bridgeRun !== undefined;

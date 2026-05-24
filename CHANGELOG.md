@@ -8,10 +8,12 @@
 - Add `scripts/fixtures/plan-strip-shim/` to simulate plan-mode execute stripping active tools to `read`, `bash`, `edit`, and `write`.
 - Extend `scripts/validate-smoke-jsonl.mjs` with `--replay-errors` and `--replay-errors-only` to fail on persisted `Tool grep/cursor/find/ls not found` entries.
 - Add [Cursor testing lessons](docs/cursor-testing-lessons.md) documenting auth.json seeding, isolated harness layout, JSONL replay scans, and the plan-mode replay regression chain.
-- Add regression coverage in `test/cursor-native-replay-stress.test.ts`, `test/cursor-native-replay-trace.test.ts`, and expanded live-run / extension lifecycle tests.
+- Add regression coverage in `test/cursor-native-replay-stress.test.ts`, `test/cursor-native-replay-trace.test.ts`, `test/cursor-native-replay-routing.test.ts`, and expanded live-run / extension lifecycle tests.
 
 ### Changed
 
+- Centralize native replay routing in `src/cursor-native-replay-routing.ts` (`resolveNativeReplayDisposition`, shared context-tool partitioning) for turn coordinator and live-run drain.
+- Unify 240-character display truncation in `src/cursor-display-text.ts` and share `getActiveContextToolNames()` via `src/cursor-context-tools.ts`.
 - Unify inactive native replay trace formatting through `src/cursor-native-replay-trace.ts` (`title: summary`) for both live-run drain and turn-coordinator paths.
 - On non-Cursor model switch, strip all registered native replay wrappers except core pi tools (`read`, `bash`, `edit`, `write`), not only `cursor`.
 - Document `auth.json` as the primary live-smoke auth source in the live smoke checklist, README maintainer gate, and UX spec.

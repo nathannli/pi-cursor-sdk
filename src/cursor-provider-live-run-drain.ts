@@ -22,8 +22,9 @@ import { type CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
 import { resetSessionCursorAgent } from "./cursor-session-agent.js";
 import { applyCursorApproximateUsage } from "./cursor-usage-accounting.js";
 import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
-import { asRecord, hasUsableText } from "./cursor-record-utils.js";
+import { hasUsableText } from "./cursor-record-utils.js";
 import { formatInactiveCursorReplayTrace } from "./cursor-native-replay-trace.js";
+import { partitionNativeToolsByActiveContext } from "./cursor-native-replay-routing.js";
 
 export const DEFAULT_CURSOR_NATIVE_REPLAY_IDLE_DISPOSE_MS = 5 * 60 * 1000;
 const CURSOR_NATIVE_REPLAY_TOOL_ID_PATTERN = /^(cursor-replay-\d+-\d+)-tool-\d+$/;
@@ -201,29 +202,11 @@ function emitCursorNativeToolUseTurn(
 	cursorLiveRuns.requestIdleDispose(run);
 }
 
-function getActiveContextToolNames(context: Context): ReadonlySet<string> | undefined {
-	return context.tools ? new Set(context.tools.map((tool) => tool.name)) : undefined;
-}
-
-function partitionNativeToolsByActiveContext(
-	context: Context,
-	tools: CursorNativeToolDisplayItem[],
-): { active: CursorNativeToolDisplayItem[]; inactive: CursorNativeToolDisplayItem[] } {
-	const activeToolNames = getActiveContextToolNames(context);
-	if (!activeToolNames) return { active: tools, inactive: [] };
-	const active: CursorNativeToolDisplayItem[] = [];
-	const inactive: CursorNativeToolDisplayItem[] = [];
-	for (const tool of tools) {
-		if (activeToolNames.has(tool.toolName)) active.push(tool);
-		else inactive.push(tool);
-	}
-	return { active, inactive };
-}
-
 function emitInactiveCursorReplayTrace(turn: CursorLiveTurnState, tools: CursorNativeToolDisplayItem[]): void {
 	if (tools.length === 0) return;
-	for (const tool of tools) turn.emitter.appendThinkingDelta(formatInactiveCursorReplayTrace(tool));
-	turn.emitter.closeThinking();
+	for (const tool of tools) {
+		turn.emitter.appendThinkingBlock(formatInactiveCursorReplayTrace(tool));
+	}
 }
 
 function emitCursorBridgeToolUseTurn(
@@ -271,7 +254,10 @@ async function emitCursorLiveRunPendingToolUseTurn(
 	if (eventType === "tool") {
 		const { active, inactive } = partitionNativeToolsByActiveContext(context, cursorLiveRuns.collectNativeToolBatch(run));
 		if (options.mode === "emit") emitInactiveCursorReplayTrace(turn, inactive);
-		if (active.length === 0) return "handled";
+		if (active.length === 0) {
+			// Inactive-only batch: trace was emitted above; do not emit toolUse.
+			return "handled";
+		}
 		if (options.mode === "emit") turn.emitter.closeAll();
 		emitCursorNativeToolUseTurn(stream, partial, model, context, run, toolResultInputTokens, active);
 	} else {

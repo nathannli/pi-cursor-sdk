@@ -1,15 +1,11 @@
 import type { CursorPiToolDisplay } from "./cursor-tool-transcript.js";
 import { asRecord } from "./cursor-record-utils.js";
-
-export function truncateCursorReplayTraceText(text: string): string {
-	const singleLine = text.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-	return singleLine.length <= 240 ? singleLine : `${singleLine.slice(0, 237)}...`;
-}
+import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 
 function getCursorReplayResultText(display: CursorPiToolDisplay): string | undefined {
 	for (const content of display.result.content) {
 		if (content.type !== "text") continue;
-		const text = truncateCursorReplayTraceText(content.text);
+		const text = truncateCursorDisplayLine(content.text);
 		if (text) return text;
 	}
 	return undefined;
@@ -29,5 +25,5 @@ export function formatInactiveCursorReplayTrace(display: CursorPiToolDisplay): s
 		: typeof args?.activitySummary === "string" && args.activitySummary.trim()
 			? args.activitySummary.trim()
 			: getCursorReplayResultText(display) ?? "completed";
-	return `${truncateCursorReplayTraceText(title)}: ${truncateCursorReplayTraceText(summary)}\n`;
+	return `${truncateCursorDisplayLine(title)}: ${truncateCursorDisplayLine(summary)}\n`;
 }

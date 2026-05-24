@@ -2,25 +2,17 @@ import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-wo
 import type { InteractionUpdate } from "@cursor/sdk";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
-import { canRenderCursorToolNatively } from "./cursor-native-tool-display.js";
 import { formatInactiveCursorReplayTrace } from "./cursor-native-replay-trace.js";
+import { resolveNativeReplayDisposition } from "./cursor-native-replay-routing.js";
+import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
 import { asRecord, getField, hasUsableText } from "./cursor-record-utils.js";
 import { scrubPiToolDisplay, scrubSensitiveText } from "./cursor-sensitive-text.js";
 import { buildCursorPiToolDisplay, formatCursorToolTranscript, getCursorCreatePlanText, mergeCursorToolCalls } from "./cursor-tool-transcript.js";
 import { getString, getToolArgs, getToolName } from "./cursor-transcript-utils.js";
 
-function sanitizeSingleLine(value: string): string {
-	return value.replace(/\s+/g, " ").trim();
-}
-
-function truncateSingleLine(value: string, maxLength = 240): string {
-	const sanitized = sanitizeSingleLine(value);
-	return sanitized.length > maxLength ? `${sanitized.slice(0, maxLength - 1)}…` : sanitized;
-}
-
 function formatCursorToolName(toolCall: unknown): string {
-	return truncateSingleLine(getToolName(toolCall), 80) || "unknown";
+	return truncateCursorDisplayLine(getToolName(toolCall), 80) || "unknown";
 }
 
 interface CursorShellOutputDelta {
@@ -46,7 +38,7 @@ function extractCursorTaskProgressLabel(toolCall: unknown, apiKey?: string): str
 	if (!isCursorTaskToolCall(toolCall)) return undefined;
 	const description = getString(getToolArgs(toolCall), "description");
 	if (!description?.trim()) return undefined;
-	return truncateSingleLine(scrubSensitiveText(description, apiKey));
+	return truncateCursorDisplayLine(scrubSensitiveText(description, apiKey));
 }
 
 function getCursorShellOutputDelta(update: InteractionUpdate): CursorShellOutputDelta | undefined {
@@ -236,7 +228,7 @@ export class CursorSdkTurnCoordinator {
 			return;
 		}
 		if (update.type === "summary") {
-			const summary = `Cursor summary: ${truncateSingleLine(update.summary)}\n`;
+			const summary = `Cursor summary: ${truncateCursorDisplayLine(update.summary)}\n`;
 			if (this.liveRun) {
 				cursorLiveRuns.queueEvent(this.liveRun, { type: "thinking-delta", text: summary });
 			} else {
@@ -350,11 +342,14 @@ export class CursorSdkTurnCoordinator {
 			this.completedFallbackToolFingerprints.add(fingerprint);
 		}
 
-		const nativeRenderable = canRenderCursorToolNatively(display.toolName);
-		const nativeToolActive = this.activeToolNames === undefined || this.activeToolNames.has(display.toolName);
-		const route = this.useNativeToolReplay && nativeRenderable && nativeToolActive && this.liveRun ? "native_replay" : "trace";
+		const disposition = resolveNativeReplayDisposition({
+			toolName: display.toolName,
+			useNativeToolReplay: this.useNativeToolReplay,
+			activeToolNames: this.activeToolNames,
+			hasLiveRun: this.liveRun !== undefined,
+		});
 
-		if (route === "native_replay" && this.liveRun) {
+		if (disposition === "queue_replay" && this.liveRun) {
 			this.nativeToolReplayStarted = true;
 			const id = `${this.nativeReplayId}-tool-${++this.nativeToolDisplayCounter}`;
 			const scrubbedDisplay = scrubPiToolDisplay(display, this.resolvedApiKey);
@@ -365,10 +360,10 @@ export class CursorSdkTurnCoordinator {
 			return;
 		}
 
-		const inactiveNativeReplay = this.useNativeToolReplay && nativeRenderable && !nativeToolActive;
-		const traceText = inactiveNativeReplay
-			? formatInactiveCursorReplayTrace(display)
-			: transcript || `Cursor tool: ${formatCursorToolName(toolCall)} completed`;
+		const traceText =
+			disposition === "inactive_trace"
+				? formatInactiveCursorReplayTrace(display)
+				: transcript || `Cursor tool: ${formatCursorToolName(toolCall)} completed`;
 		this.emitCursorToolTrace(traceText);
 	}
 
