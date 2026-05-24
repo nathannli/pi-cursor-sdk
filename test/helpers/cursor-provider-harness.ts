@@ -213,21 +213,30 @@ export function createMockAgentPlatform(
 	} as CursorAgentPlatformForTest;
 }
 
-export async function registerNativeToolDisplayForTest(registeredTools: RegisteredTool[]): Promise<void> {
-	const handlers: TestEventHandler[] = [];
+export interface NativeToolDisplayTestPi {
+	getActiveTools: ReturnType<typeof vi.fn>;
+	setActiveTools: ReturnType<typeof vi.fn>;
+	runEventHandlers: (event: string, ctx?: Record<string, unknown>) => Promise<void>;
+}
+
+export async function createNativeToolDisplayPiForTest(registeredTools: RegisteredTool[] = []): Promise<NativeToolDisplayTestPi> {
+	const handlers = new Map<string, TestEventHandler[]>();
 	let activeToolNames = ["read", "bash", "edit", "write"];
-	registerCursorNativeToolDisplay({
+	const notify = vi.fn();
+	const baseCtx = { cwd: process.cwd(), hasUI: false, ui: { notify } };
+	const pi = {
 		on: vi.fn((event: string, handler: TestEventHandler) => {
-			if (event === "session_start") handlers.push(handler);
+			const list = handlers.get(event) ?? [];
+			list.push(handler);
+			handlers.set(event, list);
 		}),
 		registerTool: vi.fn((tool: RegisteredTool) => {
 			registeredTools.push(tool);
 		}),
 		getAllTools: vi.fn(() => {
 			const toolsByName = new Map<string, ToolInfo>();
-			for (const name of ["read", "bash", "grep", "find", "ls", "edit", "write"]) {
-				const tool = createBuiltinToolInfo(name);
-				toolsByName.set(tool.name, tool);
+			for (const name of ["read", "bash", "grep", "find", "ls", "edit", "write", "cursor"]) {
+				toolsByName.set(name, createBuiltinToolInfo(name));
 			}
 			for (const tool of registeredTools) {
 				toolsByName.set(tool.name, {
@@ -243,10 +252,24 @@ export async function registerNativeToolDisplayForTest(registeredTools: Register
 		setActiveTools: vi.fn((toolNames: string[]) => {
 			activeToolNames = [...toolNames];
 		}),
-	});
-	for (const handler of handlers) {
-		await handler({ reason: "startup" }, { cwd: process.cwd(), hasUI: false, ui: { notify: vi.fn() } });
+	};
+	registerCursorNativeToolDisplay(pi as never);
+	for (const handler of handlers.get("session_start") ?? []) {
+		await handler({ reason: "startup" }, baseCtx);
 	}
+	return {
+		getActiveTools: pi.getActiveTools,
+		setActiveTools: pi.setActiveTools,
+		runEventHandlers: async (event, ctx = {}) => {
+			for (const handler of handlers.get(event) ?? []) {
+				await handler({ type: event }, { ...baseCtx, ...ctx });
+			}
+		},
+	};
+}
+
+export async function registerNativeToolDisplayForTest(registeredTools: RegisteredTool[]): Promise<void> {
+	await createNativeToolDisplayPiForTest(registeredTools);
 }
 
 export const cursorModelItems: ModelListItem[] = [

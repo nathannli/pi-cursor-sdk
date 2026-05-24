@@ -12,8 +12,8 @@ function makeSmokeDir(): string {
 	return dir;
 }
 
-function runValidator(smokeDir: string) {
-	return spawnSync(process.execPath, ["scripts/validate-smoke-jsonl.mjs", smokeDir], {
+function runValidator(smokeDir: string, extraArgs: string[] = []) {
+	return spawnSync(process.execPath, ["scripts/validate-smoke-jsonl.mjs", ...extraArgs, smokeDir], {
 		cwd: process.cwd(),
 		encoding: "utf8",
 	});
@@ -115,5 +115,73 @@ describe("validate-smoke-jsonl", () => {
 
 		expect(result.status).toBe(2);
 		expect(result.stderr).toContain("no JSONL files");
+	});
+
+	it("fails replay-errors-only when JSONL contains Tool grep not found", () => {
+		const smokeDir = makeSmokeDir();
+		writeSessionJsonl(smokeDir, "replay-error", [
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolName: "grep",
+					content: [{ type: "text", text: "Tool grep not found" }],
+					isError: true,
+				},
+			},
+		]);
+
+		const result = runValidator(smokeDir, ["--replay-errors-only"]);
+
+		expect(result.status).toBe(1);
+		expect(result.stdout).toContain('"replayErrorCount":1');
+	});
+
+	it("passes replay-errors-only when no native replay tool failures are present", () => {
+		const smokeDir = makeSmokeDir();
+		writeSessionJsonl(smokeDir, "clean-replay", [
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolName: "grep",
+					content: [{ type: "text", text: "src/app.css" }],
+					isError: false,
+				},
+			},
+		]);
+
+		const result = runValidator(smokeDir, ["--replay-errors-only"]);
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('"replayErrorCount":0');
+	});
+
+	it("fails default usage validation with --replay-errors when replay tool failures are present", () => {
+		const smokeDir = makeSmokeDir();
+		writeSessionJsonl(smokeDir, "usage-and-replay", [
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "ok" }],
+					usage: { input: 1, output: 1, totalTokens: 2, cacheRead: 0, cacheWrite: 0 },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolName: "cursor",
+					content: [{ type: "text", text: "Tool cursor not found" }],
+					isError: true,
+				},
+			},
+		]);
+
+		const result = runValidator(smokeDir, ["--replay-errors"]);
+
+		expect(result.status).toBe(1);
+		expect(result.stdout).toContain('"replayErrorCount":1');
 	});
 });

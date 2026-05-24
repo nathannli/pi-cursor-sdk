@@ -23,6 +23,7 @@ import { resetSessionCursorAgent } from "./cursor-session-agent.js";
 import { applyCursorApproximateUsage } from "./cursor-usage-accounting.js";
 import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
 import { asRecord, hasUsableText } from "./cursor-record-utils.js";
+import { formatInactiveCursorReplayTrace } from "./cursor-native-replay-trace.js";
 
 export const DEFAULT_CURSOR_NATIVE_REPLAY_IDLE_DISPOSE_MS = 5 * 60 * 1000;
 const CURSOR_NATIVE_REPLAY_TOOL_ID_PATTERN = /^(cursor-replay-\d+-\d+)-tool-\d+$/;
@@ -219,36 +220,6 @@ function partitionNativeToolsByActiveContext(
 	return { active, inactive };
 }
 
-function truncateCursorReplayTraceText(text: string): string {
-	const singleLine = text.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
-	return singleLine.length <= 240 ? singleLine : `${singleLine.slice(0, 237)}...`;
-}
-
-function getCursorReplayResultText(tool: CursorNativeToolDisplayItem): string | undefined {
-	for (const content of tool.result.content) {
-		if (content.type !== "text") continue;
-		const text = truncateCursorReplayTraceText(content.text);
-		if (text) return text;
-	}
-	return undefined;
-}
-
-function formatInactiveCursorReplayTrace(tool: CursorNativeToolDisplayItem): string {
-	const details = asRecord(tool.result.details);
-	const args = asRecord(tool.args);
-	const title = typeof details?.title === "string" && details.title.trim()
-		? details.title.trim()
-		: typeof args?.activityTitle === "string" && args.activityTitle.trim()
-			? args.activityTitle.trim()
-			: `Cursor ${tool.toolName}`;
-	const summary = typeof details?.summary === "string" && details.summary.trim()
-		? details.summary.trim()
-		: typeof args?.activitySummary === "string" && args.activitySummary.trim()
-			? args.activitySummary.trim()
-			: getCursorReplayResultText(tool) ?? "completed";
-	return `${truncateCursorReplayTraceText(title)}: ${truncateCursorReplayTraceText(summary)}\n`;
-}
-
 function emitInactiveCursorReplayTrace(turn: CursorLiveTurnState, tools: CursorNativeToolDisplayItem[]): void {
 	if (tools.length === 0) return;
 	for (const tool of tools) turn.emitter.appendThinkingDelta(formatInactiveCursorReplayTrace(tool));
@@ -433,6 +404,16 @@ export function setCursorNativeReplayIdleDisposeMs(value: number): void {
 
 export function resetCursorNativeReplayIdleDisposeMs(): void {
 	cursorNativeReplayIdleDisposeMs = DEFAULT_CURSOR_NATIVE_REPLAY_IDLE_DISPOSE_MS;
+}
+
+export async function releaseAllPendingCursorLiveRunsForTests(): Promise<void> {
+	while (cursorLiveRuns.count() > 0) {
+		const run = cursorLiveRuns.getActiveForScope();
+		if (!run) break;
+		const before = cursorLiveRuns.count();
+		await cursorLiveRuns.release(run);
+		if (cursorLiveRuns.count() >= before) break;
+	}
 }
 
 export { hasTrailingUserMessagesAfterToolResults };

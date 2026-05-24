@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Use this manual checklist before releasing Cursor provider/runtime changes. Unit tests and mocks are necessary, but they are not enough for this extension. Always assume every runtime surface is in scope. A release is not ready until every live check below has been observed with `cursor/composer-2.5` through the local working tree.
+Use this manual checklist before releasing Cursor provider/runtime changes. Unit tests and mocks are necessary, but they are not enough for this extension. See [Cursor testing lessons](./cursor-testing-lessons.md) for auth/isolated-harness pitfalls and the plan-mode replay regression that motivated recent hardening. Always assume every runtime surface is in scope. A release is not ready until every live check below has been observed with `cursor/composer-2.5` through the local working tree.
 
 ## Release rule
 
@@ -22,10 +22,27 @@ mkdir -p "$SMOKE_DIR"
 pi -e . --list-models cursor
 ```
 
+Live pi runs resolve provider auth from **`~/.pi/agent/auth.json`**, not only shell env. Isolated smoke copies that file into a clean temporary `HOME`. Ensure `auth.json` includes a `cursor` provider entry, or export `CURSOR_API_KEY` as a fallback.
+
 The repo also ships partial automation for the prerequisite/basic/default-settings/non-interactive math/TUI output polling/steering/diagnostic/JSONL subset:
 
 ```bash
 npm run smoke:live
+```
+
+For native replay regression checks (packed install, plan-strip resync, JSONL replay-error scan), use the isolated helper:
+
+```bash
+npm run smoke:isolated
+# unit tests + pack only (no live Cursor):
+SKIP_LIVE=1 npm run smoke:isolated
+```
+
+Scan persisted sessions for native replay tool failures:
+
+```bash
+node scripts/validate-smoke-jsonl.mjs --replay-errors "$SMOKE_DIR"
+node scripts/validate-smoke-jsonl.mjs --replay-errors-only "$SMOKE_DIR/session-subdir"
 ```
 
 The script is a helper only; it polls the section 3 TUI for answer/footer evidence and then cleans up the tmux session, but it does not replace manual visual review of the full TUI checklist. Release readiness still requires the manual checks below for detailed TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
@@ -34,7 +51,7 @@ Pass criteria:
 
 - `cursor/composer-2.5` appears in the model list.
 - No Cursor key or auth token is printed.
-- If `CURSOR_API_KEY` is unavailable and `/login` is not configured, stop and report the live smoke as blocked.
+- If neither `~/.pi/agent/auth.json` cursor auth nor `CURSOR_API_KEY` is available, stop and report the live smoke as blocked.
 
 ## 1. Basic provider reality check
 

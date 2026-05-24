@@ -257,6 +257,8 @@ describe("extension factory", () => {
 		expect(pi._activeToolNames()).not.toContain("cursor_generate_image");
 		expect(pi._activeToolNames()).not.toContain("cursor");
 		expect(pi._activeToolNames()).not.toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
+		expect(pi._activeToolNames()).not.toContain("grep");
+		expect(pi._activeToolNames()).not.toContain("find");
 		expect(pi._activeToolNames()).toContain("read");
 
 		await runModelSelectHandlers(pi, { provider: "cursor", api: "cursor-sdk", id: "composer-2.5" } as ExtensionContext["model"]);

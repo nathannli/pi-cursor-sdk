@@ -5,6 +5,13 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+const REPLAY_TOOL_NOT_FOUND = [
+	"Tool grep not found",
+	"Tool cursor not found",
+	"Tool find not found",
+	"Tool ls not found",
+];
+
 function printHelp() {
 	console.log(`Validate assistant presence and usage metadata in pi smoke session JSONL files.
 
@@ -18,21 +25,26 @@ Arguments:
 
 Options:
   -h, --help                    Show this help.
+  --replay-errors               Also fail when JSONL contains native replay "Tool * not found" errors.
+  --replay-errors-only          Scan only for native replay "Tool * not found" errors (skip usage checks).
 
 Exit codes:
-  0  every scanned JSONL file has at least one assistant message and valid assistant usage metadata
-  1  invalid arguments, unreadable directory, invalid JSONL, empty/no-assistant files, or usage validation failures
+  0  every enforced invariant passed for the selected mode(s)
+  1  invalid arguments, unreadable directory, invalid JSONL, empty/no-assistant files, usage validation failures, or replay tool errors
   2  no JSONL files found under the smoke directory
 
-Enforced invariants:
+Enforced invariants (default mode):
   - each scanned JSONL file contains parseable JSONL records
   - each scanned JSONL file contains at least one persisted assistant message
   - every persisted assistant message has usage metadata
   - assistant usage input/output/totalTokens are non-negative numbers
   - assistant usage cacheRead/cacheWrite are exactly 0
 
+Replay error scan (--replay-errors / --replay-errors-only):
+  - no JSONL record contains "Tool grep/cursor/find/ls not found"
+
 Notes:
-  - Prints one JSON summary line per scanned session file.
+  - Prints one JSON summary line per scanned session file (usage mode) or one replay summary line (replay-only mode).
   - Does not print session message contents or secrets.`);
 }
 
@@ -88,6 +100,19 @@ function parseJsonlFile(file) {
 	return { lineCount: lines.length, records, parseErrorCount };
 }
 
+function scanReplayErrors(file, records) {
+	const hits = [];
+	for (const [index, record] of records.entries()) {
+		const blob = JSON.stringify(record);
+		for (const needle of REPLAY_TOOL_NOT_FOUND) {
+			if (blob.includes(needle)) {
+				hits.push({ line: index + 1, needle });
+			}
+		}
+	}
+	return hits;
+}
+
 function main() {
 	const args = process.argv.slice(2);
 	if (args.includes("-h") || args.includes("--help")) {
@@ -95,11 +120,15 @@ function main() {
 		return;
 	}
 
-	if (args.length > 1) {
+	const replayErrorsOnly = args.includes("--replay-errors-only");
+	const replayErrors = replayErrorsOnly || args.includes("--replay-errors");
+	const positional = args.filter((arg) => !arg.startsWith("-"));
+
+	if (positional.length > 1) {
 		fail("too many arguments; pass only the smoke directory");
 	}
 
-	const smokeDir = args[0] ?? process.env.SMOKE_DIR;
+	const smokeDir = positional[0] ?? process.env.SMOKE_DIR;
 	if (!smokeDir) {
 		fail("missing smoke directory; pass a path or set SMOKE_DIR");
 	}
@@ -117,6 +146,24 @@ function main() {
 	}
 
 	let failures = 0;
+	if (replayErrorsOnly) {
+		let replayHitCount = 0;
+		for (const file of files) {
+			const { records } = parseJsonlFile(file);
+			const hits = scanReplayErrors(file, records);
+			replayHitCount += hits.length;
+			if (hits.length > 0) failures += 1;
+			console.log(
+				JSON.stringify({
+					file: relative(smokeDir, file),
+					replayErrorCount: hits.length,
+					replayErrors: hits.slice(0, 5),
+				}),
+			);
+		}
+		process.exit(failures === 0 ? 0 : 1);
+	}
+
 	for (const file of files) {
 		let summary;
 		try {
@@ -125,7 +172,14 @@ function main() {
 			const assistants = messages.filter((message) => message?.role === "assistant");
 			const usage = assistants.map((message) => message.usage).filter(Boolean);
 			const badUsage = assistants.map((message) => message.usage).filter(isBadUsage);
-			const fileFailure = lineCount === 0 || parseErrorCount > 0 || assistants.length === 0 || usage.length !== assistants.length || badUsage.length > 0;
+			const replayHits = replayErrors ? scanReplayErrors(file, records) : [];
+			const fileFailure =
+				lineCount === 0 ||
+				parseErrorCount > 0 ||
+				assistants.length === 0 ||
+				usage.length !== assistants.length ||
+				badUsage.length > 0 ||
+				replayHits.length > 0;
 			if (fileFailure) failures += 1;
 			summary = {
 				file: relative(smokeDir, file),
@@ -135,6 +189,7 @@ function main() {
 				assistantCount: assistants.length,
 				usageCount: usage.length,
 				badUsageCount: badUsage.length,
+				replayErrorCount: replayHits.length,
 			};
 		} catch (error) {
 			failures += 1;

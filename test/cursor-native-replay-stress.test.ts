@@ -1,0 +1,180 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Type } from "typebox";
+import {
+	resetCursorProviderTestState,
+	mockedCreate,
+	makeModel,
+	makeContext,
+	collectEvents,
+	collectThinkingDeltas,
+	hasEventType,
+	createNativeToolDisplayPiForTest,
+	type CursorDeltaHandler,
+} from "./helpers/cursor-provider-harness.js";
+import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
+
+const CURSOR_MODEL = makeModel();
+
+function mockFinishedGrepSend() {
+	return vi.fn(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+		opts.onDelta({
+			update: {
+				type: "tool-call-completed",
+				toolCall: {
+					name: "grep",
+					args: { pattern: "sidebar", path: "src" },
+					result: { status: "success", value: { matches: ["src/a.css"] } },
+				},
+				callId: "grep-1",
+			},
+		});
+		return {
+			id: "run-1",
+			agentId: "agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "done" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		};
+	});
+}
+
+describe("native replay stress", () => {
+	beforeEach(async () => {
+		cursorProviderTestUtils.setCursorNativeReplayIdleDisposeMs(0);
+		await resetCursorProviderTestState();
+	});
+
+	afterEach(async () => {
+		await cursorProviderTestUtils.releaseAllPendingCursorLiveRunsForTests();
+		await cursorProviderTestUtils.resetSessionCursorAgents();
+	});
+
+	it("plan strip then turn_start resync replays grep when context.tools match active tools", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const pi = await createNativeToolDisplayPiForTest();
+		pi.setActiveTools(["read", "bash", "edit", "write"]);
+		await pi.runEventHandlers("turn_start", { model: CURSOR_MODEL });
+		expect(pi.getActiveTools()).toContain("grep");
+		expect(pi.getActiveTools()).toContain("cursor");
+
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockFinishedGrepSend(),
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const context = makeContext();
+		context.tools = pi.getActiveTools().map((name) => ({ name, description: name, parameters: Type.Object({}) }));
+		const events = await collectEvents(streamCursor(CURSOR_MODEL, context, { apiKey: "test-key" }));
+		expect(hasEventType(events, "toolcall_start")).toBe(true);
+	});
+
+	it("stale context.tools without grep still avoids toolUse (coordinator guard)", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		await createNativeToolDisplayPiForTest();
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: vi.fn(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				opts.onDelta({
+					update: {
+						type: "tool-call-completed",
+						toolCall: {
+							name: "grep",
+							args: { pattern: "sidebar", path: "src" },
+							result: { status: "success", value: { matches: ["src/a.css"] } },
+						},
+						callId: "grep-1",
+					},
+				});
+				return {
+					id: "run-1",
+					agentId: "agent-1",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "done" }),
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				};
+			}),
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const context = makeContext();
+		context.tools = [{ name: "read", description: "Read", parameters: Type.Object({}) }];
+		const events = await collectEvents(streamCursor(makeModel(), context, { apiKey: "test-key" }));
+		expect(hasEventType(events, "toolcall_start")).toBe(false);
+		expect(collectThinkingDeltas(events)).toMatch(/grep|sidebar/i);
+	});
+
+	it("inactive cursor edit maps to trace text, not broken toolUse", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		await createNativeToolDisplayPiForTest();
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: vi.fn(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				opts.onDelta({
+					update: {
+						type: "tool-call-completed",
+						toolCall: {
+							name: "edit",
+							args: { path: "src/app.tsx" },
+							result: { status: "success", value: {} },
+						},
+						callId: "edit-1",
+					},
+				});
+				return {
+					id: "run-1",
+					agentId: "agent-1",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "done" }),
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				};
+			}),
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const context = makeContext();
+		context.tools = [{ name: "read", description: "Read", parameters: Type.Object({}) }];
+		const events = await collectEvents(streamCursor(makeModel(), context, { apiKey: "test-key" }));
+		expect(hasEventType(events, "toolcall_start")).toBe(false);
+		expect(collectThinkingDeltas(events)).toMatch(/Cursor edit:|edit.*completed/i);
+	});
+
+	it("find inactive in context uses trace fallback", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		await createNativeToolDisplayPiForTest();
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: vi.fn(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				opts.onDelta({
+					update: {
+						type: "tool-call-completed",
+						toolCall: { name: "find", args: { pattern: "**/*", path: "." }, result: { status: "success", value: {} } },
+						callId: "find-1",
+					},
+				});
+				return {
+					id: "run-1",
+					agentId: "agent-1",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "done" }),
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				};
+			}),
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const context = makeContext();
+		context.tools = [{ name: "read", description: "Read", parameters: Type.Object({}) }];
+		const events = await collectEvents(streamCursor(makeModel(), context, { apiKey: "test-key" }));
+		expect(hasEventType(events, "toolcall_start")).toBe(false);
+		expect(collectThinkingDeltas(events)).toMatch(/find/i);
+	});
+});

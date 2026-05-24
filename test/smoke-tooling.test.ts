@@ -8,19 +8,24 @@ function run(command: string, args: string[]) {
 describe("smoke tooling package checks", () => {
 	it("keeps smoke helper syntax and help paths working without live Cursor auth", () => {
 		expect(run("bash", ["-n", "scripts/tmux-live-smoke.sh"]).status).toBe(0);
+		expect(run("bash", ["-n", "scripts/isolated-cursor-smoke.sh"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/steering-rpc-smoke.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/validate-smoke-jsonl.mjs"]).status).toBe(0);
 
 		const liveHelp = run("scripts/tmux-live-smoke.sh", ["--help"]);
+		const isolatedHelp = run("scripts/isolated-cursor-smoke.sh", ["--help"]);
 		const steeringHelp = run(process.execPath, ["scripts/steering-rpc-smoke.mjs", "--help"]);
 		const jsonlHelp = run(process.execPath, ["scripts/validate-smoke-jsonl.mjs", "--help"]);
 
 		expect(liveHelp.status).toBe(0);
 		expect(liveHelp.stdout).toContain("retry-empty-output");
+		expect(isolatedHelp.status).toBe(0);
+		expect(isolatedHelp.stdout).toContain("plan-strip");
 		expect(steeringHelp.status).toBe(0);
 		expect(steeringHelp.stdout).toContain("RPC steering smoke");
 		expect(jsonlHelp.status).toBe(0);
 		expect(jsonlHelp.stdout).toContain("Validate assistant presence");
+		expect(jsonlHelp.stdout).toContain("--replay-errors");
 	});
 
 	it("packages smoke scripts and avoids reusing the v0.1.16 tarball version", () => {
@@ -33,6 +38,7 @@ describe("smoke tooling package checks", () => {
 		expect(pack.version).not.toBe("0.1.16");
 		expect(pack.filename).not.toBe("pi-cursor-sdk-0.1.16.tgz");
 		expect(paths.has("scripts/tmux-live-smoke.sh")).toBe(true);
+		expect(paths.has("scripts/isolated-cursor-smoke.sh")).toBe(true);
 		expect(paths.has("scripts/steering-rpc-smoke.mjs")).toBe(true);
 		expect(paths.has("scripts/validate-smoke-jsonl.mjs")).toBe(true);
 		expect(paths.has("CHANGELOG.md")).toBe(true);

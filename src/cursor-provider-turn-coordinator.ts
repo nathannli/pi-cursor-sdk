@@ -3,6 +3,7 @@ import type { InteractionUpdate } from "@cursor/sdk";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
 import { canRenderCursorToolNatively } from "./cursor-native-tool-display.js";
+import { formatInactiveCursorReplayTrace } from "./cursor-native-replay-trace.js";
 import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
 import { asRecord, getField, hasUsableText } from "./cursor-record-utils.js";
 import { scrubPiToolDisplay, scrubSensitiveText } from "./cursor-sensitive-text.js";
@@ -364,7 +365,11 @@ export class CursorSdkTurnCoordinator {
 			return;
 		}
 
-		this.emitCursorToolTrace(transcript || `Cursor tool: ${formatCursorToolName(toolCall)} completed`);
+		const inactiveNativeReplay = this.useNativeToolReplay && nativeRenderable && !nativeToolActive;
+		const traceText = inactiveNativeReplay
+			? formatInactiveCursorReplayTrace(display)
+			: transcript || `Cursor tool: ${formatCursorToolName(toolCall)} completed`;
+		this.emitCursorToolTrace(traceText);
 	}
 
 	private emitCursorToolTrace(text: string): void {

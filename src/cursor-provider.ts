@@ -38,6 +38,7 @@ import {
 	DEFAULT_CURSOR_NATIVE_REPLAY_IDLE_DISPOSE_MS,
 	getPendingCursorLiveRun,
 	hasTrailingUserMessagesAfterToolResults,
+	releaseAllPendingCursorLiveRunsForTests,
 	resetCursorNativeReplayIdleDisposeMs,
 	selectCursorFinalText,
 	setCursorNativeReplayIdleDisposeMs,
@@ -367,5 +368,6 @@ export const __testUtils = {
 	hasTrailingUserMessagesAfterToolResults,
 	setCursorNativeReplayIdleDisposeMs,
 	resetCursorNativeReplayIdleDisposeMs,
+	releaseAllPendingCursorLiveRunsForTests,
 	resetSessionCursorAgents: () => disposeAllSessionCursorAgents(),
 };

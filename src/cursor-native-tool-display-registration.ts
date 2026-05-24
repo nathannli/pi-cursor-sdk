@@ -1,7 +1,6 @@
 import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext, ExtensionHandler, SessionStartEvent, TurnStartEvent } from "@earendil-works/pi-coding-agent";
 import {
 	CURSOR_MODEL_ACTIVE_REPLAY_TOOL_NAMES,
-	CURSOR_REPLAY_TOOL_NAMES,
 	isNativeCursorToolName,
 	NATIVE_CURSOR_TOOL_NAMES,
 	registerNativeCursorTool,
@@ -15,6 +14,8 @@ import {
 	registeredNativeToolNames,
 } from "./cursor-native-tool-display-state.js";
 import { isCursorReplayToolName } from "./cursor-tool-names.js";
+
+const CORE_PI_TOOL_NAMES = new Set(["read", "bash", "edit", "write"]);
 
 type CursorNativeToolRegistryApi = Pick<ExtensionAPI, "getActiveTools" | "getAllTools" | "registerTool" | "setActiveTools">;
 
@@ -48,7 +49,8 @@ export function syncRegisteredNativeCursorToolsForModel(pi: Pick<ExtensionAPI, "
 			changed = true;
 		}
 	} else {
-		for (const toolName of CURSOR_REPLAY_TOOL_NAMES) {
+		for (const toolName of registeredNativeToolNames) {
+			if (CORE_PI_TOOL_NAMES.has(toolName)) continue;
 			if (!activeToolNames.delete(toolName)) continue;
 			changed = true;
 		}

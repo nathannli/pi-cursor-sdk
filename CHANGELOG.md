@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.1.18 - 2026-05-23
+
+### Added
+
+- Add `scripts/isolated-cursor-smoke.sh` and `npm run smoke:isolated` for packed `/tmp` install smoke with seeded `auth.json`, plan-strip shim, and JSONL replay-error scans.
+- Add `scripts/fixtures/plan-strip-shim/` to simulate plan-mode execute stripping active tools to `read`, `bash`, `edit`, and `write`.
+- Extend `scripts/validate-smoke-jsonl.mjs` with `--replay-errors` and `--replay-errors-only` to fail on persisted `Tool grep/cursor/find/ls not found` entries.
+- Add [Cursor testing lessons](docs/cursor-testing-lessons.md) documenting auth.json seeding, isolated harness layout, JSONL replay scans, and the plan-mode replay regression chain.
+- Add regression coverage in `test/cursor-native-replay-stress.test.ts`, `test/cursor-native-replay-trace.test.ts`, and expanded live-run / extension lifecycle tests.
+
+### Changed
+
+- Unify inactive native replay trace formatting through `src/cursor-native-replay-trace.ts` (`title: summary`) for both live-run drain and turn-coordinator paths.
+- On non-Cursor model switch, strip all registered native replay wrappers except core pi tools (`read`, `bash`, `edit`, `write`), not only `cursor`.
+- Document `auth.json` as the primary live-smoke auth source in the live smoke checklist, README maintainer gate, and UX spec.
+
+### Fixed
+
+- Fix `Tool grep not found` and related native replay failures after plan-mode execute resets active tools by re-syncing registered Cursor replay wrappers on `before_agent_start` and `turn_start`.
+- Skip native replay `toolUse` when a replay tool is inactive in `context.tools`; emit scrubbed thinking trace instead of a broken pi tool call.
+- Partition live-run drain replay emission so inactive queued native tools fall back to trace output instead of invalid `toolUse` turns.
+
 ## 0.1.17 - 2026-05-23
 
 ### Added
