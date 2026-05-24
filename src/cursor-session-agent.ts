@@ -20,6 +20,7 @@ import { getCursorSessionScopeKey, onCursorSessionScopeKeyChange } from "./curso
 export interface SessionCursorAgentSendState {
 	bootstrapped: boolean;
 	contextFingerprint: string;
+	incrementalSendCount: number;
 }
 
 export interface SessionCursorAgentLease {
@@ -156,7 +157,7 @@ async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?:
 }
 
 function createInitialSendState(): SessionCursorAgentSendState {
-	return { bootstrapped: false, contextFingerprint: "" };
+	return { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 };
 }
 
 function bindBridgeToolRequest(
@@ -230,13 +231,24 @@ async function createSessionAgentEntry(
 	};
 }
 
-export { shouldBootstrapCursorSend } from "./context.js";
+export {
+	buildCursorSessionSendPrompt,
+	MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP,
+	planCursorSessionSend,
+	type CursorSessionSendPlan,
+} from "./cursor-session-send-policy.js";
+export { shouldBootstrapCursorContext, shouldBootstrapCursorSend } from "./context.js";
 
 export function commitSessionAgentSend(scopeKey: string, context: Context, bootstrapped: boolean): void {
 	const entry = sessionAgentsByScope.get(scopeKey);
 	if (!entry) return;
 	entry.sendState.bootstrapped = bootstrapped || entry.sendState.bootstrapped;
 	entry.sendState.contextFingerprint = computeCursorContextFingerprint(context);
+	if (bootstrapped) {
+		entry.sendState.incrementalSendCount = 0;
+		return;
+	}
+	entry.sendState.incrementalSendCount += 1;
 }
 
 export function invalidateSessionAgent(scopeKey: string = getCursorSessionScopeKey()): void {

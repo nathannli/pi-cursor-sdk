@@ -11,11 +11,12 @@ import { Agent, createAgentPlatform } from "@cursor/sdk";
 import type { SDKAgent } from "@cursor/sdk";
 import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./cursor-sdk-output-filter.js";
-import { buildCursorSendPrompt } from "./context.js";
 import {
 	acquireSessionCursorAgent,
+	buildCursorSessionSendPrompt,
 	commitSessionAgentSend,
 	disposeAllSessionCursorAgents,
+	planCursorSessionSend,
 	resetSessionCursorAgent,
 } from "./cursor-session-agent.js";
 import {
@@ -186,15 +187,18 @@ export function streamCursor(
 			throwIfAborted();
 
 			const promptOptions = getCursorPromptOptions(model);
-			let { prompt, bootstrap } = buildCursorSendPrompt(context, promptOptions, sessionAgentLease.sendState);
-			if (sessionAgentLease.sendState.bootstrapped && bootstrap) {
+			let sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
+			let prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
+			if (sendPlan.resetAgent) {
 				await resetSessionCursorAgent(sessionAgentLease.scopeKey);
 				sessionAgentLease = await acquireSessionCursorAgent(sessionAgentAcquireParams);
 				sessionAgentScopeKey = sessionAgentLease.scopeKey;
 				agent = sessionAgentLease.agent;
 				bridgeRun = sessionAgentLease.bridgeRun;
-				({ prompt, bootstrap } = buildCursorSendPrompt(context, promptOptions, sessionAgentLease.sendState));
+				sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
+				prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 			}
+			const bootstrap = sendPlan.mode === "bootstrap";
 			const sessionBridgeRun = sessionAgentLease.bridgeRun;
 			const promptInputTokens = estimateCursorPromptInputTokens(prompt, promptOptions);
 			const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();

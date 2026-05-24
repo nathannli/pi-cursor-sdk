@@ -1,14 +1,19 @@
 import { describe, it, expect } from "vitest";
 import {
 	buildCursorPrompt,
-	buildCursorSendPrompt,
 	buildCursorIncrementalPrompt,
 	computeCursorContextFingerprint,
+	shouldBootstrapCursorContext,
 	shouldBootstrapCursorSend,
 	CURSOR_IMAGE_TOKEN_ESTIMATE,
 	estimateCursorContextTokens,
 	estimateCursorPromptMessageTokens,
+	getCursorToolTailGuardText,
 } from "../src/context.js";
+import {
+	buildCursorSessionSendPrompt,
+	planCursorSessionSend,
+} from "../src/cursor-session-send-policy.js";
 import type { Context, UserMessage, AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
 
 describe("buildCursorPrompt", () => {
@@ -441,7 +446,7 @@ describe("buildCursorPrompt", () => {
 			],
 		};
 
-		const result = buildCursorPrompt(ctx, { maxInputTokens: 1800, charsPerToken: 1 });
+		const result = buildCursorPrompt(ctx, { maxInputTokens: 1900, charsPerToken: 1 });
 
 		expect(result.text).toContain("User: latest request");
 		expect(result.text).toContain("User: recent request");
@@ -449,12 +454,13 @@ describe("buildCursorPrompt", () => {
 		expect(result.text).not.toContain("large output");
 	});
 
-	it("appends answer instruction", () => {
+	it("appends answer instruction and tool tail guard", () => {
 		const ctx: Context = {
 			messages: [{ role: "user", content: "test", timestamp: 1 }],
 		};
 		const result = buildCursorPrompt(ctx);
 		expect(result.text).toContain("Answer the latest user request");
+		expect(result.text.endsWith(getCursorToolTailGuardText())).toBe(true);
 	});
 
 	it("instructs Cursor not to claim web search without an actual Cursor web tool", () => {
@@ -478,17 +484,17 @@ describe("buildCursorPrompt", () => {
 	});
 });
 
-describe("buildCursorSendPrompt", () => {
+describe("cursor session prompt assembly", () => {
 	it("bootstraps the first send with the full Cursor prompt", () => {
 		const context: Context = {
 			systemPrompt: "Be helpful.",
 			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
 		};
-		const sendState = { bootstrapped: false, contextFingerprint: "" };
+		const sendState = { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 };
+		const plan = planCursorSessionSend(sendState, context);
+		const prompt = buildCursorSessionSendPrompt(context, {}, plan);
 
-		const { prompt, bootstrap } = buildCursorSendPrompt(context, {}, sendState);
-
-		expect(bootstrap).toBe(true);
+		expect(plan.mode).toBe("bootstrap");
 		expect(prompt.text).toContain("Cursor SDK tool boundary:");
 		expect(prompt.text).toContain("User: Hello");
 	});
@@ -505,18 +511,22 @@ describe("buildCursorSendPrompt", () => {
 			systemPrompt: "Be helpful.",
 			messages: [...priorContext.messages, { role: "user", content: "Follow up", timestamp: 3 }],
 		};
-		const sendState = { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(priorContext) };
+		const sendState = {
+			bootstrapped: true,
+			contextFingerprint: computeCursorContextFingerprint(priorContext),
+			incrementalSendCount: 1,
+		};
+		const plan = planCursorSessionSend(sendState, context);
+		const prompt = buildCursorSessionSendPrompt(context, {}, plan);
 
-		const { prompt, bootstrap } = buildCursorSendPrompt(context, {}, sendState);
-
-		expect(bootstrap).toBe(false);
+		expect(plan.mode).toBe("incremental");
 		expect(prompt.text).toContain("Continue the conversation using Cursor SDK capabilities only");
 		expect(prompt.text).toContain("User: Follow up");
 		expect(prompt.text).not.toContain("Cursor SDK tool boundary:");
 		expect(prompt.text).not.toContain("User: Hello");
 	});
 
-	it("rebootstraps after branch shrink using shouldBootstrapCursorSend", () => {
+	it("rebootstraps after branch shrink using shouldBootstrapCursorContext", () => {
 		const context: Context = {
 			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
 		};
@@ -528,10 +538,11 @@ describe("buildCursorSendPrompt", () => {
 					{ role: "assistant", content: [{ type: "text", text: "Hi" }], api: "cursor-sdk", provider: "cursor", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
 				],
 			}),
+			incrementalSendCount: 0,
 		};
 
-		expect(shouldBootstrapCursorSend(sendState, context)).toBe(true);
-		expect(buildCursorSendPrompt(context, {}, sendState).bootstrap).toBe(true);
+		expect(shouldBootstrapCursorContext(sendState, context)).toBe(true);
+		expect(planCursorSessionSend(sendState, context).mode).toBe("bootstrap");
 	});
 
 	it("rebootstraps when same-length history diverges", () => {
@@ -541,10 +552,15 @@ describe("buildCursorSendPrompt", () => {
 		const editedContext: Context = {
 			messages: [{ role: "user", content: "Hello edited", timestamp: 1 }],
 		};
-		const sendState = { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(priorContext) };
+		const sendState = {
+			bootstrapped: true,
+			contextFingerprint: computeCursorContextFingerprint(priorContext),
+			incrementalSendCount: 0,
+		};
 
+		expect(shouldBootstrapCursorContext(sendState, editedContext)).toBe(true);
 		expect(shouldBootstrapCursorSend(sendState, editedContext)).toBe(true);
-		expect(buildCursorSendPrompt(editedContext, {}, sendState).bootstrap).toBe(true);
+		expect(planCursorSessionSend(sendState, editedContext).mode).toBe("bootstrap");
 	});
 
 	it("omits the full tool boundary block from incremental prompts", () => {
@@ -554,9 +570,23 @@ describe("buildCursorSendPrompt", () => {
 		});
 		expect(incremental.text).not.toContain("Cursor SDK tool boundary:");
 		expect(incremental.text).toContain("Continue the conversation using Cursor SDK capabilities only");
+		expect(incremental.text).toContain(getCursorToolTailGuardText());
 	});
 
-	it("preserves the latest user request in incremental prompts under budget pressure", () => {
+	it("ends bootstrap and incremental prompts with the tool tail guard", () => {
+		const context: Context = {
+			systemPrompt: "Be helpful.",
+			messages: [{ role: "user", content: "Follow up", timestamp: 3 }],
+		};
+		const bootstrap = buildCursorPrompt(context);
+		const incremental = buildCursorIncrementalPrompt(context);
+		const tail = getCursorToolTailGuardText();
+
+		expect(bootstrap.text.endsWith(tail)).toBe(true);
+		expect(incremental.text.endsWith(tail)).toBe(true);
+	});
+
+	it("preserves the latest user request and tail guard in incremental prompts under budget pressure", () => {
 		const incremental = buildCursorIncrementalPrompt(
 			{
 				systemPrompt: "Long pi system prompt. ".repeat(20),
@@ -566,6 +596,7 @@ describe("buildCursorSendPrompt", () => {
 		);
 
 		expect(incremental.text).toContain("User: Keep this exact follow-up request");
+		expect(incremental.text).toContain(getCursorToolTailGuardText());
 	});
 
 	it("includes branch summaries from /tree navigation in bootstrap prompts", () => {
@@ -604,10 +635,14 @@ describe("buildCursorSendPrompt", () => {
 				} as Context["messages"][number],
 			],
 		};
-		const sendState = { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(priorContext) };
+		const sendState = {
+			bootstrapped: true,
+			contextFingerprint: computeCursorContextFingerprint(priorContext),
+			incrementalSendCount: 0,
+		};
 
-		expect(shouldBootstrapCursorSend(sendState, treeContext)).toBe(true);
-		expect(buildCursorSendPrompt(treeContext, {}, sendState).bootstrap).toBe(true);
+		expect(shouldBootstrapCursorContext(sendState, treeContext)).toBe(true);
+		expect(planCursorSessionSend(sendState, treeContext).mode).toBe("bootstrap");
 	});
 
 	it("includes compaction summaries in bootstrap prompts", () => {

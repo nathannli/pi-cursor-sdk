@@ -20,6 +20,33 @@ export const CURSOR_APPROX_CHARS_PER_TOKEN = 4;
 export const CURSOR_IMAGE_TOKEN_ESTIMATE = 1200;
 const SECTION_SEPARATOR = "\n\n";
 
+export function getCursorToolTailGuardText(): string {
+	return "Tool boundary reminder: If a tool is needed, call an available Cursor SDK/MCP tool. Never print a tool card (for example Tool call/Shell/command) as assistant text.";
+}
+
+function getCursorToolBoundaryText(): string {
+	return [
+		"Cursor SDK tool boundary:",
+		"You can call only tools actually exposed by Cursor SDK in this run. Pi tool names, replay tool names, and transcript tool names are context only, not callable capabilities.",
+		getCursorPiBridgeContractText(),
+		"If asked to list or exercise available tools, list and exercise Cursor SDK tools only; do not claim access to pi-side tools from the system prompt unless Cursor exposes an equivalent tool that runs.",
+		"Use pi__cursor_ask_question for material choices if exposed.",
+		"Web: use Cursor web/search/browser/MCP or say web search is not configured; do not claim WebSearch/WebFetch unless Cursor executes them.",
+		"Replay: pi may display recorded Cursor tool activity as pi-style cards, but replay is display-only and not a capability to invoke.",
+		"Images: only latest user images are sent; ask to reattach or describe prior images.",
+	].join("\n");
+}
+
+function getCursorBootstrapTailSections(): string[] {
+	return [
+		[
+			"Answer the latest user request above using Cursor SDK capabilities only. Do not list, promise, or call pi-only tools from the system prompt as if they were available.",
+			"If web research is requested, do not claim it unless a Cursor web/search/browser/MCP tool ran.",
+		].join("\n"),
+		getCursorToolTailGuardText(),
+	];
+}
+
 function normalizePiContextMessages(messages: Context["messages"]): Message[] {
 	return convertToLlm(messages as Parameters<typeof convertToLlm>[0]);
 }
@@ -281,7 +308,7 @@ export function computeCursorContextFingerprint(context: Context): string {
 	return JSON.stringify(payload);
 }
 
-export function shouldBootstrapCursorSend(
+export function shouldBootstrapCursorContext(
 	sendState: { bootstrapped: boolean; contextFingerprint: string },
 	context: Context,
 ): boolean {
@@ -304,6 +331,14 @@ export function shouldBootstrapCursorSend(
 	return false;
 }
 
+/** @deprecated Use planCursorSessionSend() for send mode and shouldBootstrapCursorContext() for context-only checks. */
+export function shouldBootstrapCursorSend(
+	sendState: { bootstrapped: boolean; contextFingerprint: string },
+	context: Context,
+): boolean {
+	return shouldBootstrapCursorContext(sendState, context);
+}
+
 export function buildCursorIncrementalPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
 	// Incremental sends omit the full Cursor SDK tool boundary block; the session agent retains prior bootstrap context.
 	const messages = normalizePiContextMessages(context.messages);
@@ -324,35 +359,18 @@ export function buildCursorIncrementalPrompt(context: Context, options: CursorPr
 		options.maxInputTokens === undefined
 			? options
 			: { ...options, maxInputTokens: Math.max(1, options.maxInputTokens - imageTokenReserve) };
-	const parts = applyPromptBudget(sectionsBeforeMessages, latestUserMessageSections, [], latestUserMessageIndex, budgetOptions);
+	const parts = applyPromptBudget(
+		sectionsBeforeMessages,
+		latestUserMessageSections,
+		[getCursorToolTailGuardText()],
+		latestUserMessageIndex,
+		budgetOptions,
+	);
 	return { text: parts.join(SECTION_SEPARATOR), images };
 }
 
-export function buildCursorSendPrompt(
-	context: Context,
-	options: CursorPromptOptions,
-	sendState: { bootstrapped: boolean; contextFingerprint: string },
-): { prompt: CursorPrompt; bootstrap: boolean } {
-	const bootstrap = shouldBootstrapCursorSend(sendState, context);
-	if (bootstrap) {
-		return { prompt: buildCursorPrompt(context, options), bootstrap: true };
-	}
-	return { prompt: buildCursorIncrementalPrompt(context, options), bootstrap: false };
-}
-
 export function buildCursorPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
-	const sectionsBeforeMessages: string[] = [
-		[
-			"Cursor SDK tool boundary:",
-			"You can call only tools actually exposed by Cursor SDK in this run. Pi tool names, replay tool names, and transcript tool names are context only, not callable capabilities.",
-			getCursorPiBridgeContractText(),
-			"If asked to list or exercise available tools, list and exercise Cursor SDK tools only; do not claim access to pi-side tools from the system prompt unless Cursor exposes an equivalent tool that runs.",
-			"Use pi__cursor_ask_question for material choices if exposed.",
-			"Web: use Cursor web/search/browser/MCP or say web search is not configured; do not claim WebSearch/WebFetch unless Cursor executes them.",
-			"Replay: pi may display recorded Cursor tool activity as pi-style cards, but replay is display-only and not a capability to invoke.",
-			"Images: only latest user images are sent; ask to reattach or describe prior images.",
-		].join("\n"),
-	];
+	const sectionsBeforeMessages: string[] = [getCursorToolBoundaryText()];
 
 	if (context.systemPrompt) {
 		sectionsBeforeMessages.push(`System instructions from pi:\n${sanitizeSystemPromptForCursor(context.systemPrompt)}`);
@@ -365,12 +383,7 @@ export function buildCursorPrompt(context: Context, options: CursorPromptOptions
 			return text ? { index, text } : undefined;
 		})
 		.filter((section): section is { index: number; text: string } => section !== undefined);
-	const sectionsAfterMessages = [
-		[
-			"Answer the latest user request above using Cursor SDK capabilities only. Do not list, promise, or call pi-only tools from the system prompt as if they were available.",
-			"If web research is requested, do not claim it unless a Cursor web/search/browser/MCP tool ran.",
-		].join("\n"),
-	];
+	const sectionsAfterMessages = getCursorBootstrapTailSections();
 	const images = extractLatestImages(messages);
 	const imageTokenReserve = images.length * (options.imageTokenEstimate ?? 0);
 	const budgetOptions =
