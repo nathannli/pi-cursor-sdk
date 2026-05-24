@@ -4,6 +4,7 @@ import { shouldBootstrapCursorSend, computeCursorContextFingerprint } from "../s
 import { __testUtils as cursorSessionScopeTestUtils, registerCursorSessionScope } from "../src/cursor-session-scope.js";
 import {
 	acquireSessionCursorAgent,
+	commitSessionAgentSend,
 	registerCursorSessionAgent,
 	__testUtils as sessionAgentTestUtils,
 } from "../src/cursor-session-agent.js";
@@ -45,6 +46,35 @@ describe("cursor-session-agent", () => {
 		expect(first.agent).toBe(second.agent);
 		expect(createAgent).toHaveBeenCalledTimes(1);
 		expect(mockDispose).not.toHaveBeenCalled();
+	});
+
+	it("tracks incremental send count and resets it after bootstrap commits", async () => {
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-1",
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const params = {
+			apiKey: "test-key",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+
+		const lease = await acquireSessionCursorAgent(params);
+		const context = makeContext([{ role: "user", content: "Hello", timestamp: 1 }]);
+
+		commitSessionAgentSend(scopeKey, context, true);
+		expect(lease.sendState.incrementalSendCount).toBe(0);
+
+		commitSessionAgentSend(scopeKey, context, false);
+		commitSessionAgentSend(scopeKey, context, false);
+		expect(lease.sendState.incrementalSendCount).toBe(2);
+
+		commitSessionAgentSend(scopeKey, context, true);
+		expect(lease.sendState.incrementalSendCount).toBe(0);
 	});
 
 	it("invalidates and recreates the session agent after compaction", async () => {
