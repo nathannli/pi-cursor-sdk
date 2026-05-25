@@ -2,8 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- Surface incomplete started Cursor SDK tool calls as bounded neutral `Cursor … did not complete` cards or traces, including safe reasons for missing completion, abort, SDK failure, and run-drain cleanup while preserving #52 maintainer debug artifacts and excluding bridge-owned `pi__*` calls.
+- Add low-noise pending lifecycle visibility for long-running Cursor tools, delayed so fast start/complete pairs coalesce into completed replay cards instead of duplicate permanent start cards.
+- Render unknown future Cursor SDK tools as neutral bounded Cursor activity cards, while keeping explicit known-tool replay/transcript formatting authoritative.
+
+### Changed
+
+- Route incomplete started-tool visibility through the same native replay disposition used by completed replay, so inactive, conflicting, non-native, and bridge-only contexts fall back to safe traces instead of invalid `cursor` tool-use turns.
+- Harden Cursor lifecycle and incomplete-tool labels to scrub commands, URLs, absolute paths, key/flag path values, and secrets before showing user-visible activity.
+
 ### Fixed
 
+- Label Cursor web search and web fetch activity clearly in TUI/replay output, including MCP-shaped web search/fetch calls, without mislabeling semantic search.
+- Prevent deferred lifecycle timers from leaking `Cursor …` progress into terminal error/final partials after `run.wait()` resolves or rejects.
+- Preserve abort-time incomplete-tool visibility for live runs, including when earlier replay or bridge events are still queued, without replaying or synthesizing earlier tool work.
 - Suppress duplicate pi `AGENTS.md` injection on Cursor models only when effective Cursor `settingSources` load the overlapping `user` / `project` rule layers. Uses exact `contextFiles` block removal exclusively via the `before_agent_start` hook (not in `buildCursorPrompt` sanitization), honors `-nc` and `PI_CURSOR_SETTING_SOURCES=none`, restores full pi context when switching to non-Cursor models, and supports `PI_CURSOR_PRESERVE_PI_AGENTS_MD=1` opt-out.
 
 ## 0.1.18 - 2026-05-23
