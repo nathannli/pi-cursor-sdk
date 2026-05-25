@@ -631,4 +631,144 @@ it("replays native Cursor tools as a toolUse turn before final text", async () =
 		expect(cancelRun).toHaveBeenCalledTimes(1);
 		expect(mockDispose).toHaveBeenCalledTimes(1);
 	});
+
+	it("surfaces incomplete started Cursor tools on abort when a completed native replay tool is already queued", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		const controller = new AbortController();
+		const mockDispose = vi.fn().mockResolvedValue(undefined);
+		const cancelRun = vi.fn().mockResolvedValue(undefined);
+		const runWait = vi.fn(() => new Promise<{ id: string; status: "finished"; result: string }>(() => {}));
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "read",
+						result: { status: "success", value: { content: "# readme" } },
+					},
+					callId: "c1",
+				},
+			});
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "grep", args: { pattern: "foo" } }, callId: "c2" } });
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: cancelRun,
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: mockDispose,
+		});
+
+		const eventsPromise = collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key", signal: controller.signal }));
+		await vi.waitFor(() => expect(mockSend).toHaveBeenCalled());
+		controller.abort();
+		const events = await eventsPromise;
+
+		expect(getErrorEvent(events).reason).toBe("aborted");
+		expect(collectThinkingDeltas(events)).toContain("Cursor grep did not complete");
+		expect(collectThinkingDeltas(events)).toContain("aborted");
+		expect(getEventsOfType(events, "toolcall_start")).toHaveLength(0);
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+		expect(cancelRun).toHaveBeenCalled();
+		expect(mockDispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("surfaces incomplete started Cursor tools when aborting a scoped native live run", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		const controller = new AbortController();
+		const mockDispose = vi.fn().mockResolvedValue(undefined);
+		const cancelRun = vi.fn().mockResolvedValue(undefined);
+		const runWait = vi.fn(() => new Promise<{ id: string; status: "finished"; result: string }>(() => {}));
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: cancelRun,
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: mockDispose,
+		});
+
+		const eventsPromise = collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key", signal: controller.signal }));
+		await vi.waitFor(() => expect(mockSend).toHaveBeenCalled());
+		controller.abort();
+		const events = await eventsPromise;
+
+		expect(getErrorEvent(events).reason).toBe("aborted");
+		expect(collectThinkingDeltas(events)).toContain("Cursor read did not complete");
+		expect(collectThinkingDeltas(events)).toContain("aborted");
+		expect(getEventsOfType(events, "toolcall_start")).toHaveLength(0);
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+		expect(cancelRun).toHaveBeenCalled();
+		expect(mockDispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("replays incomplete started Cursor tools as neutral cursor activity cards before final text", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const firstEventsPromise = collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		await vi.waitFor(() => expect(mockSend).toHaveBeenCalled());
+		resolveRun({ id: "run-1", status: "finished", result: "done after incomplete read" });
+		const firstEvents = await firstEventsPromise;
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCalls = firstDone.message.content.filter(isToolCallBlock);
+
+		expect(firstDone.reason).toBe("toolUse");
+		expect(toolCalls).toHaveLength(1);
+		expect(toolCalls[0]?.name).toBe("cursor");
+		expect(toolCalls[0]?.arguments).toMatchObject({
+			activityTitle: "Cursor read",
+			activitySummary: "missing completion",
+		});
+		expect(nativeToolDisplayTestUtils.nativeToolResultCount()).toBe(1);
+	});
 });

@@ -12,7 +12,13 @@ import { buildCursorPiToolDisplay, formatCursorToolTranscript, getCursorCreatePl
 import {
 	recordDiscardedIncompleteStartedToolCall,
 	type CursorSdkEventDebugRecorder,
+	DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
 } from "./cursor-sdk-event-debug.js";
+import {
+	buildIncompleteCursorToolDisplay,
+	formatIncompleteCursorToolTrace,
+	type IncompleteCursorToolDiscardReason,
+} from "./cursor-incomplete-tool-visibility.js";
 import { getToolName, normalizeToolName } from "./cursor-transcript-utils.js";
 import {
 	CURSOR_TOOL_LIFECYCLE_DEFER_MS,
@@ -153,13 +159,17 @@ export class CursorSdkTurnCoordinator {
 		return this.nativeToolReplayStarted;
 	}
 
-	discardIncompleteStartedToolCalls(): void {
+	discardIncompleteStartedToolCalls(
+		reason: IncompleteCursorToolDiscardReason = DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+	): void {
 		for (const [callId, toolCall] of this.startedToolCalls) {
 			if (typeof callId !== "string") continue;
 			recordDiscardedIncompleteStartedToolCall(this.debugRecorder, process.env, {
 				toolName: normalizeToolName(getToolName(toolCall)),
 				callId,
+				reason,
 			});
+			this.emitIncompleteStartedToolCall(toolCall, reason);
 		}
 		this.startedToolCalls.clear();
 		this.bridgeStartedToolCallIds.clear();
@@ -423,6 +433,53 @@ export class CursorSdkTurnCoordinator {
 			identity: options.identity,
 			source: options.source,
 			transcript,
+			traceText,
+		});
+		this.emitCursorToolTrace(traceText);
+	}
+
+	private emitIncompleteStartedToolCall(toolCall: unknown, reason: IncompleteCursorToolDiscardReason): void {
+		const display = scrubPiToolDisplay(
+			buildIncompleteCursorToolDisplay(toolCall, reason, { apiKey: this.resolvedApiKey }),
+			this.resolvedApiKey,
+		);
+		const toolName = display.toolName;
+		const disposition = resolveNativeReplayDisposition({
+			toolName,
+			useNativeToolReplay: this.useNativeToolReplay,
+			activeToolNames: this.activeToolNames,
+			hasLiveRun: this.liveRun !== undefined,
+		});
+
+		// Aborted live runs emit trace visibility only; do not synthesize a toolUse replay turn.
+		if (disposition === "queue_replay" && this.liveRun && reason !== "abort") {
+			this.nativeToolReplayStarted = true;
+			const id = `${this.nativeReplayId}-tool-${++this.nativeToolDisplayCounter}`;
+			this.recordDisplayDecision({
+				action: "queue_replay",
+				disposition,
+				toolName,
+				source: "started",
+				reason: "incomplete-started-tool-call",
+				replayToolId: id,
+			});
+			cursorLiveRuns.queueEvent(this.liveRun, {
+				type: "tool",
+				tool: { ...display, id },
+			});
+			return;
+		}
+
+		const traceText =
+			disposition === "inactive_trace"
+				? formatInactiveCursorReplayTrace(display)
+				: formatIncompleteCursorToolTrace(display);
+		this.recordDisplayDecision({
+			action: "emit_trace",
+			disposition,
+			toolName,
+			source: "started",
+			reason: "incomplete-started-tool-call",
 			traceText,
 		});
 		this.emitCursorToolTrace(traceText);

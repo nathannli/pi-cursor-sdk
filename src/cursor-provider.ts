@@ -37,6 +37,7 @@ import {
 	cursorLiveRuns,
 	drainCursorLiveRunTurn,
 	drainExistingCursorLiveRunBeforeSend,
+	flushPendingCursorLiveRunTraceEventsToStream,
 	DEFAULT_CURSOR_NATIVE_REPLAY_IDLE_DISPOSE_MS,
 	getPendingCursorLiveRun,
 	hasTrailingUserMessagesAfterToolResults,
@@ -52,6 +53,7 @@ import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-w
 import {
 	attachCursorSdkEventDebugPiStreamTap,
 	CursorSdkEventDebugSink,
+	DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
 } from "./cursor-sdk-event-debug.js";
 import { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
 import { isCursorNativeToolDisplayRuntimeEnabled } from "./cursor-native-tool-display.js";
@@ -329,7 +331,13 @@ export function streamCursor(
 					.wait()
 					.then(async (result) => {
 						sdkEventDebug?.recordWaitResult(result);
-						turnCoordinator.discardIncompleteStartedToolCalls();
+						turnCoordinator.discardIncompleteStartedToolCalls(
+							result.status === "cancelled" || options?.signal?.aborted
+								? "abort"
+								: result.status === "error"
+									? "sdk-failure"
+									: DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+						);
 						await sdkEventDebug?.captureRunArtifacts(run);
 						if (liveRun.disposed) return;
 						await cacheSdkContextWindow(liveRun.agent.agentId, model.id);
@@ -361,7 +369,7 @@ export function streamCursor(
 					.catch(async (error: unknown) => {
 						sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) });
 						sdkEventDebug?.recordError("run_wait", error);
-						turnCoordinatorForCleanup?.discardIncompleteStartedToolCalls();
+						turnCoordinatorForCleanup?.discardIncompleteStartedToolCalls("sdk-failure");
 						await sdkEventDebug?.captureRunArtifacts(run);
 						if (liveRun.disposed) return;
 						cursorLiveRuns.markError(liveRun, sanitizeCursorProviderError(error, resolvedApiKey ?? options?.apiKey));
@@ -379,7 +387,14 @@ export function streamCursor(
 						});
 					});
 				} catch (error) {
-					if (error instanceof CursorLiveRunAbortError) await cursorLiveRuns.release(liveRun);
+					if (error instanceof CursorLiveRunAbortError) {
+						turnCoordinator.discardIncompleteStartedToolCalls("abort");
+						turnCoordinator.closeTraceBlock();
+						flushPendingCursorLiveRunTraceEventsToStream(stream, partial, liveRun, {
+							includeTracesBehindQueuedTools: true,
+						});
+						await cursorLiveRuns.release(liveRun);
+					}
 					throw error;
 				} finally {
 					sdkEventDebugRef.current = undefined;
@@ -396,7 +411,13 @@ export function streamCursor(
 
 			const result = await run.wait();
 			sdkEventDebug?.recordWaitResult(result);
-			turnCoordinator.discardIncompleteStartedToolCalls();
+			turnCoordinator.discardIncompleteStartedToolCalls(
+				result.status === "cancelled" || options?.signal?.aborted
+					? "abort"
+					: result.status === "error"
+						? "sdk-failure"
+						: DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+			);
 			await sdkEventDebug?.captureRunArtifacts(run);
 			await cacheSdkContextWindow(agent.agentId, model.id);
 
@@ -431,7 +452,9 @@ export function streamCursor(
 			}
 			} catch (error) {
 				sdkEventDebug?.recordError("provider_stream", error);
-				turnCoordinatorForCleanup?.discardIncompleteStartedToolCalls();
+				turnCoordinatorForCleanup?.discardIncompleteStartedToolCalls(
+					error instanceof CursorLiveRunAbortError ? "abort" : "sdk-failure",
+				);
 				if (activeLiveRun && !activeLiveRun.disposed) await cursorLiveRuns.release(activeLiveRun);
 				else await abandonSessionCursorAgent(sessionAgentScopeKey);
 				if (error instanceof CursorLiveRunAbortError) {
