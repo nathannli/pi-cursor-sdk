@@ -49,6 +49,10 @@ import {
 import { getEffectiveFastForModelId } from "./cursor-state.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-window-cache.js";
+import {
+	attachCursorSdkEventDebugPiStreamTap,
+	CursorSdkEventDebugSink,
+} from "./cursor-sdk-event-debug.js";
 import { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
 import { isCursorNativeToolDisplayRuntimeEnabled } from "./cursor-native-tool-display.js";
 import {
@@ -107,6 +111,8 @@ export function streamCursor(
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();
+	const sdkEventDebugRef: { current?: CursorSdkEventDebugSink } = {};
+	attachCursorSdkEventDebugPiStreamTap(stream, sdkEventDebugRef);
 
 	(async () => {
 		const partial = makeInitialMessage(model);
@@ -120,6 +126,8 @@ export function streamCursor(
 		let abortSignal: AbortSignal | undefined;
 		let abortListener: (() => void) | undefined;
 		let restoreCursorSdkOutputFilter: (() => void) | undefined;
+		let sdkEventDebug: CursorSdkEventDebugSink | undefined;
+		let deferSdkEventDebugFinalize = false;
 
 		try {
 			const throwIfAborted = (): void => {
@@ -129,7 +137,19 @@ export function streamCursor(
 			stream.push({ type: "start", partial });
 			throwIfAborted();
 
-			if ((await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal)) === "stream_ended") {
+			const cwd = getCursorSessionCwd();
+			sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
+				cwd,
+				modelId: model.id,
+				provider: model.provider,
+			});
+			sdkEventDebugRef.current = sdkEventDebug;
+			sdkEventDebug?.recordContextSnapshot(context);
+
+			if ((await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, sdkEventDebug)) === "stream_ended") {
+				sdkEventDebug?.recordFinalPartial(partial);
+				await sdkEventDebug?.finalize();
+				sdkEventDebugRef.current = undefined;
 				stream.end();
 				return;
 			}
@@ -138,9 +158,6 @@ export function streamCursor(
 			if (!apiKey) throw new Error(MISSING_CURSOR_API_KEY_MESSAGE);
 			resolvedApiKey = apiKey;
 
-			// pi-ai Context/SimpleStreamOptions do not expose ExtensionContext.cwd; bridge via session_start
-			// until pi threads session cwd into streamSimple (cwd can change without a new session event).
-			const cwd = getCursorSessionCwd();
 			const fastEnabled = getEffectiveFastForModelId(model.id);
 			const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
 			const settingSources = getEffectiveCursorSettingSources();
@@ -152,6 +169,7 @@ export function streamCursor(
 				cwd,
 				modelSelection: selection,
 				settingSources,
+				debugRecorder: sdkEventDebug,
 				onBridgeToolRequest: (request: CursorPiBridgeToolRequest) => {
 					if (liveRunForBridgeQueue && !liveRunForBridgeQueue.disposed) {
 						cursorLiveRuns.queueEvent(liveRunForBridgeQueue, { type: "bridge-tool", request });
@@ -185,6 +203,23 @@ export function streamCursor(
 			const promptInputTokens = estimateCursorPromptInputTokens(prompt, promptOptions);
 			const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();
 			const activeToolNames = getActiveContextToolNames(context);
+			sdkEventDebug?.recordProviderMeta({
+				model: {
+					id: model.id,
+					provider: model.provider,
+					api: model.api,
+					reasoning: options?.reasoning ?? "off",
+					fastEnabled,
+					selection,
+				},
+				settingSources: settingSources ?? null,
+				sendState: sessionAgentLease.sendState,
+				sendPlan,
+				promptOptions,
+				activeToolNames: activeToolNames ? [...activeToolNames] : [],
+				sessionAgentScopeKey,
+				bridgeRunId: bridgeRun?.id,
+			});
 			const nativeReplayId = createCursorNativeReplayId();
 			const textDeltas: string[] = [];
 			const useLiveRun = useNativeToolReplay || bridgeRun !== undefined;
@@ -197,6 +232,7 @@ export function streamCursor(
 						sessionAgentScopeKey,
 						promptInputTokens,
 						textDeltas,
+						debugRecorder: sdkEventDebug,
 					})
 				: undefined;
 			if (liveRun) {
@@ -216,6 +252,7 @@ export function streamCursor(
 				activeToolNames,
 				nativeReplayId,
 				textDeltas,
+				debugRecorder: sdkEventDebug,
 			});
 
 			// Handle abort signal
@@ -230,13 +267,45 @@ export function streamCursor(
 			abortSignal?.addEventListener("abort", abortListener, { once: true });
 
 			throwIfAborted();
-			run = await agent.send(
-				{ text: prompt.text, images: prompt.images.length > 0 ? prompt.images : undefined },
-				{
-					onDelta: (args) => turnCoordinator.handleDelta(args.update),
-					onStep: (args) => turnCoordinator.handleStep(args.step),
+			sdkEventDebug?.recordSendMeta({
+				mode: sendPlan.mode,
+				reason: sendPlan.reason,
+				resetAgent: sendPlan.resetAgent,
+				bootstrap,
+				promptText: prompt.text,
+				imageCount: prompt.images.length,
+				useNativeToolReplay,
+				bridgeEnabled: bridgeRun !== undefined,
+				nativeReplayId,
+				promptInputTokens,
+			});
+			const sendPayload = {
+				text: prompt.text,
+				images: prompt.images.length > 0 ? prompt.images : undefined,
+			};
+			sdkEventDebug?.recordSendPayload(sendPayload);
+			sdkEventDebug?.recordProviderEvent("agent_send_start", sendPayload);
+			run = await agent.send(sendPayload, {
+				onDelta: (args) => {
+					sdkEventDebug?.recordOnDelta(args.update);
+					turnCoordinator.handleDelta(args.update);
 				},
-			);
+				onStep: (args) => {
+					sdkEventDebug?.recordOnStep(args.step);
+					turnCoordinator.handleStep(args.step);
+				},
+			});
+			sdkEventDebug?.recordRunMeta({
+				runId: run.id,
+				agentId: run.agentId,
+				status: run.status,
+			});
+			sdkEventDebug?.attachRunStream(run);
+			sdkEventDebug?.recordProviderEvent("agent_send_returned", {
+				runId: run.id,
+				agentId: run.agentId,
+				status: run.status,
+			});
 			if (liveRun) cursorLiveRuns.attachSdkRun(liveRun, run);
 			if (options?.signal?.aborted) {
 				await run.cancel().catch(() => {});
@@ -244,9 +313,12 @@ export function streamCursor(
 			}
 
 			if (liveRun) {
-				void run
+				deferSdkEventDebugFinalize = true;
+				const waitCompletion = run
 					.wait()
 					.then(async (result) => {
+						sdkEventDebug?.recordWaitResult(result);
+						await sdkEventDebug?.captureRunArtifacts(run);
 						if (liveRun.disposed) return;
 						turnCoordinator.discardIncompleteStartedToolCalls();
 						await cacheSdkContextWindow(liveRun.agent.agentId, model.id);
@@ -276,6 +348,9 @@ export function streamCursor(
 						}
 					})
 					.catch(async (error: unknown) => {
+						sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) });
+						sdkEventDebug?.recordError("run_wait", error);
+						await sdkEventDebug?.captureRunArtifacts(run);
 						if (liveRun.disposed) return;
 						cursorLiveRuns.markError(liveRun, sanitizeCursorProviderError(error, resolvedApiKey ?? options?.apiKey));
 					});
@@ -285,17 +360,31 @@ export function streamCursor(
 						await cursorLiveRuns.waitForProgress(liveRun, options?.signal);
 						await settleCursorLiveToolBatch(liveRun);
 						turnCoordinator.closeTraceBlock();
-						await drainCursorLiveRunTurn(stream, partial, model, context, liveRun, 0, { mode: "emit", signal: options?.signal });
+						await drainCursorLiveRunTurn(stream, partial, model, context, liveRun, 0, {
+							mode: "emit",
+							signal: options?.signal,
+							debugRecorder: sdkEventDebug,
+						});
 					});
 				} catch (error) {
 					if (error instanceof CursorLiveRunAbortError) await cursorLiveRuns.release(liveRun);
 					throw error;
+				} finally {
+					sdkEventDebugRef.current = undefined;
+					void waitCompletion
+						.finally(async () => {
+							sdkEventDebug?.recordFinalPartial(partial);
+							await sdkEventDebug?.finalize();
+						})
+						.catch(() => {});
 				}
 				agent = null;
 				return;
 			}
 
 			const result = await run.wait();
+			sdkEventDebug?.recordWaitResult(result);
+			await sdkEventDebug?.captureRunArtifacts(run);
 			turnCoordinator.discardIncompleteStartedToolCalls();
 			await cacheSdkContextWindow(agent.agentId, model.id);
 
@@ -329,6 +418,7 @@ export function streamCursor(
 				stream.push({ type: "done", reason: "stop", message: partial });
 			}
 		} catch (error) {
+			sdkEventDebug?.recordError("provider_stream", error);
 			if (activeLiveRun && !activeLiveRun.disposed) await cursorLiveRuns.release(activeLiveRun);
 			else await abandonSessionCursorAgent(sessionAgentScopeKey);
 			if (error instanceof CursorLiveRunAbortError) {
@@ -343,6 +433,11 @@ export function streamCursor(
 				stream.push({ type: "error", reason: "error", error: partial });
 			}
 		} finally {
+			if (!deferSdkEventDebugFinalize) {
+				sdkEventDebug?.recordFinalPartial(partial);
+				await sdkEventDebug?.finalize();
+			}
+			sdkEventDebugRef.current = undefined;
 			restoreCursorSdkOutputFilter?.();
 
 			if (abortSignal && abortListener) {

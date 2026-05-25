@@ -67,6 +67,7 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 	private readonly pendingByBridgeCallId = new Map<string, PendingBridgeCall>();
 	private readonly pendingByCursorMcpCallId = new Map<string, PendingBridgeCall>();
 	private onToolRequest?: (request: CursorPiBridgeToolRequest) => void;
+	private debugRecorder: CursorPiToolBridgeRunOptions["debugRecorder"];
 	private liveRunHandlerDetached = false;
 	private mcpServer?: McpProtocolServer;
 	private mcpTransport?: StreamableHTTPServerTransport;
@@ -85,6 +86,7 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 		this.snapshot = snapshot;
 		this.enabled = enabled;
 		this.onToolRequest = options.onToolRequest;
+		this.debugRecorder = options.debugRecorder;
 		this.id = `cursor-pi-bridge-run-${randomUUID()}`;
 		this.endpointPath = `${MCP_ENDPOINT_ROOT}/${randomUUID()}/mcp`;
 		this.knownMcpToolNames = new Set(snapshot.tools.map((tool) => tool.mcpToolName));
@@ -144,6 +146,10 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 				if (pending) this.dispatchPendingToolRequest(pending, handler);
 			}
 		}
+	}
+
+	setDebugRecorder(recorder?: CursorPiToolBridgeRunOptions["debugRecorder"]): void {
+		this.debugRecorder = recorder;
 	}
 
 	resolveToolResults(toolResults: readonly ToolResultMessage[]): void {
@@ -290,9 +296,11 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 				}
 				this.queuedRequests.push(request);
 				this.emitRequestQueuedDiagnostic(request);
+				this.debugRecorder?.recordBridgeRaw({ kind: "queued", request });
 				return;
 			}
 			this.emitRequestQueuedDiagnostic(request);
+			this.debugRecorder?.recordBridgeRaw({ kind: "queued", request });
 			this.dispatchPendingToolRequest(pending, this.onToolRequest);
 		});
 	}
@@ -321,6 +329,7 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 		pending.settled = true;
 		this.removePending(pending);
 		this.emitRequestResolvedDiagnostic(pending.request, result.isError === true);
+		this.debugRecorder?.recordBridgeRaw({ kind: "resolved", request: pending.request, result });
 		pending.resolve(result);
 	}
 
@@ -329,6 +338,12 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 		pending.settled = true;
 		this.removePending(pending);
 		this.emitRequestRejectedDiagnostic(pending.request, kind);
+		this.debugRecorder?.recordBridgeRaw({
+			kind: "rejected",
+			request: pending.request,
+			error: error.message,
+			rejectionKind: kind,
+		});
 		pending.reject(error);
 	}
 
@@ -366,7 +381,7 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 	}
 
 	private emitDiagnostic(event: CursorPiToolBridgeDiagnosticEvent): void {
-		writeCursorPiToolBridgeDiagnostic(this.env, event);
+		writeCursorPiToolBridgeDiagnostic(this.env, event, this.debugRecorder);
 	}
 
 	private pendingCount(): number {
