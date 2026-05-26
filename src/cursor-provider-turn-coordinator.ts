@@ -16,15 +16,19 @@ import {
 } from "./cursor-sdk-event-debug.js";
 import {
 	buildIncompleteCursorToolDisplay,
+	buildIncompleteCursorToolRunOutcome,
 	formatIncompleteCursorToolTrace,
+	resolveIncompleteCursorToolVisibility,
+	type IncompleteCursorToolRunOutcome,
 	type IncompleteCursorToolDiscardReason,
 } from "./cursor-incomplete-tool-visibility.js";
-import { getToolName, normalizeToolName } from "./cursor-transcript-utils.js";
+import { getToolName } from "./cursor-transcript-utils.js";
 import {
 	CURSOR_TOOL_LIFECYCLE_DEFER_MS,
 	formatCursorToolLifecycleProgressText,
 	isCursorToolLifecycleEligible,
 } from "./cursor-tool-lifecycle.js";
+import { classifyCursorToolVisibility } from "./cursor-tool-visibility.js";
 
 function formatCursorToolName(toolCall: unknown): string {
 	return truncateCursorDisplayLine(getToolName(toolCall), 80) || "unknown";
@@ -40,18 +44,12 @@ interface CursorShellOutputDeltas {
 	stderr: string[];
 }
 
-const FAST_LOCAL_INCOMPLETE_CURSOR_TOOL_NAMES = new Set(["read", "grep", "glob", "ls"]);
-
 function getNormalizedCursorToolName(toolCall: unknown): string {
-	return normalizeToolName(getToolName(toolCall));
+	return classifyCursorToolVisibility(toolCall).normalizedName;
 }
 
 function isCursorShellToolCall(toolCall: unknown): boolean {
-	return getNormalizedCursorToolName(toolCall).toLowerCase() === "shell";
-}
-
-function isFastLocalIncompleteCursorTool(toolCall: unknown): boolean {
-	return FAST_LOCAL_INCOMPLETE_CURSOR_TOOL_NAMES.has(getNormalizedCursorToolName(toolCall).toLowerCase());
+	return classifyCursorToolVisibility(toolCall).normalizedKey === "shell";
 }
 
 function getCursorShellOutputDelta(update: InteractionUpdate): CursorShellOutputDelta | undefined {
@@ -121,10 +119,6 @@ export interface CursorSdkTurnCoordinatorOptions {
 	debugRecorder?: CursorSdkEventDebugRecorder;
 }
 
-interface DiscardIncompleteStartedToolCallsOptions {
-	suppressFastLocalToolsOnSuccessfulText?: boolean;
-}
-
 export class CursorSdkTurnCoordinator {
 	readonly stream: AssistantMessageEventStream;
 	readonly partial: AssistantMessage;
@@ -175,8 +169,7 @@ export class CursorSdkTurnCoordinator {
 	}
 
 	discardIncompleteStartedToolCalls(
-		reason: IncompleteCursorToolDiscardReason = DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
-		options: DiscardIncompleteStartedToolCallsOptions = {},
+		outcome: IncompleteCursorToolRunOutcome = buildIncompleteCursorToolRunOutcome(),
 	): void {
 		for (const [callId, toolCall] of this.startedToolCalls) {
 			if (typeof callId !== "string") continue;
@@ -184,22 +177,22 @@ export class CursorSdkTurnCoordinator {
 			recordDiscardedIncompleteStartedToolCall(this.debugRecorder, process.env, {
 				toolName,
 				callId,
-				reason,
+				reason: outcome.reason,
 			});
-			if (
-				reason === DISCARDED_INCOMPLETE_TOOL_CALL_REASON &&
-				options.suppressFastLocalToolsOnSuccessfulText === true &&
-				isFastLocalIncompleteCursorTool(toolCall)
-			) {
+			const visibilityDecision = resolveIncompleteCursorToolVisibility(toolCall, outcome);
+			if (visibilityDecision !== "emit") {
 				this.recordDisplayDecision({
 					action: "skip-incomplete-fast-local",
 					toolName,
 					source: "started",
-					reason: "successful-run-text-produced",
+					reason:
+						visibilityDecision === "debugOnly" && outcome.assistantTextProduced
+							? "successful-run-text-produced"
+							: visibilityDecision,
 				});
 				continue;
 			}
-			this.emitIncompleteStartedToolCall(toolCall, reason);
+			this.emitIncompleteStartedToolCall(toolCall, outcome.reason);
 		}
 		this.startedToolCalls.clear();
 		this.bridgeStartedToolCallIds.clear();
@@ -577,7 +570,7 @@ export class CursorSdkTurnCoordinator {
 		this.emittedLifecycleCallIds.add(callId);
 		this.debugRecorder?.recordCoordinatorEvent("tool_lifecycle", {
 			callId,
-			toolName: normalizeToolName(getToolName(toolCall)),
+			toolName: getNormalizedCursorToolName(toolCall),
 			progressText,
 			liveRun: this.liveRun !== undefined,
 		});

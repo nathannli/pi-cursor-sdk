@@ -490,19 +490,5 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 		},
 	};
 
-	Object.defineProperty(coordinator, "__testUtils", {
-		value: {
-			detachActiveLiveRunWithoutAbandon(scopeKey = getScopeKey()): void {
-				const runId = pendingRunIdsByScopeKey.get(scopeKey);
-				if (!runId) return;
-				const run = pendingRuns.get(runId);
-				if (!run || run.disposed) return;
-				unregister(run);
-			},
-		},
-		enumerable: false,
-		configurable: true,
-	});
-
 	return coordinator;
 }

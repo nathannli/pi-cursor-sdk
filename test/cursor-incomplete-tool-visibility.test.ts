@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildIncompleteCursorToolDisplay,
+	buildIncompleteCursorToolRunOutcome,
 	formatIncompleteCursorToolReasonText,
 	formatIncompleteCursorToolTrace,
 	getIncompleteCursorToolActivityTitle,
+	resolveIncompleteCursorToolVisibility,
 } from "../src/cursor-incomplete-tool-visibility.js";
 import { DISCARDED_INCOMPLETE_TOOL_CALL_REASON } from "../src/cursor-sdk-event-debug.js";
 
@@ -31,6 +33,52 @@ describe("cursor incomplete tool visibility", () => {
 		);
 		expect(mcpDisplay.args.activityTitle).toBe("Cursor MCP");
 		expect(formatIncompleteCursorToolTrace(mcpDisplay)).toContain("Cursor MCP did not complete");
+	});
+
+	it("maps SDK run status and abort state into incomplete run outcome", () => {
+		expect(buildIncompleteCursorToolRunOutcome({ status: "finished", assistantTextProduced: true })).toEqual({
+			reason: DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+			assistantTextProduced: true,
+		});
+		expect(buildIncompleteCursorToolRunOutcome({ status: "cancelled" })).toEqual({
+			reason: "abort",
+			assistantTextProduced: false,
+		});
+		expect(buildIncompleteCursorToolRunOutcome({ status: "finished", signalAborted: true })).toEqual({
+			reason: "abort",
+			assistantTextProduced: false,
+		});
+		expect(buildIncompleteCursorToolRunOutcome({ status: "error" })).toEqual({
+			reason: "sdk-failure",
+			assistantTextProduced: false,
+		});
+	});
+
+	it("keeps fast local stale-start suppression in the incomplete visibility policy", () => {
+		expect(
+			resolveIncompleteCursorToolVisibility(
+				{ name: "glob", args: { pattern: "src/**/*.ts" } },
+				buildIncompleteCursorToolRunOutcome({
+					assistantTextProduced: true,
+					reason: DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+				}),
+			),
+		).toBe("debugOnly");
+		expect(
+			resolveIncompleteCursorToolVisibility(
+				{ name: "mcp", args: { toolName: "git" } },
+				buildIncompleteCursorToolRunOutcome({
+					assistantTextProduced: true,
+					reason: DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+				}),
+			),
+		).toBe("emit");
+		expect(
+			resolveIncompleteCursorToolVisibility(
+				{ name: "glob", args: { pattern: "src/**/*.ts" } },
+				buildIncompleteCursorToolRunOutcome({ assistantTextProduced: true, reason: "abort" }),
+			),
+		).toBe("emit");
 	});
 
 	it("maps discard reasons to bounded user-facing text", () => {

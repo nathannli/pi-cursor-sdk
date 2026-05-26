@@ -1,34 +1,58 @@
-import {
-	CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
-	getCursorReplayDisplayLabel,
-	type CursorReplayLegacyToolName,
-} from "./cursor-tool-names.js";
+import { CURSOR_REPLAY_ACTIVITY_TOOL_NAME } from "./cursor-tool-names.js";
 import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
 import {
 	DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
 	type DiscardedIncompleteStartedToolCallReason,
 } from "./cursor-sdk-event-debug.js";
-import { getToolArgs, getToolName, normalizeToolName, truncateArg, type CursorPiToolDisplay } from "./cursor-transcript-utils.js";
-import { resolveTranscriptToolName } from "./cursor-web-tool-activity.js";
+import { truncateArg, type CursorPiToolDisplay } from "./cursor-transcript-utils.js";
+import { classifyCursorToolVisibility } from "./cursor-tool-visibility.js";
 
 export type IncompleteCursorToolDiscardReason = DiscardedIncompleteStartedToolCallReason;
 
-const INCOMPLETE_TITLE_KEYS: Partial<Record<string, CursorReplayLegacyToolName>> = {
-	task: "cursor_task",
-	mcp: "cursor_mcp",
-	generateimage: "cursor_generate_image",
-	recordscreen: "cursor_record_screen",
-	semsearch: "cursor_sem_search",
-	websearch: "cursor_web_search",
-	webfetch: "cursor_web_fetch",
-	createplan: "cursor_create_plan",
-	updatetodos: "cursor_update_todos",
-	readlints: "cursor_read_lints",
-	delete: "cursor_delete",
-	edit: "cursor_edit",
-	write: "cursor_write",
-};
+export interface IncompleteCursorToolRunOutcome {
+	reason: IncompleteCursorToolDiscardReason;
+	assistantTextProduced: boolean;
+}
+
+export interface IncompleteCursorToolRunOutcomeInput {
+	reason?: IncompleteCursorToolDiscardReason;
+	status?: string;
+	signalAborted?: boolean;
+	assistantTextProduced?: boolean;
+}
+
+export type IncompleteCursorToolVisibilityDecision = "emit" | "suppress" | "debugOnly";
+
+export function buildIncompleteCursorToolRunOutcome(
+	outcome: IncompleteCursorToolRunOutcomeInput = {},
+): IncompleteCursorToolRunOutcome {
+	return {
+		reason:
+			outcome.reason ??
+			(outcome.status === "cancelled" || outcome.signalAborted
+				? "abort"
+				: outcome.status === "error"
+					? "sdk-failure"
+					: DISCARDED_INCOMPLETE_TOOL_CALL_REASON),
+		assistantTextProduced: outcome.assistantTextProduced ?? false,
+	};
+}
+
+export function resolveIncompleteCursorToolVisibility(
+	toolCall: unknown,
+	outcome: IncompleteCursorToolRunOutcome,
+): IncompleteCursorToolVisibilityDecision {
+	const visibility = classifyCursorToolVisibility(toolCall);
+	if (
+		outcome.reason === DISCARDED_INCOMPLETE_TOOL_CALL_REASON &&
+		outcome.assistantTextProduced &&
+		visibility.fastLocalDiscovery
+	) {
+		return "debugOnly";
+	}
+	return "emit";
+}
 
 function buildGenericIncompleteActivityTitle(displayName: string): string {
 	if (!displayName || displayName === "unknown") return "Cursor tool";
@@ -49,25 +73,8 @@ export function formatIncompleteCursorToolReasonText(reason: IncompleteCursorToo
 }
 
 export function getIncompleteCursorToolActivityTitle(toolCall: unknown): string {
-	const args = getToolArgs(toolCall);
-	const name = resolveTranscriptToolName(getToolName(toolCall), args);
-	const normalized = normalizeToolName(name).toLowerCase();
-	const labelKey = INCOMPLETE_TITLE_KEYS[normalized];
-	if (labelKey) return getCursorReplayDisplayLabel(labelKey);
-	switch (normalized) {
-		case "read":
-			return "Cursor read";
-		case "shell":
-			return "Cursor shell";
-		case "grep":
-			return "Cursor grep";
-		case "glob":
-			return "Cursor find";
-		case "ls":
-			return "Cursor ls";
-		default:
-			return buildGenericIncompleteActivityTitle(name);
-	}
+	const visibility = classifyCursorToolVisibility(toolCall);
+	return visibility.incompleteTitle ?? buildGenericIncompleteActivityTitle(visibility.displayName);
 }
 
 export function buildIncompleteCursorToolDisplay(
@@ -75,8 +82,7 @@ export function buildIncompleteCursorToolDisplay(
 	reason: IncompleteCursorToolDiscardReason,
 	options: { apiKey?: string } = {},
 ): CursorPiToolDisplay {
-	const args = getToolArgs(toolCall);
-	const transcriptName = resolveTranscriptToolName(getToolName(toolCall), args);
+	const visibility = classifyCursorToolVisibility(toolCall);
 	const activityTitle = getIncompleteCursorToolActivityTitle(toolCall);
 	const headline = `${activityTitle} did not complete`;
 	const reasonText = scrubSensitiveText(formatIncompleteCursorToolReasonText(reason), options.apiKey);
@@ -84,7 +90,7 @@ export function buildIncompleteCursorToolDisplay(
 	return {
 		toolName: CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
 		args: {
-			cursorToolName: normalizeToolName(transcriptName),
+			cursorToolName: visibility.normalizedName,
 			activityTitle,
 			activitySummary: reasonText,
 			incomplete: true,
@@ -92,7 +98,7 @@ export function buildIncompleteCursorToolDisplay(
 		result: {
 			content: [{ type: "text", text: contentText }],
 			details: {
-				cursorToolName: normalizeToolName(transcriptName),
+				cursorToolName: visibility.normalizedName,
 				title: headline,
 				summary: reasonText,
 			},

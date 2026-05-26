@@ -10,7 +10,6 @@ import {
 	CursorLiveRunAbortError,
 	createCursorLiveRunCoordinator,
 	hasTrailingUserMessagesAfterToolResults,
-	type CursorLiveRunCoordinator,
 	type CursorLiveQueuedEvent,
 	type CursorLiveRun,
 } from "./cursor-live-run-coordinator.js";
@@ -520,14 +519,6 @@ export async function releaseAllPendingCursorLiveRunsForTests(): Promise<void> {
 		await cursorLiveRuns.release(run);
 		if (cursorLiveRuns.count() >= before) break;
 	}
-}
-
-export function detachActiveLiveRunWithoutAbandonForTests(scopeKey?: string): void {
-	(
-		cursorLiveRuns as CursorLiveRunCoordinator & {
-			__testUtils: { detachActiveLiveRunWithoutAbandon(scopeKey?: string): void };
-		}
-	).__testUtils.detachActiveLiveRunWithoutAbandon(scopeKey);
 }
 
 export { hasTrailingUserMessagesAfterToolResults };

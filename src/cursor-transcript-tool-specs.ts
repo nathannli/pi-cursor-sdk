@@ -1,4 +1,10 @@
-import { CURSOR_REPLAY_ACTIVITY_TOOL_NAME, getCursorReplayDisplayLabel, type CursorReplayLegacyToolName } from "./cursor-tool-names.js";
+import {
+	CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME,
+	CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
+	getCursorReplayActivityTitle,
+	getCursorReplayDisplayLabel,
+	type CursorReplayLegacyToolName,
+} from "./cursor-tool-names.js";
 import { resolveCursorEditDiff } from "./cursor-edit-diff.js";
 import {
 	asRecord,
@@ -127,6 +133,10 @@ function buildReplaySummaryDisplay(
 	};
 }
 
+function getCursorToolActivityTitle(toolName: string): string {
+	return getCursorReplayActivityTitle(toolName) ?? buildGenericUnknownToolActivityTitle(toolName);
+}
+
 function buildActivityReplayDisplay(cursorToolName: string, spec: ToolDisplaySpec, context: ToolDisplayContext): CursorPiToolDisplay {
 	const activity = spec.activityReplay;
 	if (!activity) throw new Error(`Missing activity replay spec for ${cursorToolName}`);
@@ -191,7 +201,7 @@ function buildEditPiToolDisplay(context: ToolDisplayContext): CursorPiToolDispla
 	const nativeEditArgs = buildNativeEditDisplayArgs(rawName, args, options);
 	const baseActivityArgs = buildCursorEditActivityDisplayArgs(args, options);
 	const displayPath = typeof baseActivityArgs.path === "string" ? baseActivityArgs.path : undefined;
-	const activityTitle = getCursorReplayDisplayLabel("cursor_edit");
+	const activityTitle = getCursorToolActivityTitle("edit");
 	const activityArgs = buildCursorActivityDisplayArgs(baseActivityArgs, activityTitle, displayPath);
 	const contentText = formatEdit(activityArgs, result, options);
 	const details = {
@@ -240,7 +250,7 @@ function buildWritePiToolDisplay(context: ToolDisplayContext): CursorPiToolDispl
 		expandedText: contentText,
 	};
 	if (content === undefined) {
-		const activityTitle = getCursorReplayDisplayLabel("cursor_write");
+		const activityTitle = getCursorToolActivityTitle("write");
 		return buildReplaySummaryDisplay(
 			CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
 			buildCursorActivityDisplayArgs(displayArgs, activityTitle, displayPath ?? "file"),
@@ -336,7 +346,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatDelete(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("delete", TOOL_DISPLAY_SPECS.delete, context),
 		activityReplay: {
-			labelKey: "cursor_delete",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.delete,
 			buildActivityArgs: ({ args, options }) => {
 				const displayPath = typeof args.path === "string" ? formatDisplayPath(args.path, options.cwd) : undefined;
 				return displayPath ? { path: displayPath } : {};
@@ -360,7 +370,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatReadLints(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("readLints", TOOL_DISPLAY_SPECS.readLints, context),
 		activityReplay: {
-			labelKey: "cursor_read_lints",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.readLints,
 			buildActivityArgs: ({ args, result, options }) => {
 				const paths = getReadLintPaths(args, result, options);
 				const diagnosticCount = getReadLintDiagnostics(result, options).length;
@@ -378,7 +388,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatTodos(args, result, options, "updateTodos"),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("updateTodos", TOOL_DISPLAY_SPECS.updateTodos, context),
 		activityReplay: {
-			labelKey: "cursor_update_todos",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.updateTodos,
 			buildActivityArgs: ({ args, result }) => {
 				const todos = getTodoItems(args, result);
 				return { totalCount: getTodoTotalCount(args, result, todos) };
@@ -391,7 +401,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatPlan(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("createPlan", TOOL_DISPLAY_SPECS.createPlan, context),
 		activityReplay: {
-			labelKey: "cursor_create_plan",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.createPlan,
 			buildActivityArgs: ({ args, result }) => {
 				const todos = getTodoItems(args, result);
 				return { totalCount: getTodoTotalCount(args, result, todos) };
@@ -404,7 +414,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatTask(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("task", TOOL_DISPLAY_SPECS.task, context),
 		activityReplay: {
-			labelKey: "cursor_task",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.task,
 			buildActivityArgs: ({ args, result }) => {
 				const description = getTaskDescription(args, result);
 				return { description: truncateArg(description) };
@@ -420,7 +430,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatGenerateImage(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("generateImage", TOOL_DISPLAY_SPECS.generateImage, context),
 		activityReplay: {
-			labelKey: "cursor_generate_image",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.generateImage,
 			buildActivityArgs: ({ args }) => {
 				const prompt = getString(args, "prompt") ?? getString(args, "description") ?? "image";
 				return { prompt: truncateArg(prompt) };
@@ -447,7 +457,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatMcp(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("mcp", TOOL_DISPLAY_SPECS.mcp, context),
 		activityReplay: {
-			labelKey: "cursor_mcp",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.mcp,
 			buildActivityArgs: ({ args }) => {
 				const toolName = getString(args, "toolName") ?? "mcp";
 				return { toolName: truncateArg(toolName) };
@@ -462,7 +472,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatSemSearch(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("semSearch", TOOL_DISPLAY_SPECS.semSearch, context),
 		activityReplay: {
-			labelKey: "cursor_sem_search",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.semSearch,
 			buildActivityArgs: ({ args }) => {
 				const query = getString(args, "query") ?? "semantic search";
 				return { query: truncateArg(query) };
@@ -477,7 +487,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatRecordScreen(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("recordScreen", TOOL_DISPLAY_SPECS.recordScreen, context),
 		activityReplay: {
-			labelKey: "cursor_record_screen",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.recordScreen,
 			buildActivityArgs: ({ args, result, options }) => {
 				const mode = getString(args, "mode");
 				const path = getString(asRecord(result.value), "path");
@@ -499,7 +509,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatWebSearch(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("webSearch", TOOL_DISPLAY_SPECS.webSearch, context),
 		activityReplay: {
-			labelKey: "cursor_web_search",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.webSearch,
 			buildActivityArgs: ({ args }) => {
 				const query = extractWebSearchQuery(args);
 				return query ? { query: truncateArg(query) } : {};
@@ -515,7 +525,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 		formatTranscript: ({ args, result, options }) => formatWebFetch(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("webFetch", TOOL_DISPLAY_SPECS.webFetch, context),
 		activityReplay: {
-			labelKey: "cursor_web_fetch",
+			labelKey: CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME.webFetch,
 			buildActivityArgs: ({ args }) => {
 				const target = extractWebFetchTarget(args);
 				return target ? { url: truncateArg(target) } : {};

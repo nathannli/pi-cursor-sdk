@@ -106,9 +106,9 @@ function patchedSetTimeout(
 	const delegate = originalSetTimeout;
 	if (!delegate) throw new Error("Cursor MCP timeout override installed without original setTimeout");
 
-	const stack = new Error().stack;
 	let nextDelay = delay;
 	if (isCursorSdkDefaultMcpTimeout(delay)) {
+		const stack = new Error().stack;
 		if (isCursorSdkMcpToolTimeoutStack(stack)) {
 			nextDelay = installedToolTimeoutMs;
 		} else if (isCursorSdkMcpConnectTimeoutStack(stack)) {

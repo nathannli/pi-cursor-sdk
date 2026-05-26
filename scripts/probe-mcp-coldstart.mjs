@@ -3,13 +3,22 @@
  * Maintainer probe: measure Cursor SDK cold-start timing with/without ambient MCP settings
  * and with the pi-cursor-sdk MCP connect timeout override installed.
  */
+import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
+import { fileURLToPath } from "node:url";
 import {
 	installCursorMcpToolTimeoutOverride,
 	restoreCursorMcpToolTimeoutOverride,
 } from "../src/cursor-mcp-timeout-override.ts";
 import { scrubSensitiveText } from "./lib/cursor-probe-utils.mjs";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./lib/cursor-sdk-output-filter.mjs";
+
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const SCENARIOS = [
+	{ label: "with-all-settings", settingSources: ["all"] },
+	{ label: "with-all-settings+connect-override", settingSources: ["all"], installConnectOverride: true },
+	{ label: "no-setting-sources", settingSources: undefined },
+];
 
 function printHelp() {
 	console.log(`Measure Cursor SDK first-send MCP cold-start timing.
@@ -19,8 +28,9 @@ Usage:
   node scripts/probe-mcp-coldstart.mjs [options]
 
 Options:
-  --api-key <key>   Cursor API key. Prefer CURSOR_API_KEY to avoid shell history.
-  -h, --help        Show this help without importing or calling the Cursor SDK.
+  --api-key <key>     Cursor API key. Prefer CURSOR_API_KEY to avoid shell history.
+  --scenario <label>  Run one scenario in this process. Used by the orchestrator.
+  -h, --help          Show this help without importing or calling the Cursor SDK.
 
 Stdout:
   Emits one JSON object per scenario. Human status lines go to stderr.
@@ -32,6 +42,7 @@ Scenarios:
 
 Safety:
   - --help never performs live Cursor calls.
+  - Each default scenario runs in a fresh child process before its first Cursor SDK import.
   - SDK startup noise is suppressed.
   - Error messages are scrubbed for API keys, bearer tokens, cookies, and bridge endpoints.`);
 }
@@ -41,10 +52,15 @@ function fail(message, apiKey) {
 	process.exit(1);
 }
 
+function findScenario(label) {
+	return SCENARIOS.find((scenario) => scenario.label === label);
+}
+
 function parseArgs(argv, env = process.env) {
 	const args = {
 		apiKey: env.CURSOR_API_KEY?.trim() || undefined,
 		help: false,
+		scenario: undefined,
 	};
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index];
@@ -62,7 +78,20 @@ function parseArgs(argv, env = process.env) {
 			args.apiKey = arg.slice("--api-key=".length).trim();
 			continue;
 		}
+		if (arg === "--scenario") {
+			const value = argv[++index];
+			if (!value || value.startsWith("--")) fail("--scenario requires a value", args.apiKey);
+			args.scenario = value.trim();
+			continue;
+		}
+		if (arg.startsWith("--scenario=")) {
+			args.scenario = arg.slice("--scenario=".length).trim();
+			continue;
+		}
 		fail(`unknown argument: ${arg}`, args.apiKey);
+	}
+	if (args.scenario && !findScenario(args.scenario)) {
+		fail(`unknown scenario: ${args.scenario}`, args.apiKey);
 	}
 	return args;
 }
@@ -70,13 +99,6 @@ function parseArgs(argv, env = process.env) {
 async function probe(Agent, apiKey, label, { settingSources, installConnectOverride = false } = {}) {
 	let agent;
 	try {
-		if (installConnectOverride) {
-			const state = installCursorMcpToolTimeoutOverride();
-			console.error(
-				`probe-mcp-coldstart: installed connect override (${state.connectTimeoutMs}ms initialize/listTools, ${state.timeoutMs}ms callTool)`,
-			);
-		}
-
 		const marks = [];
 		const t0 = performance.now();
 		const mark = (name) => marks.push({ name, ms: Math.round(performance.now() - t0) });
@@ -128,14 +150,69 @@ async function probe(Agent, apiKey, label, { settingSources, installConnectOverr
 			text: typeof result.result === "string" ? result.result.slice(0, 120) : null,
 		};
 	} finally {
-		try {
-			if (agent) {
-				await suppressCursorSdkOutput(() => agent[Symbol.asyncDispose]()).catch(() => undefined);
-			}
-		} finally {
-			restoreCursorMcpToolTimeoutOverride();
+		if (agent) {
+			await suppressCursorSdkOutput(() => agent[Symbol.asyncDispose]()).catch(() => undefined);
 		}
 	}
+}
+
+async function runScenarioInThisProcess(args, scenario) {
+	const restoreOutputFilter = installCursorSdkOutputFilter();
+	try {
+		if (scenario.installConnectOverride) {
+			const state = installCursorMcpToolTimeoutOverride();
+			console.error(
+				`probe-mcp-coldstart: installed connect override (${state.connectTimeoutMs}ms initialize/listTools, ${state.timeoutMs}ms callTool)`,
+			);
+		}
+		const { Agent } = await suppressCursorSdkOutput(() => import("@cursor/sdk"));
+		console.log(JSON.stringify(await probe(Agent, args.apiKey, scenario.label, scenario)));
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.log(
+			JSON.stringify({
+				label: scenario.label,
+				error: scrubSensitiveText(message, args.apiKey),
+			}),
+		);
+	} finally {
+		restoreCursorMcpToolTimeoutOverride();
+		restoreOutputFilter();
+	}
+}
+
+function runScenarioChild(args, scenario) {
+	return new Promise((resolve) => {
+		const child = spawn(process.execPath, [SCRIPT_PATH, "--scenario", scenario.label], {
+			cwd: process.cwd(),
+			env: { ...process.env, CURSOR_API_KEY: args.apiKey },
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let stdout = "";
+		let stderr = "";
+
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk;
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += chunk;
+		});
+		child.on("error", (error) => {
+			stderr += error instanceof Error ? error.message : String(error);
+		});
+		child.on("close", (code) => {
+			const scrubbedStderr = scrubSensitiveText(stderr, args.apiKey);
+			if (scrubbedStderr) process.stderr.write(scrubbedStderr.endsWith("\n") ? scrubbedStderr : `${scrubbedStderr}\n`);
+			if (code === 0 && stdout.trim()) {
+				process.stdout.write(stdout.endsWith("\n") ? stdout : `${stdout}\n`);
+				resolve();
+				return;
+			}
+			const error = scrubbedStderr.trim() || `child process exited with code ${code ?? "unknown"}`;
+			console.log(JSON.stringify({ label: scenario.label, error }));
+			resolve();
+		});
+	});
 }
 
 async function main(argv = process.argv.slice(2), env = process.env) {
@@ -148,29 +225,14 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 		fail("CURSOR_API_KEY is required. Set CURSOR_API_KEY or pass --api-key.");
 	}
 
-	const restoreOutputFilter = installCursorSdkOutputFilter();
-	try {
-		const { Agent } = await suppressCursorSdkOutput(() => import("@cursor/sdk"));
-		for (const scenario of [
-			{ label: "with-all-settings", settingSources: ["all"] },
-			{ label: "with-all-settings+connect-override", settingSources: ["all"], installConnectOverride: true },
-			{ label: "no-setting-sources", settingSources: undefined },
-		]) {
-			try {
-				console.log(JSON.stringify(await probe(Agent, args.apiKey, scenario.label, scenario)));
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				console.log(
-					JSON.stringify({
-						label: scenario.label,
-						error: scrubSensitiveText(message, args.apiKey),
-					}),
-				);
-			}
-		}
-	} finally {
-		restoreCursorMcpToolTimeoutOverride();
-		restoreOutputFilter();
+	const scenario = args.scenario ? findScenario(args.scenario) : undefined;
+	if (scenario) {
+		await runScenarioInThisProcess(args, scenario);
+		return;
+	}
+
+	for (const scenarioToRun of SCENARIOS) {
+		await runScenarioChild(args, scenarioToRun);
 	}
 }
 

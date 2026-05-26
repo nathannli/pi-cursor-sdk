@@ -276,6 +276,29 @@ describe("Cursor MCP timeout override", () => {
 		expect(callback).toHaveBeenCalledTimes(1);
 	});
 
+	it("keeps non-default timer calls on the cheap no-stack fast path", () => {
+		vi.useFakeTimers();
+		installCursorMcpToolTimeoutOverride({ timeoutMs: 3_600_000 });
+		const OriginalError = globalThis.Error;
+		let stackCaptures = 0;
+		const CountingError = class extends OriginalError {
+			constructor(message?: string) {
+				super(message);
+				stackCaptures += 1;
+			}
+		} as ErrorConstructor;
+		globalThis.Error = CountingError;
+		try {
+			setTimeout(vi.fn(), 1);
+			expect(stackCaptures).toBe(0);
+
+			setTimeout(vi.fn(), 60_000);
+			expect(stackCaptures).toBe(1);
+		} finally {
+			globalThis.Error = OriginalError;
+		}
+	});
+
 	it("uses a 3600s default and supports explicit second or millisecond overrides", () => {
 		expect(resolveCursorMcpToolTimeoutMs({})).toBe(
 			cursorMcpToolTimeoutOverrideDefaults.defaultOverrideTimeoutMs,

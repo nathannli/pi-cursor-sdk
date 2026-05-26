@@ -1,44 +1,19 @@
 import { truncateCursorDisplayLine } from "./cursor-display-text.js";
-import { getCursorReplayDisplayLabel, type CursorReplayLegacyToolName } from "./cursor-tool-names.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
-import { extractWebSearchQuery, resolveTranscriptToolName } from "./cursor-web-tool-activity.js";
-import { firstNonEmptyLine, getArray, getString, getToolArgs, getToolName, normalizeToolName, truncateArg } from "./cursor-transcript-utils.js";
+import { extractWebSearchQuery } from "./cursor-web-tool-activity.js";
+import { firstNonEmptyLine, getArray, getString, truncateArg } from "./cursor-transcript-utils.js";
+import { classifyCursorToolVisibility } from "./cursor-tool-visibility.js";
 
 /** Defer pending lifecycle lines so fast start+complete pairs coalesce into the completed replay card only. */
 export const CURSOR_TOOL_LIFECYCLE_DEFER_MS = 75;
 
-const LIFECYCLE_ELIGIBLE_TOOLS = new Set(
-	["task", "shell", "mcp", "generateImage", "recordScreen", "semSearch", "webSearch", "webFetch", "createPlan", "updateTodos"].map(
-		(name) => name.toLowerCase(),
-	),
-);
-
-const LIFECYCLE_TITLE_KEYS: Partial<Record<string, CursorReplayLegacyToolName>> = {
-	task: "cursor_task",
-	mcp: "cursor_mcp",
-	generateimage: "cursor_generate_image",
-	recordscreen: "cursor_record_screen",
-	semsearch: "cursor_sem_search",
-	websearch: "cursor_web_search",
-	webfetch: "cursor_web_fetch",
-	createplan: "cursor_create_plan",
-	updatetodos: "cursor_update_todos",
-};
-
 export function isCursorToolLifecycleEligible(toolCall: unknown): boolean {
-	const args = getToolArgs(toolCall);
-	const name = resolveTranscriptToolName(getToolName(toolCall), args);
-	return LIFECYCLE_ELIGIBLE_TOOLS.has(normalizeToolName(name).toLowerCase());
+	return classifyCursorToolVisibility(toolCall).lifecycleEligible;
 }
 
 function getCursorToolLifecycleTitle(toolCall: unknown): string {
-	const args = getToolArgs(toolCall);
-	const name = resolveTranscriptToolName(getToolName(toolCall), args);
-	const normalized = normalizeToolName(name).toLowerCase();
-	const labelKey = LIFECYCLE_TITLE_KEYS[normalized];
-	if (labelKey) return getCursorReplayDisplayLabel(labelKey);
-	if (normalized === "shell") return "Cursor shell";
-	return `Cursor ${normalizeToolName(name)}`;
+	const visibility = classifyCursorToolVisibility(toolCall);
+	return visibility.lifecycleTitle ?? `Cursor ${visibility.normalizedName}`;
 }
 
 /** Prefixes that commonly introduce path/URI values in free-text pending lifecycle details. */
@@ -61,11 +36,10 @@ function scrubLifecycleDetail(value: string | undefined, apiKey?: string): strin
 }
 
 export function buildCursorToolLifecycleLabel(toolCall: unknown, apiKey?: string): string | undefined {
-	const args = getToolArgs(toolCall);
-	const name = resolveTranscriptToolName(getToolName(toolCall), args);
-	const normalized = normalizeToolName(name).toLowerCase();
+	const visibility = classifyCursorToolVisibility(toolCall);
+	const args = visibility.args;
 
-	switch (normalized) {
+	switch (visibility.normalizedKey) {
 		case "task": {
 			return scrubLifecycleDetail(getString(args, "description"), apiKey) ?? "task";
 		}

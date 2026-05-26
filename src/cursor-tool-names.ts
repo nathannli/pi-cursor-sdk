@@ -51,6 +51,24 @@ const CURSOR_REPLAY_PROMPT_LABELS = {
 	cursor_web_fetch: "Cursor web fetch",
 } as const satisfies Record<CursorReplayLegacyToolName, string>;
 
+export const CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME = {
+	edit: "cursor_edit",
+	write: "cursor_write",
+	readLints: "cursor_read_lints",
+	delete: "cursor_delete",
+	updateTodos: "cursor_update_todos",
+	task: "cursor_task",
+	createPlan: "cursor_create_plan",
+	generateImage: "cursor_generate_image",
+	mcp: "cursor_mcp",
+	semSearch: "cursor_sem_search",
+	recordScreen: "cursor_record_screen",
+	webSearch: "cursor_web_search",
+	webFetch: "cursor_web_fetch",
+} as const satisfies Record<string, CursorReplayLegacyToolName>;
+
+export type CursorReplayActivityToolName = keyof typeof CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME;
+
 export function isCursorReplayLegacyToolName(toolName: string): toolName is CursorReplayLegacyToolName {
 	return CURSOR_REPLAY_LEGACY_TOOL_NAMES.some((legacyToolName) => legacyToolName === toolName);
 }
@@ -76,4 +94,13 @@ export function getCursorReplayPromptLabel(toolName: string): string {
 export function getCursorReplayDisplayLabel(toolName: CursorReplayToolName): string {
 	if (toolName === CURSOR_REPLAY_ACTIVITY_TOOL_NAME) return "Cursor activity";
 	return CURSOR_REPLAY_PROMPT_LABELS[toolName];
+}
+
+export function getCursorReplayActivityLabelKey(toolName: string): CursorReplayLegacyToolName | undefined {
+	return CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME[toolName as CursorReplayActivityToolName];
+}
+
+export function getCursorReplayActivityTitle(toolName: string): string | undefined {
+	const labelKey = getCursorReplayActivityLabelKey(toolName);
+	return labelKey ? getCursorReplayDisplayLabel(labelKey) : undefined;
 }
