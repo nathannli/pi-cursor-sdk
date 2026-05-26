@@ -10,6 +10,16 @@ import {
 } from "./cursor-tool-presentation-registry.js";
 import { resolveCursorEditDiff } from "./cursor-edit-diff.js";
 import {
+	assembleCursorReplayActivityResultDetails,
+	assembleCursorReplayTitledActivityDetails,
+	buildCursorReplayEditDetails,
+	buildCursorReplayWriteDetails,
+	CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME,
+	type CursorReplayActivityResultCursorToolName,
+	type CursorReplayActivityDetailFields,
+	type CursorReplayToolDetails,
+} from "./cursor-replay-tool-details.js";
+import {
 	asRecord,
 	firstNonEmptyLine,
 	formatDisplayPath,
@@ -89,7 +99,7 @@ interface ActivityReplaySpec {
 	labelKey: CursorReplayLegacyToolName;
 	buildActivityArgs: (context: ToolDisplayContext) => Record<string, unknown>;
 	buildActivitySummary: (context: ToolDisplayContext) => string | undefined;
-	buildDetails: (context: ToolDisplayContext, contentText: string) => Record<string, unknown>;
+	buildDetails: (context: ToolDisplayContext, contentText: string) => CursorReplayActivityDetailFields;
 }
 
 interface ToolDisplaySpec {
@@ -126,17 +136,20 @@ function buildReplaySummaryDisplay(
 	args: Record<string, unknown>,
 	result: NormalizedResult,
 	contentText: string,
-	details: Record<string, unknown>,
+	details: CursorReplayToolDetails,
 ): CursorPiToolDisplay {
 	const isError = result.status === "error";
-	const summary = isError ? details.summary : (details.summary ?? firstNonEmptyLine(contentText));
+	const expandedText = details.expandedText ?? contentText;
+	const summary = isError
+		? details.summary
+		: (details.summary ?? firstNonEmptyLine(contentText));
 	return {
 		toolName,
 		args,
 		result: textToolResult(contentText, {
 			...details,
 			summary,
-			expandedText: details.expandedText ?? contentText,
+			expandedText,
 		}),
 		isError,
 	};
@@ -146,7 +159,11 @@ function getCursorToolActivityTitle(toolName: string): string {
 	return getCursorReplayActivityTitle(toolName) ?? buildGenericUnknownToolActivityTitle(toolName);
 }
 
-function buildActivityReplayDisplay(cursorToolName: string, spec: ToolDisplaySpec, context: ToolDisplayContext): CursorPiToolDisplay {
+function buildActivityReplayDisplay(
+	cursorToolName: CursorReplayActivityResultCursorToolName,
+	spec: ToolDisplaySpec,
+	context: ToolDisplayContext,
+): CursorPiToolDisplay {
 	const activity = spec.activityReplay;
 	if (!activity) throw new Error(`Missing activity replay spec for ${cursorToolName}`);
 	const activityTitle = getCursorReplayDisplayLabel(activity.labelKey);
@@ -157,19 +174,16 @@ function buildActivityReplayDisplay(cursorToolName: string, spec: ToolDisplaySpe
 		activitySummary,
 	);
 	const contentText = spec.formatTranscript(context).trimEnd();
-	const details = activity.buildDetails(context, contentText);
-	return buildReplaySummaryDisplay(
-		CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
-		activityArgs,
-		context.result,
+	const activityFields = activity.buildDetails(context, contentText);
+	const details = assembleCursorReplayActivityResultDetails(
+		cursorToolName,
+		activityTitle,
+		activityFields,
 		contentText,
-		{
-			cursorToolName,
-			title: activityTitle,
-			summary: context.result.status === "error" ? undefined : details.summary ?? activitySummary,
-			...details,
-		},
+		context.result.status === "error",
+		activitySummary,
 	);
+	return buildReplaySummaryDisplay(CURSOR_REPLAY_ACTIVITY_TOOL_NAME, activityArgs, context.result, contentText, details);
 }
 
 function buildGenericUnknownToolActivityTitle(displayName: string): string {
@@ -194,12 +208,20 @@ function buildGenericPiToolDisplay(context: ToolDisplayContext): CursorPiToolDis
 		result.status === "error"
 			? undefined
 			: activitySummary ?? truncateArg(displayName === "unknown" ? "tool" : displayName);
-	return buildReplaySummaryDisplay(CURSOR_REPLAY_ACTIVITY_TOOL_NAME, activityArgs, result, contentText, {
-		cursorToolName: name,
-		title: activityTitle,
-		summary,
-		expandedText: contentText,
-	});
+	return buildReplaySummaryDisplay(
+		CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
+		activityArgs,
+		result,
+		contentText,
+		assembleCursorReplayTitledActivityDetails(
+			CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME,
+			activityTitle,
+			{ summary, expandedText: contentText },
+			contentText,
+			result.status === "error",
+			activitySummary,
+		),
+	);
 }
 
 function buildEditPiToolDisplay(context: ToolDisplayContext): CursorPiToolDisplay {
@@ -213,15 +235,14 @@ function buildEditPiToolDisplay(context: ToolDisplayContext): CursorPiToolDispla
 	const activityTitle = getCursorToolActivityTitle("edit");
 	const activityArgs = buildCursorActivityDisplayArgs(baseActivityArgs, activityTitle, displayPath);
 	const contentText = formatEdit(activityArgs, result, options);
-	const details = {
-		cursorToolName: "edit",
+	const details = buildCursorReplayEditDetails({
 		path: displayPath,
 		linesAdded: getNumber(value, "linesAdded"),
 		linesRemoved: getNumber(value, "linesRemoved"),
 		diffString: normalizedDiff,
 		diff: normalizedDiff,
 		firstChangedLine: getNumber(value, "firstChangedLine"),
-	};
+	});
 	if (nativeEditArgs) {
 		return {
 			toolName: "edit",
@@ -250,14 +271,13 @@ function buildWritePiToolDisplay(context: ToolDisplayContext): CursorPiToolDispl
 	const displayArgs = buildWriteDisplayArgs(args, options);
 	const displayPath = typeof args.path === "string" ? formatDisplayPath(args.path, options.cwd) : undefined;
 	const contentText = formatWrite(args, result, options).trimEnd();
-	const details = {
-		cursorToolName: "write",
+	const details = buildCursorReplayWriteDetails({
 		path: displayPath,
 		linesCreated: getNumber(value, "linesCreated"),
 		fileSize: getNumber(value, "fileSize"),
 		fileContentAfterWrite: getString(value, "fileContentAfterWrite"),
 		expandedText: contentText,
-	};
+	});
 	if (content === undefined) {
 		const activityTitle = getCursorToolActivityTitle("write");
 		return buildReplaySummaryDisplay(
