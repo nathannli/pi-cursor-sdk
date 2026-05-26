@@ -7,7 +7,7 @@ import {
 	getCursorSessionCwd,
 	registerCursorSessionCwd,
 } from "../src/cursor-session-cwd.js";
-import { createPiHarness } from "./helpers/pi-harness.js";
+import { createEventHarness } from "./helpers/pi-harness.js";
 
 describe("cursor-session-cwd", () => {
 	afterEach(() => {
@@ -21,7 +21,7 @@ describe("cursor-session-cwd", () => {
 	it("syncs cwd from session_start", async () => {
 		const sessionDir = mkdtempSync(join(tmpdir(), "pi-cursor-session-cwd-"));
 		try {
-			const pi = createPiHarness({ surface: "events-only" });
+			const pi = createEventHarness();
 			registerCursorSessionCwd(pi);
 			await pi.runSessionStart({ cwd: sessionDir });
 
@@ -35,7 +35,7 @@ describe("cursor-session-cwd", () => {
 		const firstDir = mkdtempSync(join(tmpdir(), "pi-cursor-session-cwd-a-"));
 		const secondDir = mkdtempSync(join(tmpdir(), "pi-cursor-session-cwd-b-"));
 		try {
-			const pi = createPiHarness({ surface: "events-only" });
+			const pi = createEventHarness();
 			registerCursorSessionCwd(pi);
 
 			await pi.runSessionStart({ cwd: firstDir });

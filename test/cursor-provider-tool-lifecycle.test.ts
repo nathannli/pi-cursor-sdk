@@ -13,7 +13,7 @@ import {
 	isToolCallBlock,
 	registerBridgeForProviderTest,
 	registerNativeToolDisplayForTest,
-	createBridgeToolInfo,
+	createTestToolInfo,
 	delayBeforeToolCompletion,
 	type CursorDeltaHandler,
 	type RegisteredTool,
@@ -208,7 +208,7 @@ describe("streamCursor Cursor tool lifecycle", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		registerBridgeForProviderTest({
 			active: ["sem_reindex"],
-			tools: [createBridgeToolInfo("sem_reindex", Type.Object({ target: Type.String() }), "Reindex semantic cache")],
+			tools: [createTestToolInfo("sem_reindex", Type.Object({ target: Type.String() }), "Reindex semantic cache")],
 		});
 
 		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {

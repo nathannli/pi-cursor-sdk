@@ -10,6 +10,7 @@ import {
 	createExtensionTestContext,
 	createPiHarness,
 	type PiHarness,
+	type PiHarnessOptions,
 } from "./helpers/pi-harness.js";
 
 vi.mock("../src/model-discovery.js", () => ({
@@ -38,7 +39,7 @@ const mockedStreamCursor = vi.mocked(streamCursor);
 
 type DiscoverOptions = Parameters<typeof discoverModels>[0];
 
-function createExtensionPi(initialTools?: Parameters<typeof createPiHarness>[0]["initialTools"]): PiHarness {
+function createExtensionPi(initialTools?: PiHarnessOptions["initialTools"]): PiHarness {
 	return createPiHarness(initialTools ? { initialTools } : undefined);
 }
 
@@ -392,8 +393,7 @@ describe("extension factory", () => {
 			ui: { notify, setStatus: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
 		};
-		const sessionHandlers = pi._handlers.get("session_start") ?? [];
-		await sessionHandlers.at(-1)!({}, ctx);
+		await pi.invokeEvent("session_start", {}, ctx);
 
 		expect(notify).toHaveBeenCalledWith(
 			"Cursor model discovery needs an API key from /login (Use an API key -> Cursor), CURSOR_API_KEY, or --api-key. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
@@ -412,8 +412,7 @@ describe("extension factory", () => {
 
 		const notify = vi.fn();
 		const ctx = { cwd: process.cwd(), hasUI: false, ui: { notify, setStatus: vi.fn() }, sessionManager: { getBranch: vi.fn(() => []) } };
-		const sessionHandlers = pi._handlers.get("session_start") ?? [];
-		await sessionHandlers.at(-1)!({}, ctx);
+		await pi.invokeEvent("session_start", {}, ctx);
 
 		expect(notify).not.toHaveBeenCalled();
 	});

@@ -1,6 +1,17 @@
-import { vi } from "vitest";
+import { vi, type MockedFunction } from "vitest";
 import type { AssistantMessage, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
-import type { ExtensionContext, ProviderConfig, ToolDefinition, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type {
+	BeforeAgentStartEvent,
+	ExtensionAPI,
+	ExtensionContext,
+	ExtensionHandler,
+	ModelSelectEvent,
+	ProviderConfig,
+	SessionStartEvent,
+	ToolDefinition,
+	ToolInfo,
+	TurnStartEvent,
+} from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
 
 export type RegisteredTool = ToolDefinition<TSchema, unknown, unknown>;
@@ -10,28 +21,138 @@ export type TestExtensionContext = Pick<ExtensionContext, "cwd" | "hasUI" | "mod
 	sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch">;
 };
 
-export type TestEventHandler = (event: unknown, ctx: TestExtensionContext) => Promise<void> | void;
+export type HarnessEventName = "session_start" | "model_select" | "before_agent_start" | "turn_start" | "session_shutdown";
 
-export type TestRegisteredCommand = {
-	description?: string;
-	handler: (args: string, ctx: TestExtensionContext) => Promise<void> | void;
+export type HarnessEventMap = {
+	session_start: SessionStartEvent;
+	model_select: ModelSelectEvent;
+	before_agent_start: BeforeAgentStartEvent;
+	turn_start: TurnStartEvent;
+	session_shutdown: { type: "session_shutdown"; reason: "quit" | "reload" | "new" | "resume" | "fork"; targetSessionFile?: string };
 };
 
-export type PiHarnessSurface = "full" | "bridge" | "events-only";
+type MockFn<T extends (...args: never[]) => unknown> = MockedFunction<T>;
 
 export interface PiHarnessOptions {
 	/** Tool catalog available before extension registration. */
 	initialTools?: ToolInfo[];
 	/** Active tool names returned by getActiveTools. */
 	activeTools?: string[];
-	/** Mock surface: full extension API, bridge snapshot API, or event hooks only. */
-	surface?: PiHarnessSurface;
-	/** Default value returned by getFlag when surface is full. */
+	/** Default value returned by getFlag. */
 	defaultFlagValue?: boolean;
+}
+
+export interface EventHarness {
+	on: MockFn<ExtensionAPI["on"]>;
+	invokeEvent: <E extends HarnessEventName>(
+		event: E,
+		payload: HarnessEventMap[E] | Record<string, never>,
+		ctxOverrides?: Partial<TestExtensionContext>,
+	) => Promise<void>;
+	runSessionStart: (
+		ctxOverrides?: Partial<TestExtensionContext>,
+		eventOverrides?: Partial<SessionStartEvent>,
+	) => Promise<void>;
+	runModelSelect: (model: ExtensionContext["model"], ctxOverrides?: Partial<TestExtensionContext>) => Promise<void>;
+	runBeforeAgentStart: (ctxOverrides?: Partial<TestExtensionContext>) => Promise<void>;
+	runTurnStart: (ctxOverrides?: Partial<TestExtensionContext>) => Promise<void>;
+}
+
+export interface PiHarness extends EventHarness {
+	registerProvider: MockFn<ExtensionAPI["registerProvider"]>;
+	registerFlag: MockFn<ExtensionAPI["registerFlag"]>;
+	registerCommand: MockFn<ExtensionAPI["registerCommand"]>;
+	registerTool: MockFn<ExtensionAPI["registerTool"]>;
+	getAllTools: MockFn<ExtensionAPI["getAllTools"]>;
+	getActiveTools: MockFn<ExtensionAPI["getActiveTools"]>;
+	setActiveTools: MockFn<ExtensionAPI["setActiveTools"]>;
+	sendMessage: MockFn<ExtensionAPI["sendMessage"]>;
+	getFlag: MockFn<ExtensionAPI["getFlag"]>;
+	appendEntry: MockFn<ExtensionAPI["appendEntry"]>;
+	_registered: Array<{ name: string; config: ProviderConfig }>;
+	_commands: Map<string, { description?: string; handler: (args: string, ctx: TestExtensionContext) => Promise<void> | void }>;
+	_tools: RegisteredTool[];
+	_activeToolNames: () => string[];
+}
+
+export interface BridgePiHarness {
+	getActiveTools: MockFn<ExtensionAPI["getActiveTools"]>;
+	getAllTools: MockFn<ExtensionAPI["getAllTools"]>;
+	setActiveTools: MockFn<ExtensionAPI["setActiveTools"]>;
+	on: MockFn<ExtensionAPI["on"]>;
 }
 
 const DEFAULT_BUILTIN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls", "edit", "write"] as const;
 const DEFAULT_ACTIVE_TOOL_NAMES = ["read", "bash", "edit", "write"] as const;
+
+function createExtensionTestContextInternal(ctxOverrides: Partial<TestExtensionContext> = {}): TestExtensionContext {
+	const notify = vi.fn();
+	return {
+		cwd: process.cwd(),
+		hasUI: true,
+		model: { provider: "cursor", api: "cursor-sdk", id: "composer-2.5" } as ExtensionContext["model"],
+		ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
+		sessionManager: { getBranch: vi.fn(() => []) },
+		...ctxOverrides,
+	};
+}
+
+function createHarnessEventApi() {
+	const handlers = new Map<string, ExtensionHandler<HarnessEventMap[HarnessEventName]>[]>();
+
+	const on = vi.fn((event: string, handler: ExtensionHandler<HarnessEventMap[HarnessEventName]>) => {
+		handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+	}) as MockFn<ExtensionAPI["on"]>;
+
+	const invokeEvent = async <E extends HarnessEventName>(
+		event: E,
+		payload: HarnessEventMap[E] | Record<string, never>,
+		ctxOverrides: Partial<TestExtensionContext> = {},
+	): Promise<void> => {
+		const ctx = createExtensionTestContextInternal(ctxOverrides);
+		for (const handler of handlers.get(event) ?? []) {
+			await handler(payload as HarnessEventMap[E], ctx as ExtensionContext);
+		}
+	};
+
+	const runSessionStart = async (
+		ctxOverrides: Partial<TestExtensionContext> = {},
+		eventOverrides: Partial<SessionStartEvent> = {},
+	): Promise<void> => {
+		await invokeEvent(
+			"session_start",
+			{ type: "session_start", reason: "startup", ...eventOverrides },
+			ctxOverrides,
+		);
+	};
+
+	const runModelSelect = async (model: ExtensionContext["model"], ctxOverrides: Partial<TestExtensionContext> = {}): Promise<void> => {
+		await invokeEvent(
+			"model_select",
+			{ type: "model_select", model, previousModel: undefined, source: "set" },
+			{ ...ctxOverrides, model },
+		);
+	};
+
+	const runBeforeAgentStart = async (ctxOverrides: Partial<TestExtensionContext> = {}): Promise<void> => {
+		await invokeEvent(
+			"before_agent_start",
+			{
+				type: "before_agent_start",
+				prompt: "start",
+				systemPrompt: "",
+				systemPromptOptions: {} as BeforeAgentStartEvent["systemPromptOptions"],
+			},
+			ctxOverrides,
+		);
+	};
+
+	const runTurnStart = async (ctxOverrides: Partial<TestExtensionContext> = {}): Promise<void> => {
+		await invokeEvent("turn_start", { type: "turn_start", turnIndex: 1, timestamp: Date.now() }, ctxOverrides);
+	};
+
+	return { on, invokeEvent, runSessionStart, runModelSelect, runBeforeAgentStart, runTurnStart };
+}
 
 export function createBuiltinToolInfo(
 	name: string,
@@ -60,19 +181,8 @@ export function createTestToolInfo(
 	};
 }
 
-/** @deprecated Prefer createTestToolInfo; kept for provider bridge tests. */
-export const createBridgeToolInfo = createTestToolInfo;
-
 export function createExtensionTestContext(ctxOverrides: Partial<TestExtensionContext> = {}): TestExtensionContext {
-	const notify = vi.fn();
-	return {
-		cwd: process.cwd(),
-		hasUI: true,
-		model: { provider: "cursor", api: "cursor-sdk", id: "composer-2.5" } as ExtensionContext["model"],
-		ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
-		sessionManager: { getBranch: vi.fn(() => []) },
-		...ctxOverrides,
-	};
+	return createExtensionTestContextInternal(ctxOverrides);
 }
 
 export function makeModel(id = "test-model"): Model<"cursor-sdk"> {
@@ -131,134 +241,46 @@ export async function collectAssistantEvents(
 	return collectEvents(stream);
 }
 
-async function runHandlers(
-	handlers: Map<string, TestEventHandler[]>,
-	event: string,
-	payload: unknown,
-	ctxOverrides: Partial<TestExtensionContext> = {},
-): Promise<void> {
-	const ctx = createExtensionTestContext(ctxOverrides);
-	for (const handler of handlers.get(event) ?? []) {
-		await handler(payload, ctx);
-	}
-}
-
-export interface PiHarness {
-	registerProvider: ReturnType<typeof vi.fn>;
-	registerFlag: ReturnType<typeof vi.fn>;
-	registerCommand: ReturnType<typeof vi.fn>;
-	registerTool: ReturnType<typeof vi.fn>;
-	getAllTools: ReturnType<typeof vi.fn>;
-	getActiveTools: ReturnType<typeof vi.fn>;
-	setActiveTools: ReturnType<typeof vi.fn>;
-	sendMessage: ReturnType<typeof vi.fn>;
-	on: ReturnType<typeof vi.fn>;
-	getFlag: ReturnType<typeof vi.fn>;
-	appendEntry: ReturnType<typeof vi.fn>;
-	_registered: Array<{ name: string; config: ProviderConfig }>;
-	_commands: Map<string, TestRegisteredCommand>;
-	_tools: RegisteredTool[];
-	_handlers: Map<string, TestEventHandler[]>;
-	_activeToolNames: () => string[];
-	runSessionStart: (ctxOverrides?: Partial<TestExtensionContext>) => Promise<void>;
-	runModelSelect: (model: ExtensionContext["model"], ctxOverrides?: Partial<TestExtensionContext>) => Promise<void>;
-	runBeforeAgentStart: (ctxOverrides?: Partial<TestExtensionContext>) => Promise<void>;
-	runTurnStart: (ctxOverrides?: Partial<TestExtensionContext>) => Promise<void>;
-}
-
-export interface BridgePiHarness {
-	getActiveTools: ReturnType<typeof vi.fn<() => string[]>>;
-	getAllTools: ReturnType<typeof vi.fn<() => ToolInfo[]>>;
-	setActiveTools: ReturnType<typeof vi.fn<(toolNames: string[]) => void>>;
-	on: ReturnType<typeof vi.fn>;
+/** Event-hook-only fake pi surface (session cwd, scoped listeners, etc.). */
+export function createEventHarness(): EventHarness {
+	return createHarnessEventApi();
 }
 
 export function createBridgePiHarness(options: { active: string[]; tools: ToolInfo[] }): BridgePiHarness {
 	return {
-		getActiveTools: vi.fn(() => [...options.active]),
-		getAllTools: vi.fn(() => [...options.tools]),
-		setActiveTools: vi.fn(),
-		on: vi.fn(),
+		getActiveTools: vi.fn<ExtensionAPI["getActiveTools"]>(() => [...options.active]),
+		getAllTools: vi.fn<ExtensionAPI["getAllTools"]>(() => [...options.tools]),
+		setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>(),
+		on: vi.fn<ExtensionAPI["on"]>(),
 	};
 }
 
-/** Canonical configurable fake pi surface for extension, bridge, provider, and session tests. */
+/** Canonical configurable fake pi surface for extension, provider, and session tests. */
 export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
-	const surface = options.surface ?? "full";
-	const handlers = new Map<string, TestEventHandler[]>();
+	const eventApi = createHarnessEventApi();
 	const registered: Array<{ name: string; config: ProviderConfig }> = [];
-	const commands = new Map<string, TestRegisteredCommand>();
+	const commands = new Map<
+		string,
+		{ description?: string; handler: (args: string, ctx: TestExtensionContext) => Promise<void> | void }
+	>();
 	const tools: RegisteredTool[] = [];
 	const initialTools =
 		options.initialTools ?? [...DEFAULT_BUILTIN_TOOL_NAMES].map((name) => createBuiltinToolInfo(name));
 	let activeToolNames = [...(options.activeTools ?? DEFAULT_ACTIVE_TOOL_NAMES)];
 
-	const runSessionStart = async (ctxOverrides: Partial<TestExtensionContext> = {}) => {
-		await runHandlers(handlers, "session_start", { reason: "startup" }, ctxOverrides);
-	};
-	const runModelSelect = async (model: ExtensionContext["model"], ctxOverrides: Partial<TestExtensionContext> = {}) => {
-		await runHandlers(
-			handlers,
-			"model_select",
-			{ model, previousModel: undefined, source: "set" },
-			{ ...ctxOverrides, model },
-		);
-	};
-	const runBeforeAgentStart = async (ctxOverrides: Partial<TestExtensionContext> = {}) => {
-		await runHandlers(
-			handlers,
-			"before_agent_start",
-			{ type: "before_agent_start", prompt: "start", systemPrompt: "", systemPromptOptions: {} },
-			ctxOverrides,
-		);
-	};
-	const runTurnStart = async (ctxOverrides: Partial<TestExtensionContext> = {}) => {
-		await runHandlers(handlers, "turn_start", { type: "turn_start", turnIndex: 1, timestamp: Date.now() }, ctxOverrides);
-	};
-
-	if (surface === "bridge") {
-		throw new Error("Use createBridgePiHarness() for bridge snapshot tests");
-	}
-
-	if (surface === "events-only") {
-		return {
-			registerProvider: vi.fn(),
-			registerFlag: vi.fn(),
-			registerCommand: vi.fn(),
-			registerTool: vi.fn(),
-			getAllTools: vi.fn(() => []),
-			getActiveTools: vi.fn(() => []),
-			setActiveTools: vi.fn(),
-			sendMessage: vi.fn(),
-			on: vi.fn((event: string, handler: TestEventHandler) => {
-				handlers.set(event, [...(handlers.get(event) ?? []), handler]);
-			}),
-			getFlag: vi.fn().mockReturnValue(options.defaultFlagValue ?? false),
-			appendEntry: vi.fn(),
-			_registered: registered,
-			_commands: commands,
-			_tools: tools,
-			_handlers: handlers,
-			_activeToolNames: () => [...activeToolNames],
-			runSessionStart,
-			runModelSelect,
-			runBeforeAgentStart,
-			runTurnStart,
-		};
-	}
-
 	return {
-		registerProvider: vi.fn((name: string, config: ProviderConfig) => {
+		...eventApi,
+		registerProvider: vi.fn<ExtensionAPI["registerProvider"]>((name: string, config: ProviderConfig) => {
 			registered.push({ name, config });
 		}),
-		registerFlag: vi.fn(),
-		registerCommand: vi.fn((name: string, command: TestRegisteredCommand) => {
+		registerFlag: vi.fn<ExtensionAPI["registerFlag"]>(),
+		registerCommand: vi.fn<ExtensionAPI["registerCommand"]>((name: string, command) => {
 			commands.set(name, command);
 		}),
-		registerTool: vi.fn((tool: RegisteredTool) => {
+		registerTool: vi.fn<ExtensionAPI["registerTool"]>((tool: RegisteredTool) => {
 			tools.push(tool);
 		}),
-		getAllTools: vi.fn(() => {
+		getAllTools: vi.fn<ExtensionAPI["getAllTools"]>(() => {
 			const toolsByName = new Map<string, ToolInfo>();
 			for (const tool of initialTools) toolsByName.set(tool.name, tool);
 			for (const tool of tools) {
@@ -271,37 +293,16 @@ export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 			}
 			return [...toolsByName.values()];
 		}),
-		getActiveTools: vi.fn(() => [...activeToolNames]),
-		setActiveTools: vi.fn((toolNames: string[]) => {
+		getActiveTools: vi.fn<ExtensionAPI["getActiveTools"]>(() => [...activeToolNames]),
+		setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>((toolNames: string[]) => {
 			activeToolNames = [...toolNames];
 		}),
-		sendMessage: vi.fn(),
-		on: vi.fn((event: string, handler: TestEventHandler) => {
-			handlers.set(event, [...(handlers.get(event) ?? []), handler]);
-		}),
-		getFlag: vi.fn().mockReturnValue(options.defaultFlagValue ?? false),
-		appendEntry: vi.fn(),
+		sendMessage: vi.fn<ExtensionAPI["sendMessage"]>(),
+		getFlag: vi.fn<ExtensionAPI["getFlag"]>().mockReturnValue(options.defaultFlagValue ?? false),
+		appendEntry: vi.fn<ExtensionAPI["appendEntry"]>(),
 		_registered: registered,
 		_commands: commands,
 		_tools: tools,
-		_handlers: handlers,
 		_activeToolNames: () => [...activeToolNames],
-		runSessionStart,
-		runModelSelect,
-		runBeforeAgentStart,
-		runTurnStart,
 	};
 }
-
-/** @deprecated Prefer createPiHarness(); kept during harness migration. */
-export const createMockPi = createPiHarness;
-
-export const runSessionStart = (pi: PiHarness, ctxOverrides?: Partial<TestExtensionContext>) => pi.runSessionStart(ctxOverrides);
-export const runModelSelect = (
-	pi: PiHarness,
-	model: ExtensionContext["model"],
-	ctxOverrides?: Partial<TestExtensionContext>,
-) => pi.runModelSelect(model, ctxOverrides);
-export const runBeforeAgentStart = (pi: PiHarness, ctxOverrides?: Partial<TestExtensionContext>) =>
-	pi.runBeforeAgentStart(ctxOverrides);
-export const runTurnStart = (pi: PiHarness, ctxOverrides?: Partial<TestExtensionContext>) => pi.runTurnStart(ctxOverrides);

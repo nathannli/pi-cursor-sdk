@@ -83,7 +83,7 @@ describe("native replay stress", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		const pi = await createNativeToolDisplayPiForTest();
 		pi.setActiveTools(["read", "bash", "edit", "write"]);
-		await pi.runEventHandlers("turn_start", { model: CURSOR_MODEL });
+		await pi.runTurnStart({ model: CURSOR_MODEL });
 		expect(pi.getActiveTools()).toContain("grep");
 		expect(pi.getActiveTools()).toContain("cursor");
 
@@ -103,7 +103,7 @@ describe("native replay stress", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		const pi = await createNativeToolDisplayPiForTest();
 		pi.setActiveTools(["read", "bash", "edit", "write"]);
-		await pi.runEventHandlers("turn_start", { model: CURSOR_MODEL });
+		await pi.runTurnStart({ model: CURSOR_MODEL });
 		expect(pi.getActiveTools()).toContain("cursor");
 
 		mockedCreate.mockResolvedValue({

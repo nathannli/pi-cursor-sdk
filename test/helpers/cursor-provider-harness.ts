@@ -42,21 +42,32 @@ import { __testUtils as nativeToolDisplayTestUtils, registerCursorNativeToolDisp
 import type { ModelListItem, SendOptions } from "@cursor/sdk";
 import type { AssistantMessage, AssistantMessageEvent, ToolCall } from "@earendil-works/pi-ai";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
-import * as piHarness from "./pi-harness.js";
+import {
+	collectAssistantEvents,
+	createBridgePiHarness,
+	createBuiltinToolInfo,
+	createExtensionTestContext,
+	createPiHarness,
+	makeAssistantMessage,
+	makeContext,
+	makeModel,
+	type RegisteredTool,
+	type TestExtensionContext,
+} from "./pi-harness.js";
 
-export const collectAssistantEvents = piHarness.collectAssistantEvents;
-export const createBridgePiHarness = piHarness.createBridgePiHarness;
-export const createBuiltinToolInfo = piHarness.createBuiltinToolInfo;
-export const createExtensionTestContext = piHarness.createExtensionTestContext;
-export const createPiHarness = piHarness.createPiHarness;
-export const createTestToolInfo = piHarness.createTestToolInfo;
-export const makeAssistantMessage = piHarness.makeAssistantMessage;
-export const makeContext = piHarness.makeContext;
-export const makeModel = piHarness.makeModel;
-export type RegisteredTool = piHarness.RegisteredTool;
-export type TestEventHandler = piHarness.TestEventHandler;
-export type TestExtensionContext = piHarness.TestExtensionContext;
-export const createBridgeToolInfo = piHarness.createTestToolInfo;
+export {
+	collectAssistantEvents,
+	createBridgePiHarness,
+	createBuiltinToolInfo,
+	createExtensionTestContext,
+	createPiHarness,
+	createTestToolInfo,
+	makeAssistantMessage,
+	makeContext,
+	makeModel,
+	type RegisteredTool,
+	type TestExtensionContext,
+} from "./pi-harness.js";
 
 // Access the mocks via the module
 export const mockedCreate = vi.mocked(Agent.create);
@@ -171,7 +182,7 @@ export function createMockAgentPlatform(
 export interface NativeToolDisplayTestPi {
 	getActiveTools: ReturnType<typeof vi.fn>;
 	setActiveTools: ReturnType<typeof vi.fn>;
-	runEventHandlers: (event: string, ctx?: Record<string, unknown>) => Promise<void>;
+	runTurnStart: (ctxOverrides?: TestExtensionContext) => Promise<void>;
 }
 
 export async function createNativeToolDisplayPiForTest(registeredTools: RegisteredTool[] = []): Promise<NativeToolDisplayTestPi> {
@@ -195,12 +206,7 @@ export async function createNativeToolDisplayPiForTest(registeredTools: Register
 	return {
 		getActiveTools: pi.getActiveTools,
 		setActiveTools: pi.setActiveTools,
-		runEventHandlers: async (event, ctx = {}) => {
-			const payload = event === "session_start" ? { reason: "startup" } : { type: event };
-			for (const handler of pi._handlers.get(event) ?? []) {
-				await handler(payload, { ...createExtensionTestContext({ hasUI: false }), ...ctx });
-			}
-		},
+		runTurnStart: (ctxOverrides = {}) => pi.runTurnStart({ hasUI: false, ...ctxOverrides }),
 	};
 }
 

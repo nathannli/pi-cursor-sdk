@@ -23,7 +23,7 @@ import {
 	registerNativeToolDisplayForTest,
 	connectMcpClient,
 	createBuiltinToolInfo,
-	createBridgeToolInfo,
+	createTestToolInfo,
 	cursorModelItems,
 	type CursorDeltaHandler,
 	type CursorStepHandler,
@@ -173,7 +173,7 @@ describe("streamCursor bridge MCP", () => {
 	it("passes bridge MCP servers into Agent.create when active pi tools are exposed", async () => {
 		registerBridgeForProviderTest({
 			active: ["sem_reindex"],
-			tools: [createBridgeToolInfo("sem_reindex", Type.Object({ target: Type.String() }), "Reindex semantic cache")],
+			tools: [createTestToolInfo("sem_reindex", Type.Object({ target: Type.String() }), "Reindex semantic cache")],
 		});
 		const mockSend = vi.fn().mockResolvedValue({
 			id: "run-1",
@@ -252,7 +252,7 @@ describe("streamCursor bridge MCP", () => {
 		process.env.PI_CURSOR_PI_TOOL_BRIDGE = "0";
 		registerBridgeForProviderTest({
 			active: ["read"],
-			tools: [createBridgeToolInfo("read")],
+			tools: [createTestToolInfo("read")],
 		});
 		const mockSend = vi.fn().mockResolvedValue({
 			id: "run-1",
@@ -281,7 +281,7 @@ describe("streamCursor bridge MCP", () => {
 		vi.clearAllMocks();
 		registerBridgeForProviderTest({
 			active: ["cursor", "cursor_edit"],
-			tools: [createBridgeToolInfo("cursor"), createBridgeToolInfo("cursor_edit")],
+			tools: [createTestToolInfo("cursor"), createTestToolInfo("cursor_edit")],
 		});
 		mockedCreate.mockResolvedValue({
 			agentId: "agent-2",
@@ -432,7 +432,7 @@ describe("streamCursor bridge MCP", () => {
 	it("keeps non-bridge Cursor MCP replay visible while suppressing only bridge MCP calls", async () => {
 		registerBridgeForProviderTest({
 			active: ["read"],
-			tools: [createBridgeToolInfo("read", Type.Object({ path: Type.String() }), "Read files")],
+			tools: [createTestToolInfo("read", Type.Object({ path: Type.String() }), "Read files")],
 		});
 		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
 			opts.onDelta({
@@ -475,7 +475,7 @@ describe("streamCursor bridge MCP", () => {
 		cursorProviderTestUtils.setCursorNativeReplayIdleDisposeMs(1);
 		registerBridgeForProviderTest({
 			active: ["read"],
-			tools: [createBridgeToolInfo("read", Type.Object({ path: Type.String() }), "Read files")],
+			tools: [createTestToolInfo("read", Type.Object({ path: Type.String() }), "Read files")],
 		});
 		const mockDispose = vi.fn().mockResolvedValue(undefined);
 		const runWait = vi.fn(() => new Promise<{ id: string; status: "finished"; result: string }>(() => {}));
