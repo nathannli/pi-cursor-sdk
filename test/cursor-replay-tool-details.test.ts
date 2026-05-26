@@ -4,11 +4,6 @@ import {
 	CURSOR_REPLAY_GENERATE_IMAGE_RESULT_TITLE,
 	buildCursorReplayEditDetails,
 	parseCursorReplayToolDetails,
-	type CursorReplayEditDetails,
-	type CursorReplayGenerateImageDetails,
-	type CursorReplayGenericFallbackDetails,
-	type CursorReplayTitledActivityDetails,
-	type CursorReplayWriteDetails,
 } from "../src/cursor-replay-tool-details.js";
 import {
 	renderCursorReplayResult,
@@ -39,17 +34,17 @@ describe("cursor replay tool details contract", () => {
 			path: "src/a.ts",
 			diffString: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new",
 			linesAdded: 1,
-		} satisfies CursorReplayEditDetails);
+		});
 		const write = parseCursorReplayToolDetails({
 			cursorToolName: "write",
 			path: "out.txt",
 			linesCreated: 3,
-		} satisfies CursorReplayWriteDetails);
+		});
 		const image = parseCursorReplayToolDetails({
 			cursorToolName: "generateImage",
 			imagePath: "/tmp/out.png",
 			summary: "saved /tmp/out.png",
-		} satisfies CursorReplayGenerateImageDetails);
+		});
 
 		expect(edit).toMatchObject({ variant: "edit", cursorToolName: "edit" });
 		expect(write).toMatchObject({ variant: "write", cursorToolName: "write" });
@@ -70,7 +65,7 @@ describe("cursor replay tool details contract", () => {
 			title: "Cursor MCP",
 			summary: "git status",
 			expandedText: "line one",
-		} satisfies CursorReplayTitledActivityDetails);
+		});
 		expect(parsed).not.toHaveProperty("untrusted");
 	});
 
@@ -83,7 +78,7 @@ describe("cursor replay tool details contract", () => {
 			variant: "genericFallback",
 			cursorToolName: "futureTool",
 			summary: "done",
-		} satisfies CursorReplayGenericFallbackDetails);
+		});
 	});
 
 	it("renders edit replay through the typed edit renderer path", () => {
