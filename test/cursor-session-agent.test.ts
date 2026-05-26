@@ -48,6 +48,151 @@ describe("cursor-session-agent", () => {
 		expect(mockDispose).not.toHaveBeenCalled();
 	});
 
+	it("awaits tracked background sdk run completion for the same pool instance", async () => {
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const instanceId = 42;
+		let resolveCompletion: (() => void) | undefined;
+		const completion = new Promise<void>((resolve) => {
+		 resolveCompletion = resolve;
+		});
+
+		sessionAgentTestUtils.trackSessionCursorSdkRunCompletion(scopeKey, instanceId, completion);
+		const idlePromise = sessionAgentTestUtils.awaitSessionCursorSdkRunIdle(scopeKey, instanceId);
+		let idleResolved = false;
+		void idlePromise.then(() => {
+			idleResolved = true;
+		});
+
+		await Promise.resolve();
+		expect(idleResolved).toBe(false);
+
+		resolveCompletion?.();
+		await idlePromise;
+		expect(idleResolved).toBe(true);
+	});
+
+	it("does not await stale sdk run completion after pool replacement", async () => {
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const completion = new Promise<void>(() => {
+			// never resolves
+		});
+
+		sessionAgentTestUtils.trackSessionCursorSdkRunCompletion(scopeKey, 1, completion);
+		await sessionAgentTestUtils.awaitSessionCursorSdkRunIdle(scopeKey, 2);
+	});
+
+	it("ignores stale send commits after pool replacement", async () => {
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-1",
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const params = {
+			apiKey: "test-key",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+		const context = makeContext([{ role: "user", content: "Hello", timestamp: 1 }]);
+
+		const lease = await acquireSessionCursorAgent(params);
+		const staleInstanceId = lease.instanceId;
+		await sessionAgentTestUtils.resetSessionCursorAgent(scopeKey);
+		const replacement = await acquireSessionCursorAgent(params);
+
+		commitSessionAgentSend(scopeKey, context, true, staleInstanceId);
+		expect(replacement.sendState.bootstrapped).toBe(false);
+
+		commitSessionAgentSend(scopeKey, context, true, replacement.instanceId);
+		expect(replacement.sendState.bootstrapped).toBe(true);
+	});
+
+	it("reacquires instead of returning stale lease after scope reset during idle wait", async () => {
+		const mockDispose1 = vi.fn().mockResolvedValue(undefined);
+		const mockDispose2 = vi.fn().mockResolvedValue(undefined);
+		let resolveCompletion: (() => void) | undefined;
+		const createAgent = vi.fn().mockImplementation(async () => {
+			if (createAgent.mock.calls.length === 1) {
+				return { agentId: "agent-1", [Symbol.asyncDispose]: mockDispose1 };
+			}
+			return { agentId: "agent-2", [Symbol.asyncDispose]: mockDispose2 };
+		});
+
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const params = {
+			apiKey: "test-key",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+
+		const first = await acquireSessionCursorAgent(params);
+		expect(first.agent.agentId).toBe("agent-1");
+
+		const completion = new Promise<void>((resolve) => {
+			resolveCompletion = resolve;
+		});
+		sessionAgentTestUtils.trackSessionCursorSdkRunCompletion(scopeKey, first.instanceId, completion);
+
+		const secondAcquirePromise = acquireSessionCursorAgent(params);
+		await Promise.resolve();
+		await sessionAgentTestUtils.resetSessionCursorAgent(scopeKey);
+		resolveCompletion?.();
+
+		const second = await secondAcquirePromise;
+		expect(second.agent.agentId).toBe("agent-2");
+		expect(second.instanceId).not.toBe(first.instanceId);
+		expect(createAgent).toHaveBeenCalledTimes(2);
+	});
+
+	it("reuses replacement agent when idle wait stale after concurrent acquire", async () => {
+		const mockDispose1 = vi.fn().mockResolvedValue(undefined);
+		const mockDispose2 = vi.fn().mockResolvedValue(undefined);
+		let resolveCompletion: (() => void) | undefined;
+		const createAgent = vi.fn().mockImplementation(async () => {
+			if (createAgent.mock.calls.length === 1) {
+				return { agentId: "agent-1", [Symbol.asyncDispose]: mockDispose1 };
+			}
+			return { agentId: "agent-2", [Symbol.asyncDispose]: mockDispose2 };
+		});
+
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const params = {
+			apiKey: "test-key",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+
+		const first = await acquireSessionCursorAgent(params);
+		expect(first.agent.agentId).toBe("agent-1");
+
+		const completion = new Promise<void>((resolve) => {
+			resolveCompletion = resolve;
+		});
+		sessionAgentTestUtils.trackSessionCursorSdkRunCompletion(scopeKey, first.instanceId, completion);
+
+		const blockedAcquirePromise = acquireSessionCursorAgent(params);
+		await Promise.resolve();
+		await sessionAgentTestUtils.resetSessionCursorAgent(scopeKey);
+		const replacement = await acquireSessionCursorAgent(params);
+		expect(replacement.agent.agentId).toBe("agent-2");
+		expect(createAgent).toHaveBeenCalledTimes(2);
+
+		resolveCompletion?.();
+		const blocked = await blockedAcquirePromise;
+		expect(blocked.agent.agentId).toBe("agent-2");
+		expect(blocked.instanceId).toBe(replacement.instanceId);
+		expect(createAgent).toHaveBeenCalledTimes(2);
+		expect(mockDispose2).not.toHaveBeenCalled();
+	});
+
 	it("tracks incremental send count and resets it after bootstrap commits", async () => {
 		const createAgent = vi.fn().mockResolvedValue({
 			agentId: "agent-1",

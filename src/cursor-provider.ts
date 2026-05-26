@@ -18,6 +18,7 @@ import {
 	disposeAllSessionCursorAgents,
 	planCursorSessionSend,
 	resetSessionCursorAgent,
+	trackSessionCursorSdkRunCompletion,
 } from "./cursor-session-agent.js";
 import {
 	type CursorPiBridgeToolRequest,
@@ -42,6 +43,7 @@ import {
 	getPendingCursorLiveRun,
 	hasTrailingUserMessagesAfterToolResults,
 	releaseAllPendingCursorLiveRunsForTests,
+	detachActiveLiveRunWithoutAbandonForTests,
 	resetCursorNativeReplayIdleDisposeMs,
 	selectCursorFinalText,
 	setCursorNativeReplayIdleDisposeMs,
@@ -138,6 +140,7 @@ export function streamCursor(
 		const queuedBridgeRequestsBeforeLiveRun: CursorPiBridgeToolRequest[] = [];
 		let resolvedApiKey: string | undefined;
 		let sessionAgentScopeKey = "";
+		let sessionAgentInstanceId = 0;
 		let abortSignal: AbortSignal | undefined;
 		let abortListener: (() => void) | undefined;
 		let restoreCursorSdkOutputFilter: (() => void) | undefined;
@@ -237,6 +240,7 @@ export function streamCursor(
 			};
 			let sessionAgentLease = await acquireSessionCursorAgent(sessionAgentAcquireParams);
 			sessionAgentScopeKey = sessionAgentLease.scopeKey;
+			sessionAgentInstanceId = sessionAgentLease.instanceId;
 			agent = sessionAgentLease.agent;
 			bridgeRun = sessionAgentLease.bridgeRun;
 			throwIfAborted();
@@ -248,6 +252,7 @@ export function streamCursor(
 				await resetSessionCursorAgent(sessionAgentLease.scopeKey);
 				sessionAgentLease = await acquireSessionCursorAgent(sessionAgentAcquireParams);
 				sessionAgentScopeKey = sessionAgentLease.scopeKey;
+				sessionAgentInstanceId = sessionAgentLease.instanceId;
 				agent = sessionAgentLease.agent;
 				bridgeRun = sessionAgentLease.bridgeRun;
 				sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
@@ -402,7 +407,7 @@ export function streamCursor(
 						await cacheSdkContextWindow(liveRun.agent.agentId, model.id);
 						if (liveRun.disposed) return;
 						if (finishedSuccessfully) {
-							commitSessionAgentSend(sessionAgentScopeKey, context, bootstrap);
+							commitSessionAgentSend(sessionAgentScopeKey, context, bootstrap, sessionAgentInstanceId);
 							cursorLiveRuns.markFinished(liveRun, finalCursorText);
 						} else if (result.status === "cancelled" || options?.signal?.aborted) {
 							cursorLiveRuns.markCancelled(
@@ -455,6 +460,7 @@ export function streamCursor(
 					throw error;
 				} finally {
 					sdkEventDebugRef.current = undefined;
+					trackSessionCursorSdkRunCompletion(sessionAgentScopeKey, sessionAgentInstanceId, waitCompletion);
 					void waitCompletion
 						.finally(async () => {
 							try {
@@ -516,7 +522,7 @@ export function streamCursor(
 				partial.errorMessage = sanitizeCursorProviderError(failureDetail, resolvedApiKey ?? options?.apiKey);
 				stream.push({ type: "error", reason: "error", error: partial });
 			} else {
-				commitSessionAgentSend(sessionAgentScopeKey, context, bootstrap);
+				commitSessionAgentSend(sessionAgentScopeKey, context, bootstrap, sessionAgentInstanceId);
 				turnCoordinator.flushText(hasUsableText(finalCursorText) ? [finalCursorText] : []);
 				applyCursorApproximateUsage(partial, model, context, promptInputTokens);
 				stream.push({ type: "done", reason: "stop", message: partial });
@@ -577,5 +583,6 @@ export const __testUtils = {
 	setCursorNativeReplayIdleDisposeMs,
 	resetCursorNativeReplayIdleDisposeMs,
 	releaseAllPendingCursorLiveRunsForTests,
+	detachActiveLiveRunWithoutAbandonForTests,
 	resetSessionCursorAgents: () => disposeAllSessionCursorAgents(),
 };

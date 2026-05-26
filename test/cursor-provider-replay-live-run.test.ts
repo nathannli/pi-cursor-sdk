@@ -30,6 +30,8 @@ import {
 	type RegisteredTool,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
+import { __testUtils as sessionAgentTestUtils } from "../src/cursor-session-agent.js";
+import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
 import { estimateCursorPromptMessageTokens } from "../src/context.js";
 import { __testUtils as nativeToolDisplayTestUtils } from "../src/cursor-native-tool-display.js";
 import type { Context } from "@earendil-works/pi-ai";
@@ -479,6 +481,104 @@ it("replays native Cursor tools as a toolUse turn before final text", async () =
 		expect(getDoneEvent(scopedEvents).reason).toBe("stop");
 		expect(cancelRun).not.toHaveBeenCalled();
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+	});
+
+	it("awaits pooled-agent idle before planning compaction-style follow-up send", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let sendCallCount = 0;
+		const sendTexts: string[] = [];
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (message: { text?: string }, opts: { onDelta: CursorDeltaHandler }) => {
+			sendCallCount += 1;
+			sendTexts.push(message.text ?? "");
+			if (sendCallCount === 1) {
+				opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "bash", args: { command: "git status" } }, callId: "c1" } });
+				opts.onDelta({
+					update: {
+						type: "tool-call-completed",
+						toolCall: {
+							name: "bash",
+							result: { status: "success", value: { stdout: "clean", stderr: "", exitCode: 0 } },
+						},
+						callId: "c1",
+					},
+				});
+				return {
+					id: "run-1",
+					agentId: "agent-1",
+					status: "running",
+					wait: runWait,
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				};
+			}
+
+			opts.onDelta({ update: { type: "text-delta", text: "Follow-up answer." } });
+			return {
+				id: "run-2",
+				agentId: "agent-1",
+				status: "running",
+				wait: vi.fn().mockResolvedValue({ id: "run-2", status: "finished", result: "Follow-up answer." }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			agentId: "agent-1",
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const scopeKey = cursorSessionScopeTestUtils.ANONYMOUS_SESSION_SCOPE_KEY;
+		const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		expect(getDoneEvent(firstEvents).reason).toBe("toolUse");
+		expect(sessionAgentTestUtils.sessionAgentsByScope.get(scopeKey)?.sendState.bootstrapped).toBe(false);
+		expect(sendTexts[0]).toContain("Cursor SDK tool boundary:");
+		cursorProviderTestUtils.detachActiveLiveRunWithoutAbandonForTests(scopeKey);
+
+		const firstDone = getDoneEvent(firstEvents);
+		const toolCall = firstDone.message.content.find(isToolCallBlock);
+		expect(toolCall).toBeDefined();
+		const followUpContext = makeContext();
+		followUpContext.messages = [
+			...followUpContext.messages,
+			firstDone.message,
+			{
+				role: "toolResult",
+				toolCallId: toolCall!.id,
+				toolName: toolCall!.name,
+				content: [{ type: "text", text: "clean" }],
+				isError: false,
+				timestamp: 2,
+			},
+			{ role: "user", content: [{ type: "text", text: "Continue with the summary." }], timestamp: 3 },
+		];
+		const followUpEventsPromise = collectEvents(streamCursor(makeModel(), followUpContext, { apiKey: "test-key" }));
+		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(mockSend).toHaveBeenCalledTimes(1);
+		expect(sessionAgentTestUtils.sessionAgentsByScope.get(scopeKey)?.sendState.bootstrapped).toBe(false);
+
+		resolveRun({ id: "run-1", status: "finished", result: "Follow-up answer." });
+		const followUpEvents = await followUpEventsPromise;
+
+		expect(mockSend).toHaveBeenCalledTimes(2);
+		expect(sessionAgentTestUtils.sessionAgentsByScope.get(scopeKey)?.sendState.bootstrapped).toBe(true);
+		expect(sendTexts[1]).not.toContain("Cursor SDK tool boundary:");
+		expect(collectTextDeltas(followUpEvents)).toBe("Follow-up answer.");
+		expect(getDoneEvent(followUpEvents).reason).toBe("stop");
 	});
 
 	it("drops additional old-run tool batches when steering user input should start a fresh send", async () => {

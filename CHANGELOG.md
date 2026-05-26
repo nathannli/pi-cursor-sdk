@@ -10,6 +10,11 @@
 ### Changed
 
 - Document first-send MCP cold-start behavior and initialize/listTools timeout defaults in README troubleshooting.
+
+### Fixed
+
+- Make pooled Cursor session agents idle before send planning/reuse by awaiting fire-and-forget live-run `run.wait()` cleanup in `acquireSessionCursorAgent()`, scoped to the pooled agent instance id, so pi auto-compaction summarization does not hit Cursor SDK `AgentBusyError` (`already has active run`) or plan against stale send state while manual `/compact` after idle still works.
+
 ## 0.1.19 - 2026-05-25
 
 ### Added
