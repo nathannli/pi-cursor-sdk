@@ -181,7 +181,7 @@ describe("streamCursor auth and abort", () => {
 	it("cancels bridge runs promptly when aborted during Agent.messages.list offset probing", async () => {
 		registerBridgeForProviderTest({
 			active: ["sem_reindex"],
-			tools: [createBridgeToolInfo("sem_reindex", Type.Object({ target: Type.String() }), "Reindex semantic cache")],
+			tools: [createTestToolInfo("sem_reindex", Type.Object({ target: Type.String() }), "Reindex semantic cache")],
 		});
 		const bridgeCancelSpy = vi.spyOn(CursorPiToolBridgeRunImpl.prototype, "cancel");
 
@@ -201,7 +201,7 @@ describe("streamCursor auth and abort", () => {
 					// Intentionally never resolves so abort during offset probing is observable.
 				}),
 		);
-		mockedCreate.mockResolvedValue({
+		mockCreatedAgent({
 			agentId: "agent-1",
 			send: mockSend,
 			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
