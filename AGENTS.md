@@ -86,7 +86,8 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 
 - Install dependencies: `npm install`
 - Run tests: `npm test`
-- Typecheck: `npm run typecheck`
+- Typecheck (src + tests): `npm run typecheck`
+- Typecheck src only: `npm run typecheck:src`
 - Typecheck tests/helpers: `npm run typecheck:tests`
 - Package-readiness check: `npm pack --dry-run`
 - Watch tests while developing: `npm run test:watch`

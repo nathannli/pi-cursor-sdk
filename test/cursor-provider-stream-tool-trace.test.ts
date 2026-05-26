@@ -1,50 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Type } from "typebox";
 import {
 	resetCursorProviderTestState,
-	mockedCreate,
-	mockedCreateAgentPlatform,
 	makeModel,
 	makeContext,
-	makeAssistantMessage,
 	collectEvents,
 	collectTextDeltas,
 	collectThinkingDeltas,
 	getEventsOfType,
 	getDoneEvent,
-	getErrorEvent,
-	getTextEndEvent,
-	hasEventType,
-	isToolCallBlock,
 	isCursorToolStreamEvent,
-	getCreatedAgentOptions,
-	createMockAgentPlatform,
-	registerBridgeForProviderTest,
-	registerNativeToolDisplayForTest,
-	connectMcpClient,
-	createBuiltinToolInfo,
-	createTestToolInfo,
-	cursorModelItems,
 	type CursorDeltaHandler,
 	type CursorStepHandler,
-	type RegisteredTool,
 	mockCreatedAgent,
 	asMockCursorRun,
-	getPiToolsMcpUrlFromAgentCreateOptions,
 } from "./helpers/cursor-provider-harness.js";
-import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
-import { __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
-import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
-import { __testUtils as sdkEventDebugTestUtils } from "../src/cursor-sdk-event-debug.js";
-import type { SDKMessage, SendOptions } from "@cursor/sdk";
-import type { Context } from "@earendil-works/pi-ai";
+import { streamCursor } from "../src/cursor-provider.js";
+import type { SendOptions } from "@cursor/sdk";
 
 type CursorOnStepPayload = Parameters<NonNullable<SendOptions["onStep"]>>[0];
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-
 
 
 describe("streamCursor tool trace", () => {

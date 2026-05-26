@@ -2,22 +2,14 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
 	createBuiltinToolInfo,
-	createExtensionRegistrationPi,
-	createExtensionCommandContext,
 	createExtensionTestContext,
 	getHarnessRegisteredTool,
-	makeHarnessModel,
-	makeModel,
-	makeProviderModelConfig,
-	type CursorExtensionRegistrationPi,
-	type PiHarness,
-	type PiHarnessOptions,
 } from "./helpers/pi-harness.js";
+import { createExtensionPi, resetIndexExtensionTestState } from "./helpers/index-extension-test-kit.js";
 
 vi.mock("../src/model-discovery.js", () => ({
 	discoverModels: vi.fn(),
@@ -30,38 +22,16 @@ vi.mock("../src/cursor-provider.js", () => ({
 
 import extensionFactory from "../src/index.js";
 import { discoverModels } from "../src/model-discovery.js";
-import { streamCursor } from "../src/cursor-provider.js";
+
+const mockedDiscover = vi.mocked(discoverModels);
 import {
-	__testUtils as nativeToolDisplayTestUtils,
 	canRenderCursorToolNatively,
 	recordCursorNativeToolDisplay,
 } from "../src/cursor-native-tool-display.js";
-import { __testUtils as cursorPiToolBridgeTestUtils, buildCursorPiToolBridgeSnapshot } from "../src/cursor-pi-tool-bridge.js";
 import { CURSOR_ASK_QUESTION_TOOL_NAME } from "../src/cursor-question-tool.js";
-import { __testUtils as cursorSessionCwdTestUtils } from "../src/cursor-session-cwd.js";
-
-const mockedDiscover = vi.mocked(discoverModels);
-const mockedStreamCursor = vi.mocked(streamCursor);
-
-type DiscoverOptions = Parameters<typeof discoverModels>[0];
-
-function createExtensionPi(
-	initialTools?: PiHarnessOptions["initialTools"],
-): PiHarness & CursorExtensionRegistrationPi {
-	return createExtensionRegistrationPi(initialTools ? { initialTools } : undefined);
-}
-
 
 describe("extension native Cursor tool replay", () => {
-	beforeEach(async () => {
-		vi.clearAllMocks();
-		delete process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY;
-		delete process.env.PI_CURSOR_REGISTER_NATIVE_TOOLS;
-		delete process.env.PI_CURSOR_PI_TOOL_BRIDGE;
-		await cursorPiToolBridgeTestUtils.resetRegisteredBridgeForTests();
-		cursorSessionCwdTestUtils.reset();
-		nativeToolDisplayTestUtils.reset();
-	});
+	beforeEach(resetIndexExtensionTestState);
 
 	it("defers native Cursor tool wrapper registration until session_start", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";

@@ -1,39 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
-	discoverModels,
 	buildCursorModelSelection,
 	getCursorModelMetadata,
 	getCursorModelMetadataEntries,
 	__testUtils,
-	type CursorModelFallbackIssue,
 } from "../src/model-discovery.js";
-import { saveCachedContextWindow, __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
-
-vi.mock("@cursor/sdk", () => ({
-	Cursor: {
-		models: {
-			list: vi.fn(),
-		},
-	},
-}));
-
-import { Cursor } from "@cursor/sdk";
 import type { ModelListItem } from "@cursor/sdk";
-
-const mockedList = vi.mocked(Cursor.models.list);
 
 function register(items: ModelListItem[]) {
 	return __testUtils.registerModelItems(items);
-}
-
-function writeStoredCursorApiKey(apiKey: string): void {
-	writeFileSync(
-		join(process.env.PI_CODING_AGENT_DIR!, "auth.json"),
-		JSON.stringify({ cursor: { type: "api_key", key: apiKey } }, null, 2),
-	);
 }
 
 describe("buildCursorModelSelection", () => {

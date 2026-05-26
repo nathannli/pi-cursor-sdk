@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CURSOR_REPLAY_ACTIVITY_TOOL_NAME, isExcludedFromCursorBridgeExposure } from "../src/cursor-tool-names.js";
-import { buildCursorPiToolDisplay, formatCursorToolTranscript, getCursorCreatePlanText, mergeCursorToolCalls } from "../src/cursor-tool-transcript.js";
-import { getCursorDisplayDetailSummary } from "./helpers/cursor-display-details.js";
+import { buildCursorPiToolDisplay, formatCursorToolTranscript, getCursorCreatePlanText } from "../src/cursor-tool-transcript.js";
 
 
 describe("formatCursorToolTranscript read and shell", () => {
