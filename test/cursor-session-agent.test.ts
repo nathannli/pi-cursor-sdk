@@ -1,19 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Context } from "@earendil-works/pi-ai";
 import { shouldBootstrapCursorSend, computeCursorContextFingerprint } from "../src/context.js";
+import { makeContext } from "./helpers/pi-harness.js";
 import { __testUtils as cursorSessionScopeTestUtils, registerCursorSessionScope } from "../src/cursor-session-scope.js";
 import {
 	acquireSessionCursorAgent,
 	registerCursorSessionAgent,
 	__testUtils as sessionAgentTestUtils,
 } from "../src/cursor-session-agent.js";
-
-function makeContext(messages: Context["messages"]): Context {
-	return {
-		systemPrompt: "Be helpful.",
-		messages,
-	};
-}
 
 describe("cursor-session-agent", () => {
 	beforeEach(async () => {

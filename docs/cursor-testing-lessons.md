@@ -425,4 +425,5 @@ rg '"type": "toolCall"|Tool call \(Cursor|cursor-replay-' "$SMOKE_DIR/session"/*
 - `scripts/validate-smoke-jsonl.mjs`
 - `scripts/debug-sdk-events.mjs`
 - `scripts/debug-provider-events.mjs`
-- `test/helpers/cursor-provider-harness.ts` — controllable native replay pi mock (`createNativeToolDisplayPiForTest`)
+- `test/helpers/pi-harness.ts` — canonical fake pi/extension harness (`createPiHarness`, shared model/context/event helpers)
+- `test/helpers/cursor-provider-harness.ts` — Cursor SDK provider mocks and stream helpers (re-exports pi-harness fixtures; `createNativeToolDisplayPiForTest` for native replay)

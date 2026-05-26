@@ -1,5 +1,5 @@
-import type { Context } from "@earendil-works/pi-ai";
 import type { SDKAgent } from "@cursor/sdk";
+import { makeContext } from "./helpers/pi-harness.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createCursorLiveRunCoordinator,
@@ -8,10 +8,6 @@ import {
 } from "../src/cursor-live-run-coordinator.js";
 import type { CursorNativeToolDisplayItem } from "../src/cursor-native-tool-display.js";
 import type { CursorPiToolBridgeRun } from "../src/cursor-pi-tool-bridge.js";
-
-function makeContext(messages: Context["messages"]): Context {
-	return { systemPrompt: "Be helpful.", messages };
-}
 
 function makeAgent(agentId = "agent-1"): SDKAgent {
 	return { agentId } as SDKAgent;

@@ -3,7 +3,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Context } from "@earendil-works/pi-ai";
 import type { ToolInfo } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { Type, type TSchema } from "typebox";
+import { createBridgePiHarness, createBuiltinToolInfo, createTestToolInfo } from "./helpers/pi-harness.js";
 import { __testUtils as nativeToolDisplayTestUtils } from "../src/cursor-native-tool-display.js";
 import {
 	__testUtils,
@@ -16,34 +17,8 @@ import {
 	type CursorPiToolBridgeRun,
 } from "../src/cursor-pi-tool-bridge.js";
 
-type TestBridgeSnapshotApi = Parameters<typeof buildCursorPiToolBridgeSnapshot>[0];
-
-function createToolInfo(name: string, description = `${name} description`, parameters = Type.Object({})): ToolInfo {
-	return {
-		name,
-		description,
-		parameters,
-		sourceInfo: { source: "test", path: `test:${name}`, scope: "temporary", origin: "top-level" },
-	};
-}
-
-function createBuiltinToolInfo(name: string, description = `${name} description`, parameters = Type.Object({})): ToolInfo {
-	return {
-		name,
-		description,
-		parameters,
-		sourceInfo: { source: "builtin", path: `<builtin:${name}>`, scope: "temporary", origin: "top-level" },
-	};
-}
-
-function createMockPi(options: { active: string[]; tools: ToolInfo[] }): TestBridgeSnapshotApi & {
-	setActiveTools: ReturnType<typeof vi.fn<(toolNames: string[]) => void>>;
-} {
-	return {
-		getActiveTools: vi.fn(() => [...options.active]),
-		getAllTools: vi.fn(() => [...options.tools]),
-		setActiveTools: vi.fn(),
-	};
+function createToolInfo(name: string, description = `${name} description`, parameters: TSchema = Type.Object({})): ToolInfo {
+	return createTestToolInfo(name, parameters, description);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -153,7 +128,7 @@ describe("cursor pi tool bridge flags and snapshots", () => {
 			createToolInfo("cursor_edit"),
 			createToolInfo("cursor_mcp"),
 		];
-		const pi = createMockPi({
+		const pi = createBridgePiHarness({
 			active: ["custom_read", "sem_reindex", "inactive_missing", "cursor", "cursor_edit", "cursor_mcp"],
 			tools,
 		});
@@ -179,16 +154,16 @@ describe("cursor pi tool bridge flags and snapshots", () => {
 	it("hides overlapping pi tool names by default while keeping non-overlapping tools", () => {
 		const tools = [
 			createToolInfo("read", "Replay-wrapped read tool"),
-			createBuiltinToolInfo("bash", "Run shell commands"),
-			createBuiltinToolInfo("write", "Write files"),
-			createBuiltinToolInfo("edit", "Edit files"),
-			createBuiltinToolInfo("grep", "Search files"),
-			createBuiltinToolInfo("find", "Find files"),
-			createBuiltinToolInfo("ls", "List files"),
-			createBuiltinToolInfo("todo", "Non-overlapping built-in"),
+			createBuiltinToolInfo("bash", Type.Object({}), "Run shell commands"),
+			createBuiltinToolInfo("write", Type.Object({}), "Write files"),
+			createBuiltinToolInfo("edit", Type.Object({}), "Edit files"),
+			createBuiltinToolInfo("grep", Type.Object({}), "Search files"),
+			createBuiltinToolInfo("find", Type.Object({}), "Find files"),
+			createBuiltinToolInfo("ls", Type.Object({}), "List files"),
+			createBuiltinToolInfo("todo", Type.Object({}), "Non-overlapping built-in"),
 			createToolInfo("sem_reindex", "Reindex semantic cache"),
 		];
-		const pi = createMockPi({
+		const pi = createBridgePiHarness({
 			active: tools.map((tool) => tool.name),
 			tools,
 		});
@@ -215,7 +190,7 @@ describe("cursor pi tool bridge flags and snapshots", () => {
 	});
 
 	it("uses stable collision-safe MCP names", () => {
-		const pi = createMockPi({
+		const pi = createBridgePiHarness({
 			active: ["tool one", "tool_one"],
 			tools: [createToolInfo("tool one"), createToolInfo("tool_one")],
 		});
@@ -240,7 +215,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 
 	it("uses endpoint-independent request IDs so historical tool results cannot resolve a new run", async () => {
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read", "Read files", Type.Object({ path: Type.String() }))] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read", "Read files", Type.Object({ path: Type.String() }))] }),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 		);
 		const run = await registry.createRun();
@@ -297,7 +272,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 	it("skips MCP injection when disabled or when the active snapshot is empty", async () => {
 		const tools = [createToolInfo("cursor"), createToolInfo("cursor_edit")];
 		const disabledRegistry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 			{ PI_CURSOR_PI_TOOL_BRIDGE: "0" },
 		);
 		const disabledRun = await disabledRegistry.createRun();
@@ -308,7 +283,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		nativeToolDisplayTestUtils.registerNativeToolNameForTests("cursor");
 		nativeToolDisplayTestUtils.registerNativeToolNameForTests("cursor_edit");
 		const emptyRegistry = __testUtils.createRegistry(
-			createMockPi({ active: ["cursor", "cursor_edit"], tools }),
+			createBridgePiHarness({ active: ["cursor", "cursor_edit"], tools }),
 			{},
 		);
 		const emptyRun = await emptyRegistry.createRun();
@@ -322,7 +297,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		const diagnostics = collectBridgeDiagnosticOutput();
 		try {
 			const registry = __testUtils.createRegistry(
-				createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+				createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 				{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 			);
 			const run = await registry.createRun();
@@ -384,14 +359,14 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		const diagnostics = collectBridgeDiagnosticOutput();
 		try {
 			const disabledRegistry = __testUtils.createRegistry(
-				createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+				createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 				{ PI_CURSOR_PI_TOOL_BRIDGE_DEBUG: "1", PI_CURSOR_PI_TOOL_BRIDGE: "0" },
 			);
 			const disabledRun = await disabledRegistry.createRun();
 			await disabledRun.dispose();
 
 			const registry = __testUtils.createRegistry(
-				createMockPi({ active: ["read"], tools: [createToolInfo("read", "Read files")] }),
+				createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read", "Read files")] }),
 				{ PI_CURSOR_PI_TOOL_BRIDGE_DEBUG: "1", PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 			);
 			const run = await registry.createRun();
@@ -429,7 +404,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 	it("emits scrubbed request diagnostics for queue, resolution, cancellation, and rejection", async () => {
 		const diagnostics = collectBridgeDiagnosticOutput();
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read", "Read files", Type.Object({ path: Type.String() }))] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read", "Read files", Type.Object({ path: Type.String() }))] }),
 			{ PI_CURSOR_PI_TOOL_BRIDGE_DEBUG: "1", PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 		);
 		const run = await registry.createRun();
@@ -532,7 +507,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 
 	it("binds a tokenized per-run MCP endpoint only on 127.0.0.1 and cleans it up", async () => {
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read", "Read files")] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read", "Read files")] }),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 		);
 		const run = await registry.createRun();
@@ -572,7 +547,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 
 	it("queues MCP calls, maps them back to real pi tool names, and resolves from pi tool results", async () => {
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read", "Read files", Type.Object({ path: Type.String() }))] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read", "Read files", Type.Object({ path: Type.String() }))] }),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 		);
 		const run = await registry.createRun();
@@ -629,7 +604,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		) => unknown> = [];
 		const toolResultHandlers: Array<(event: { toolCallId: string }) => unknown> = [];
 		const pi = {
-			...createMockPi({ active: ["bash"], tools: [createBuiltinToolInfo("bash", "Run shell commands", Type.Object({ command: Type.String() }))] }),
+			...createBridgePiHarness({ active: ["bash"], tools: [createBuiltinToolInfo("bash", Type.Object({ command: Type.String() }), "Run shell commands")] }),
 			on: vi.fn((event: string, handler: unknown) => {
 				if (event === "tool_call") {
 					toolCallHandlers.push(handler as (typeof toolCallHandlers)[number]);
@@ -690,7 +665,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		) => unknown> = [];
 		const sessionShutdownHandlers: Array<(event: { reason: "new" }) => Promise<void> | void> = [];
 		const pi = {
-			...createMockPi({ active: ["bash"], tools: [createBuiltinToolInfo("bash", "Run shell commands", Type.Object({ command: Type.String() }))] }),
+			...createBridgePiHarness({ active: ["bash"], tools: [createBuiltinToolInfo("bash", Type.Object({ command: Type.String() }), "Run shell commands")] }),
 			on: vi.fn((event: string, handler: unknown) => {
 				if (event === "tool_call") {
 					toolCallHandlers.push(handler as (typeof toolCallHandlers)[number]);
@@ -739,7 +714,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 			ctx: { signal?: AbortSignal; abort: () => void },
 		) => unknown> = [];
 		const pi = {
-			...createMockPi({ active: ["bash"], tools: [createBuiltinToolInfo("bash", "Run shell commands", Type.Object({ command: Type.String() }))] }),
+			...createBridgePiHarness({ active: ["bash"], tools: [createBuiltinToolInfo("bash", Type.Object({ command: Type.String() }), "Run shell commands")] }),
 			on: vi.fn((event: string, handler: unknown) => {
 				if (event === "tool_call") toolCallHandlers.push(handler as (typeof toolCallHandlers)[number]);
 			}),
@@ -779,7 +754,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 	it("rejects pending MCP waits on registered session shutdown cleanup", async () => {
 		const sessionShutdownHandlers: Array<(event: { reason: "new" }) => Promise<void> | void> = [];
 		const pi = {
-			...createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+			...createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 			on: vi.fn((event: string, handler: (event: { reason: "new" }) => Promise<void> | void) => {
 				if (event === "session_shutdown") sessionShutdownHandlers.push(handler);
 			}),
@@ -807,7 +782,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 	it("rejects MCP calls and clears pending state when immediate tool dispatch throws", async () => {
 		const diagnostics = collectBridgeDiagnosticOutput();
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1", PI_CURSOR_PI_TOOL_BRIDGE_DEBUG: "1" },
 		);
 		const run = await registry.createRun({
@@ -836,7 +811,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 	it("rejects queued MCP calls and clears pending state when replayed tool dispatch throws", async () => {
 		const diagnostics = collectBridgeDiagnosticOutput();
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1", PI_CURSOR_PI_TOOL_BRIDGE_DEBUG: "1" },
 		);
 		const run = await registry.createRun();
@@ -866,7 +841,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 
 	it("rejects MCP calls when no live run handler is bound", async () => {
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 		);
 		const run = await registry.createRun({ onToolRequest: () => {} });
@@ -886,7 +861,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 
 	it("rejects pending MCP waits on abort/dispose", async () => {
 		const registry = __testUtils.createRegistry(
-			createMockPi({ active: ["read"], tools: [createToolInfo("read")] }),
+			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] }),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 		);
 		const run = await registry.createRun();
@@ -911,8 +886,8 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 	it("changes the bridge surface signature when tool schema changes but the MCP name stays the same", () => {
 		const schema = Type.Object({ target: Type.String() });
 		const schemaV2 = Type.Object({ target: Type.String(), force: Type.Optional(Type.Boolean()) });
-		const snapshotA = buildCursorPiToolBridgeSnapshot(createMockPi({ active: ["sem_reindex"], tools: [createToolInfo("sem_reindex", "Reindex", schema)] }));
-		const snapshotB = buildCursorPiToolBridgeSnapshot(createMockPi({ active: ["sem_reindex"], tools: [createToolInfo("sem_reindex", "Reindex", schemaV2)] }));
+		const snapshotA = buildCursorPiToolBridgeSnapshot(createBridgePiHarness({ active: ["sem_reindex"], tools: [createToolInfo("sem_reindex", "Reindex", schema)] }));
+		const snapshotB = buildCursorPiToolBridgeSnapshot(createBridgePiHarness({ active: ["sem_reindex"], tools: [createToolInfo("sem_reindex", "Reindex", schemaV2)] }));
 
 		expect(buildCursorPiToolBridgeSurfaceSignature(snapshotA)).not.toBe(buildCursorPiToolBridgeSurfaceSignature(snapshotB));
 	});
