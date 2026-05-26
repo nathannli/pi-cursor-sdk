@@ -11,6 +11,7 @@ import {
 } from "./cursor-provider-errors.js";
 import { getCursorSessionCwd } from "./cursor-session-cwd.js";
 import { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-guard.js";
+import { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import { awaitFinalizeCursorRunOutcome } from "./cursor-provider-turn-finalize.js";
 import {
 	discardIncompleteToolsFromRuntime,
@@ -74,9 +75,14 @@ export class CursorProviderTurnRunner {
 		try {
 			stream.push({ type: "start", partial });
 			this.throwIfAborted();
-			this.sdkEventDebug?.recordContextSnapshot(context);
-
 			const cwd = getCursorSessionCwd();
+			this.params.sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
+				cwd,
+				modelId: model.id,
+				provider: model.provider,
+			});
+			sdkEventDebugRef.current = this.params.sdkEventDebug;
+			this.sdkEventDebug?.recordContextSnapshot(context);
 			if (
 				(await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, this.sdkEventDebug)) ===
 				"stream_ended"

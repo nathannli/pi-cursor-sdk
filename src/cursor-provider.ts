@@ -17,13 +17,9 @@ import {
 } from "./cursor-provider-live-run-drain.js";
 import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
 import { disposeAllSessionCursorAgents } from "./cursor-session-agent.js";
-import {
-	attachCursorSdkEventDebugPiStreamTap,
-	CursorSdkEventDebugSink,
-} from "./cursor-sdk-event-debug.js";
+import { attachCursorSdkEventDebugPiStreamTap, type CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-guard.js";
 import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
-import { getCursorSessionCwd } from "./cursor-session-cwd.js";
 import { CursorProviderTurnRunner, resolveCursorApiKey } from "./cursor-provider-turn-runner.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
@@ -58,13 +54,6 @@ export function streamCursor(
 	(async () => {
 		const partial = makeInitialMessage(model);
 		const sdkAbortErrorSuppression = installCursorSdkAbortErrorSuppression();
-		const cwd = getCursorSessionCwd();
-		const sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
-			cwd,
-			modelId: model.id,
-			provider: model.provider,
-		});
-		sdkEventDebugRef.current = sdkEventDebug;
 
 		const runner = new CursorProviderTurnRunner({
 			model,
@@ -72,7 +61,6 @@ export function streamCursor(
 			stream,
 			partial,
 			options,
-			sdkEventDebug,
 			sdkEventDebugRef,
 		});
 

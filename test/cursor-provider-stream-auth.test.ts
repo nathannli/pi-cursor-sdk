@@ -31,6 +31,7 @@ import {
 	type RegisteredTool,
 } from "./helpers/cursor-provider-harness.js";
 import { CursorPiToolBridgeRunImpl } from "../src/cursor-pi-tool-bridge-run.js";
+import { __testUtils as cursorSdkAbortErrorGuardTestUtils } from "../src/cursor-sdk-abort-error-guard.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
 import { __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
@@ -260,5 +261,35 @@ describe("streamCursor auth and abort", () => {
 		await collectEvents(stream);
 
 		expect(mockCancel).toHaveBeenCalled();
+	});
+
+	it("emits start before sanitized error and disposes abort suppression when debug run dir setup fails", async () => {
+		const invalidRunDirFile = join(tmpdir(), `pi-cursor-sdk-debug-run-dir-${process.pid}`);
+		writeFileSync(invalidRunDirFile, "not-a-directory");
+		const previousDebug = process.env.PI_CURSOR_SDK_EVENT_DEBUG;
+		const previousRunDir = process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR;
+		process.env.PI_CURSOR_SDK_EVENT_DEBUG = "1";
+		process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR = invalidRunDirFile;
+
+		try {
+			expect(cursorSdkAbortErrorGuardTestUtils.activeSuppressionCount()).toBe(0);
+			const stream = streamCursor(makeModel(), makeContext(), { apiKey: "test-key" });
+			const events = await collectEvents(stream);
+			const error = getErrorEvent(events);
+
+			expect(hasEventType(events, "start")).toBe(true);
+			expect(error.reason).toBe("error");
+			expect(events.findIndex((event) => event.type === "start")).toBeLessThan(
+				events.findIndex((event) => event.type === "error"),
+			);
+			expect(mockedCreate).not.toHaveBeenCalled();
+			expect(cursorSdkAbortErrorGuardTestUtils.activeSuppressionCount()).toBe(0);
+		} finally {
+			rmSync(invalidRunDirFile, { force: true });
+			if (previousDebug === undefined) delete process.env.PI_CURSOR_SDK_EVENT_DEBUG;
+			else process.env.PI_CURSOR_SDK_EVENT_DEBUG = previousDebug;
+			if (previousRunDir === undefined) delete process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR;
+			else process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR = previousRunDir;
+		}
 	});
 });
