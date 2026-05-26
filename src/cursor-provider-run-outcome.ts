@@ -35,6 +35,7 @@ export type CursorRunOutcome =
 			waitResult: RunResult;
 			incompleteTools: IncompleteCursorToolRunOutcome;
 			errorMessage: string;
+			signalAborted?: boolean;
 	  };
 
 export interface ResolveCursorRunOutcomeParams {
@@ -84,6 +85,7 @@ export function resolveCursorRunOutcome(params: ResolveCursorRunOutcomeParams): 
 			waitResult,
 			incompleteTools,
 			errorMessage: sanitizeCursorProviderError(failureDetail, params.resolvedApiKey ?? params.optionsApiKey),
+			signalAborted,
 		};
 	}
 
@@ -125,7 +127,7 @@ export function resolveCursorRunOutcome(params: ResolveCursorRunOutcomeParams): 
 export type CursorRunLiveEmission = "finished" | "cancelled" | "failed";
 
 function cursorRunOutcomeSignalAborted(outcome: CursorRunOutcome): boolean | undefined {
-	return outcome.kind === "error" ? undefined : outcome.signalAborted;
+	return outcome.signalAborted;
 }
 
 export function classifyCursorRunLiveEmission(outcome: CursorRunOutcome): CursorRunLiveEmission {

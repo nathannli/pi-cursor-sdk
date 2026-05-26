@@ -11,7 +11,6 @@ import {
 } from "./cursor-provider-errors.js";
 import { getCursorSessionCwd } from "./cursor-session-cwd.js";
 import { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-guard.js";
-import { resolveCursorApiKey } from "./cursor-provider-turn-api-key.js";
 import { awaitFinalizeCursorRunOutcome } from "./cursor-provider-turn-finalize.js";
 import {
 	discardIncompleteToolsFromRuntime,
@@ -125,7 +124,7 @@ export class CursorProviderTurnRunner {
 				resolvedApiKey: this.runtime.resolvedApiKey,
 				optionsApiKey: options?.apiKey,
 				sdkEventDebug: this.sdkEventDebug,
-				contextWindowAgentId: this.runtime.agent?.agentId,
+				contextWindowAgentId: prepared.agent.agentId,
 			});
 			await emitCursorDirectOutcome({
 				params: this.params,

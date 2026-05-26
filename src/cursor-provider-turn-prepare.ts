@@ -1,4 +1,4 @@
-import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { Agent } from "@cursor/sdk";
 import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./cursor-sdk-output-filter.js";
@@ -82,7 +82,13 @@ export async function prepareCursorProviderTurn(
 		prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 	}
 	const bootstrap = sendPlan.mode === "bootstrap";
-	const sessionBridgeRun = sessionAgentLease.bridgeRun;
+	const agent = sessionAgentLease.agent;
+	const bridgeRun = sessionAgentLease.bridgeRun;
+	const sendPayload = {
+		text: prompt.text,
+		images: prompt.images.length > 0 ? prompt.images : undefined,
+	};
+	const sessionBridgeRun = bridgeRun;
 	const promptInputTokens = estimateCursorPromptInputTokens(prompt, promptOptions);
 	const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();
 	const activeToolNames = getActiveContextToolNames(context);
@@ -101,16 +107,16 @@ export async function prepareCursorProviderTurn(
 		promptOptions,
 		activeToolNames: activeToolNames ? [...activeToolNames] : [],
 		sessionAgentScopeKey: runtime.sessionAgentScopeKey,
-		bridgeRunId: runtime.bridgeRun?.id,
+		bridgeRunId: bridgeRun?.id,
 	});
 	const nativeReplayId = createCursorNativeReplayId();
 	const textDeltas: string[] = [];
-	const useLiveRun = useNativeToolReplay || runtime.bridgeRun !== undefined;
+	const useLiveRun = useNativeToolReplay || bridgeRun !== undefined;
 	const liveRun = useLiveRun
 		? cursorLiveRuns.start({
-				id: useNativeToolReplay ? nativeReplayId : runtime.bridgeRun!.id,
-				agent: runtime.agent!,
-				bridgeRun: runtime.bridgeRun,
+				id: useNativeToolReplay ? nativeReplayId : bridgeRun?.id ?? nativeReplayId,
+				agent,
+				bridgeRun,
 				sessionBridgeRun,
 				sessionAgentScopeKey: runtime.sessionAgentScopeKey,
 				promptInputTokens,
@@ -139,13 +145,16 @@ export async function prepareCursorProviderTurn(
 	});
 	runtime.turnCoordinatorForCleanup = turnCoordinator;
 
-	const cursorAgentMessageOffset = await getCursorAgentMessageOffset(runtime.agent!.agentId, cwd, params.sdkEventDebug);
+	const cursorAgentMessageOffset = await getCursorAgentMessageOffset(agent.agentId, cwd, params.sdkEventDebug);
 
 	return {
 		cwd,
 		sessionAgentLease,
-		bridgeRun: runtime.bridgeRun,
+		agent,
+		bridgeRun,
 		sendPlan,
+		prompt,
+		sendPayload,
 		bootstrap,
 		promptInputTokens,
 		useNativeToolReplay,

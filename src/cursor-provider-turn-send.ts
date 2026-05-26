@@ -1,7 +1,5 @@
 import { CursorLiveRunAbortError } from "./cursor-live-run-coordinator.js";
-import { buildCursorSessionSendPrompt } from "./cursor-session-agent.js";
 import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
-import { getCursorPromptOptions } from "./cursor-usage-accounting.js";
 import type { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-guard.js";
 import type {
 	CursorProviderTurnPrepared,
@@ -20,8 +18,8 @@ export interface SendCursorProviderTurnParams {
 
 export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnParams): Promise<CursorProviderTurnSend> {
 	const { params, runtime, prepared, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
-	const { model, context, options } = params;
-	const { turnCoordinator, sendPlan, bootstrap, liveRun } = prepared;
+	const { options } = params;
+	const { agent, turnCoordinator, sendPlan, bootstrap, liveRun, prompt, sendPayload } = prepared;
 
 	runtime.sdkRun = null;
 	runtime.abortListener = () => {
@@ -35,8 +33,6 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 	runtime.abortSignal?.addEventListener("abort", runtime.abortListener, { once: true });
 
 	throwIfAborted();
-	const promptOptions = getCursorPromptOptions(model);
-	const prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 	params.sdkEventDebug?.recordSendMeta({
 		mode: sendPlan.mode,
 		reason: sendPlan.reason,
@@ -49,13 +45,9 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		nativeReplayId: prepared.nativeReplayId,
 		promptInputTokens: prepared.promptInputTokens,
 	});
-	const sendPayload = {
-		text: prompt.text,
-		images: prompt.images.length > 0 ? prompt.images : undefined,
-	};
 	params.sdkEventDebug?.recordSendPayload(sendPayload);
 	params.sdkEventDebug?.recordProviderEvent("agent_send_start", sendPayload);
-	const run = await runtime.agent!.send(sendPayload, {
+	const run = await agent.send(sendPayload, {
 		onDelta: (args) => {
 			params.sdkEventDebug?.recordOnDelta(args.update);
 			turnCoordinator.handleDelta(args.update);

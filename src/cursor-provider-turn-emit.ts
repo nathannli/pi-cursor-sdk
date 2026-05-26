@@ -24,7 +24,6 @@ import type { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-e
 import type { SessionCursorAgentLease } from "./cursor-session-agent.js";
 import { awaitFinalizeCursorRunOutcome } from "./cursor-provider-turn-finalize.js";
 import type {
-	CursorProviderTurnPrepared,
 	CursorProviderTurnRunnerParams,
 	CursorProviderTurnRuntime,
 	CursorProviderTurnSend,

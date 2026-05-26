@@ -30,6 +30,18 @@ describe("cursor-provider-run-outcome", () => {
 		expect(classifyCursorRunDirectEmission(outcome)).toBe("finished");
 	});
 
+	it("classifies live cancelled but direct failed when wait errors after caller abort", () => {
+		const outcome = resolveCursorRunOutcome({
+			waitResult: makeWaitResult("error", "boom"),
+			signalAborted: true,
+			textDeltas: [],
+			emittedText: "",
+		});
+		expect(outcome.kind).toBe("error");
+		expect(classifyCursorRunLiveEmission(outcome)).toBe("cancelled");
+		expect(classifyCursorRunDirectEmission(outcome)).toBe("failed");
+	});
+
 	it("classifies SDK cancelled and error statuses for both emission strategies", () => {
 		const cancelled = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("cancelled"),

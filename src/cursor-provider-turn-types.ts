@@ -6,13 +6,14 @@ import type {
 	Model,
 	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import type { SDKAgent } from "@cursor/sdk";
+import type { SDKAgent, SDKImage } from "@cursor/sdk";
 import type { CursorPiBridgeToolRequest, CursorPiToolBridgeRun } from "./cursor-pi-tool-bridge.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import type { SessionCursorAgentLease } from "./cursor-session-agent.js";
 import type { planCursorSessionSend } from "./cursor-session-agent.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import type { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
+import type { CursorPrompt } from "./context.js";
 
 export interface CursorProviderTurnRunnerParams {
 	model: Model<Api>;
@@ -24,11 +25,19 @@ export interface CursorProviderTurnRunnerParams {
 	sdkEventDebugRef: { current?: CursorSdkEventDebugSink };
 }
 
+export interface CursorProviderTurnSendPayload {
+	text: string;
+	images?: SDKImage[];
+}
+
 export interface CursorProviderTurnPrepared {
 	cwd: string;
 	sessionAgentLease: SessionCursorAgentLease;
+	agent: SDKAgent;
 	bridgeRun: CursorPiToolBridgeRun | undefined;
 	sendPlan: ReturnType<typeof planCursorSessionSend>;
+	prompt: CursorPrompt;
+	sendPayload: CursorProviderTurnSendPayload;
 	bootstrap: boolean;
 	promptInputTokens: number;
 	useNativeToolReplay: boolean;
