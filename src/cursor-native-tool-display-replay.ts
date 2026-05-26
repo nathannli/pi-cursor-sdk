@@ -524,7 +524,11 @@ export function renderCursorReplayResult(
 	if (options.isPartial) return new Text(theme.fg("warning", "Replaying Cursor tool result..."), 0, 0);
 	const details = parseCursorReplayToolDetails(result.details);
 	const text = firstContentText(result);
-	if (isError && (!details || !isCursorReplayTitledActivityDetails(details))) {
+	if (
+		isError &&
+		(!details ||
+			(!isCursorReplayTitledActivityDetails(details) && !isCursorReplayGenerateImageDetails(details)))
+	) {
 		return new Text(theme.fg("error", text.split("\n")[0] || "Cursor replay failed"), 0, 0);
 	}
 	if (!details) return new Text(text || theme.fg("success", "Cursor tool result replayed"), 0, 0);

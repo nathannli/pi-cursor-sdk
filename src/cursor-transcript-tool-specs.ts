@@ -14,7 +14,8 @@ import {
 	assembleCursorReplayTitledActivityDetails,
 	buildCursorReplayEditDetails,
 	buildCursorReplayWriteDetails,
-	coerceCursorReplayActivityCursorToolName,
+	CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME,
+	type CursorReplayActivityResultCursorToolName,
 	type CursorReplayActivityDetailFields,
 	type CursorReplayToolDetails,
 } from "./cursor-replay-tool-details.js";
@@ -158,7 +159,11 @@ function getCursorToolActivityTitle(toolName: string): string {
 	return getCursorReplayActivityTitle(toolName) ?? buildGenericUnknownToolActivityTitle(toolName);
 }
 
-function buildActivityReplayDisplay(cursorToolName: string, spec: ToolDisplaySpec, context: ToolDisplayContext): CursorPiToolDisplay {
+function buildActivityReplayDisplay(
+	cursorToolName: CursorReplayActivityResultCursorToolName,
+	spec: ToolDisplaySpec,
+	context: ToolDisplayContext,
+): CursorPiToolDisplay {
 	const activity = spec.activityReplay;
 	if (!activity) throw new Error(`Missing activity replay spec for ${cursorToolName}`);
 	const activityTitle = getCursorReplayDisplayLabel(activity.labelKey);
@@ -209,7 +214,7 @@ function buildGenericPiToolDisplay(context: ToolDisplayContext): CursorPiToolDis
 		result,
 		contentText,
 		assembleCursorReplayTitledActivityDetails(
-			coerceCursorReplayActivityCursorToolName(displayName === "unknown" ? "tool" : displayName),
+			CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME,
 			activityTitle,
 			{ summary, expandedText: contentText },
 			contentText,

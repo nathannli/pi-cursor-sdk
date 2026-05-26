@@ -141,6 +141,30 @@ describe("cursor replay tool details contract", () => {
 		expect(rendered).toContain(`${CURSOR_REPLAY_GENERATE_IMAGE_RESULT_TITLE} saved generated.png`);
 		expect(rendered).not.toContain("Cursor image generation");
 	});
+
+	it("renders generateImage producer error details with the legacy visible title", () => {
+		const display = buildCursorPiToolDisplayFromSpec({
+			rawName: "generateImage",
+			name: "generateImage",
+			args: { prompt: "a red circle" },
+			result: { status: "error", error: "image generation failed" },
+			options: { cwd: "/tmp", maxChars: 4000 },
+		});
+		const rendered = renderCursorReplayResult(
+			{
+				content: display.result.content,
+				details: display.result.details,
+			},
+			{ expanded: false, isPartial: false },
+			theme,
+			{ isError: true, showImages: false },
+			true,
+		)
+			.render(120)
+			.join("\n");
+		expect(rendered).toContain(CURSOR_REPLAY_GENERATE_IMAGE_RESULT_TITLE);
+		expect(rendered).not.toMatch(/^image generation failed$/m);
+	});
 });
 
 describe("cursor replay tool details type contract", () => {
