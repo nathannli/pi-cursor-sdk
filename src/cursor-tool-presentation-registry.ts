@@ -269,63 +269,76 @@ export type CursorReplayLegacyToolName = Extract<
 
 export type CursorReplayToolName = typeof CURSOR_REPLAY_ACTIVITY_TOOL_NAME | CursorReplayLegacyToolName;
 
-const CURSOR_REPLAY_ACTIVITY_SIDE_EFFECT_CATEGORY: CursorReplaySideEffectCategory = "file_mutations";
-
-const presentationSpecs: readonly CursorToolPresentationSpec[] = CURSOR_TOOL_PRESENTATION_SPECS;
-
-function hasReplayLegacyName(
-	spec: CursorToolPresentationSpec,
-): spec is CursorToolPresentationSpec & { replayLegacyName: CursorReplayLegacyToolName } {
-	return spec.replayLegacyName !== undefined;
-}
-
-/** Stable registration order for native replay tool wrappers (registry declaration order). */
-export const CURSOR_REPLAY_LEGACY_TOOL_NAMES: readonly CursorReplayLegacyToolName[] = presentationSpecs.flatMap((spec) =>
-	spec.replayLegacyName ? [spec.replayLegacyName as CursorReplayLegacyToolName] : [],
-);
-
-const CURSOR_REPLAY_ACTIVITY_LABEL_ENTRIES = presentationSpecs.flatMap((spec) =>
-	spec.replayLegacyName
-		? [[spec.normalizedName as CursorNormalizedToolName, spec.replayLegacyName as CursorReplayLegacyToolName] as const]
-		: [],
-);
-
-export const CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME = Object.fromEntries(
-	CURSOR_REPLAY_ACTIVITY_LABEL_ENTRIES,
-) as Record<
-	(typeof CURSOR_REPLAY_ACTIVITY_LABEL_ENTRIES)[number][0],
-	(typeof CURSOR_REPLAY_ACTIVITY_LABEL_ENTRIES)[number][1]
+type CursorToolPresentationSpecWithReplayLegacy = Extract<
+	CursorToolPresentationSpecEntry,
+	{ readonly replayLegacyName: string }
 >;
 
-export type CursorReplayActivityToolName = (typeof CURSOR_REPLAY_ACTIVITY_LABEL_ENTRIES)[number][0];
+const CURSOR_REPLAY_ACTIVITY_SIDE_EFFECT_CATEGORY: CursorReplaySideEffectCategory = "file_mutations";
+
+function hasReplayLegacyName(spec: CursorToolPresentationSpecEntry): spec is CursorToolPresentationSpecWithReplayLegacy {
+	return "replayLegacyName" in spec;
+}
+
+type ReplayActivityLabelKeysFromSpecs<Specs extends readonly CursorToolPresentationSpecEntry[]> = {
+	[K in Extract<Specs[number], { readonly replayLegacyName: string }>["normalizedName"]]: Extract<
+		Specs[number],
+		{ readonly replayLegacyName: string; normalizedName: K }
+	>["replayLegacyName"];
+};
+
+function buildReplayActivityLabelKeysByToolName<const Specs extends readonly CursorToolPresentationSpecEntry[]>(
+	specs: Specs,
+): ReplayActivityLabelKeysFromSpecs<Specs> {
+	const labelKeys: Record<string, CursorReplayLegacyToolName> = {};
+	for (const spec of specs) {
+		if (!hasReplayLegacyName(spec)) continue;
+		labelKeys[spec.normalizedName] = spec.replayLegacyName;
+	}
+	return labelKeys as ReplayActivityLabelKeysFromSpecs<Specs>;
+}
+
+const CURSOR_REPLAY_SPECS = CURSOR_TOOL_PRESENTATION_SPECS.filter(hasReplayLegacyName);
+
+/** Stable registration order for native replay tool wrappers (registry declaration order). */
+export const CURSOR_REPLAY_LEGACY_TOOL_NAMES: readonly CursorReplayLegacyToolName[] = CURSOR_REPLAY_SPECS.map(
+	(spec) => spec.replayLegacyName,
+);
+
+export const CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME = buildReplayActivityLabelKeysByToolName(
+	CURSOR_TOOL_PRESENTATION_SPECS,
+);
+
+export type CursorReplayActivityToolName = keyof typeof CURSOR_REPLAY_ACTIVITY_LABEL_KEYS_BY_TOOL_NAME;
 
 const SPECS_BY_NORMALIZED_NAME = new Map<string, CursorToolPresentationSpec>(
-	presentationSpecs.map((spec) => [spec.normalizedName, spec]),
+	CURSOR_TOOL_PRESENTATION_SPECS.map((spec) => [spec.normalizedName, spec]),
 );
 
 const SPECS_BY_NORMALIZED_KEY = new Map<string, CursorToolPresentationSpec>(
-	presentationSpecs.map((spec) => [spec.normalizedName.toLowerCase(), spec]),
+	CURSOR_TOOL_PRESENTATION_SPECS.map((spec) => [spec.normalizedName.toLowerCase(), spec]),
 );
 
-const SPECS_BY_REPLAY_LEGACY_NAME = new Map<string, CursorToolPresentationSpec>(
-	presentationSpecs.flatMap((spec) => (spec.replayLegacyName ? [[spec.replayLegacyName, spec] as const] : [])),
+const SPECS_BY_REPLAY_LEGACY_NAME = new Map<CursorReplayLegacyToolName, CursorToolPresentationSpec>(
+	CURSOR_REPLAY_SPECS.map((spec) => [spec.replayLegacyName, spec]),
 );
 
 const ALIAS_TO_NORMALIZED_NAME = new Map<string, CursorNormalizedToolName>(
-	presentationSpecs.flatMap((spec) =>
-		(spec.nameAliases ?? []).map((alias) => [alias.toLowerCase(), spec.normalizedName as CursorNormalizedToolName]),
-	),
+	CURSOR_TOOL_PRESENTATION_SPECS.flatMap((spec) => {
+		const aliases = "nameAliases" in spec ? spec.nameAliases : undefined;
+		return (aliases ?? []).map((alias) => [alias.toLowerCase(), spec.normalizedName] as const);
+	}),
 );
 
-const WEB_KIND_BY_PATTERN = presentationSpecs.flatMap((spec) =>
-	spec.webKind && spec.webNamePatterns
-		? spec.webNamePatterns.map((pattern) => ({ pattern, webKind: spec.webKind! }))
-		: [],
-);
+const WEB_KIND_BY_PATTERN = CURSOR_TOOL_PRESENTATION_SPECS.flatMap((spec) => {
+	if (!("webKind" in spec) || !("webNamePatterns" in spec)) return [];
+	const { webKind, webNamePatterns } = spec;
+	if (!webKind || !webNamePatterns) return [];
+	return webNamePatterns.map((pattern) => ({ pattern, webKind }));
+});
 
-export const CURSOR_KNOWN_NORMALIZED_TOOL_NAMES = presentationSpecs.map(
-	(spec) => spec.normalizedName as CursorNormalizedToolName,
-);
+export const CURSOR_KNOWN_NORMALIZED_TOOL_NAMES: readonly CursorNormalizedToolName[] =
+	CURSOR_TOOL_PRESENTATION_SPECS.map((spec) => spec.normalizedName);
 
 export function getCursorToolPresentationSpec(
 	name: string,
@@ -335,7 +348,7 @@ export function getCursorToolPresentationSpec(
 	return (
 		SPECS_BY_NORMALIZED_NAME.get(trimmed) ??
 		SPECS_BY_NORMALIZED_KEY.get(trimmed.toLowerCase()) ??
-		SPECS_BY_REPLAY_LEGACY_NAME.get(trimmed)
+		(isCursorReplayLegacyToolName(trimmed) ? SPECS_BY_REPLAY_LEGACY_NAME.get(trimmed) : undefined)
 	);
 }
 
@@ -359,8 +372,10 @@ export function classifyCursorWebToolKind(name: string | undefined): CursorWebTo
 	return spec?.webKind;
 }
 
+const CURSOR_REPLAY_LEGACY_TOOL_NAME_SET: ReadonlySet<string> = new Set(CURSOR_REPLAY_LEGACY_TOOL_NAMES);
+
 export function isCursorReplayLegacyToolName(toolName: string): toolName is CursorReplayLegacyToolName {
-	return SPECS_BY_REPLAY_LEGACY_NAME.has(toolName);
+	return CURSOR_REPLAY_LEGACY_TOOL_NAME_SET.has(toolName);
 }
 
 export function isCursorReplayToolName(toolName: string): toolName is CursorReplayToolName {
@@ -408,8 +423,8 @@ export function getCursorReplayDisplayLabel(toolName: CursorReplayToolName): str
 
 export function getCursorReplayActivityLabelKey(toolName: string): CursorReplayLegacyToolName | undefined {
 	const spec = getCursorToolPresentationSpec(toolName);
-	if (!spec?.replayLegacyName) return undefined;
-	return spec.replayLegacyName as CursorReplayLegacyToolName;
+	if (!spec?.replayLegacyName || !isCursorReplayLegacyToolName(spec.replayLegacyName)) return undefined;
+	return spec.replayLegacyName;
 }
 
 export function getCursorReplayActivityTitle(toolName: string): string | undefined {

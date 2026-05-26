@@ -21,7 +21,6 @@ import {
 	isExcludedFromCursorBridgeExposure,
 	normalizeCursorToolName,
 	type CursorNormalizedToolName,
-	type CursorReplayLegacyToolName,
 } from "../src/cursor-tool-presentation-registry.js";
 import { classifyCursorToolVisibility } from "../src/cursor-tool-visibility.js";
 import { normalizeToolName } from "../src/cursor-transcript-utils.js";
@@ -107,7 +106,7 @@ describe("cursor tool presentation registry", () => {
 
 	it("assigns replay summary kinds for every legacy replay tool", () => {
 		for (const legacyName of CURSOR_REPLAY_LEGACY_TOOL_NAMES) {
-			expect(getCursorReplaySummaryKind(legacyName as CursorReplayLegacyToolName)).toBeDefined();
+			expect(getCursorReplaySummaryKind(legacyName)).toBeDefined();
 		}
 		expect(getCursorReplaySummaryKind(CURSOR_REPLAY_ACTIVITY_TOOL_NAME)).toBe("activity_generic");
 	});

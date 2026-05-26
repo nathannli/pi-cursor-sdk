@@ -7,7 +7,6 @@ import { resolveCursorEditDiff } from "./cursor-edit-diff.js";
 import { LOCAL_READ_PREVIEW_NOTICE, isLocalReadPreviewContent } from "./cursor-transcript-utils.js";
 import {
 	CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
-	getCursorReplayDisplayLabel,
 	getCursorReplaySideEffectDescription,
 	getCursorReplaySourceToolName,
 	getCursorReplaySummaryKind,
