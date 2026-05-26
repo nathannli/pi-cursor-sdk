@@ -8,7 +8,15 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 
 - `src/index.ts` registers the pi extension, provider, fallback warnings, Cursor fast controls, native replay wrappers, question tool, and pi tool bridge hooks.
 - `src/model-discovery.ts` discovers Cursor models, builds pi model metadata, stores per-model metadata, and defines fallback models.
-- `src/cursor-provider.ts` streams through local `@cursor/sdk` agents, injects local MCP bridge config, resumes live bridge runs, and sanitizes Cursor SDK errors.
+- `src/cursor-provider.ts` is a thin `streamCursor()` wrapper that delegates turn execution to the turn runner.
+- `src/cursor-provider-turn-runner.ts` orchestrates provider turns (pre-send drain, prepare, send, finalize, emit, cleanup).
+- `src/cursor-provider-turn-prepare.ts` owns turn prepare (auth, MCP timeout install, session agent, live-run setup, coordinator).
+- `src/cursor-provider-turn-send.ts` owns SDK `agent.send()` wiring and abort listener registration.
+- `src/cursor-provider-turn-finalize.ts` owns unified `awaitFinalizeCursorRunOutcome()` (wait, transcript replay, incomplete tools, artifacts, context cache).
+- `src/cursor-provider-turn-emit.ts` owns live vs direct emission from finalized outcomes.
+- `src/cursor-provider-turn-types.ts` owns immutable turn phase data and mutable per-turn runtime state.
+- `src/cursor-provider-run-outcome.ts` owns the discriminated `CursorRunOutcome` model and live vs direct emission classification.
+- `src/cursor-run-final-text.ts` owns final assistant text selection for run outcomes and live-run drain.
 - `src/cursor-provider-errors.ts` owns scrubbed Cursor SDK run failure detail, abort reason formatting, and provider error sanitization.
 - `src/cursor-session-agent.ts` owns session-scoped SDK agent pooling, send-state commits, and lifecycle invalidation on compaction/tree/shutdown.
 - `src/cursor-session-send-policy.ts` owns session send planning (`bootstrap` vs `incremental`), periodic agent rebootstrap threshold, and prompt mode selection.
