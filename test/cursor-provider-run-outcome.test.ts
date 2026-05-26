@@ -57,7 +57,10 @@ describe("cursor-provider-run-outcome", () => {
 		expect(isCursorRunFinishedSuccessfully(outcome)).toBe(true);
 		expect(classifyCursorRunLiveEmission(outcome)).toBe("finished");
 		expect(classifyCursorRunDirectEmission(outcome)).toBe("finished");
-		expect(outcome.finalText).toBe("final answer");
-		expect(outcome.assistantTextProduced).toBe(true);
+		expect(outcome.kind).toBe("finished");
+		if (outcome.kind === "finished") {
+			expect(outcome.finalText).toBe("final answer");
+			expect(outcome.assistantTextProduced).toBe(true);
+		}
 	});
 });

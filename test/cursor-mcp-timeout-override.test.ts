@@ -186,11 +186,11 @@ describe("Cursor MCP timeout override", () => {
 	});
 
 	it("wires the override before Cursor session agent creation", () => {
-		const turnRunnerSource = readFileSync(join(process.cwd(), "src/cursor-provider-turn-runner.ts"), "utf8");
-		const installIndex = turnRunnerSource.indexOf("installCursorMcpToolTimeoutOverride();");
-		const acquireIndex = turnRunnerSource.indexOf("acquireSessionCursorAgent(sessionAgentAcquireParams)");
+		const prepareSource = readFileSync(join(process.cwd(), "src/cursor-provider-turn-prepare.ts"), "utf8");
+		const installIndex = prepareSource.indexOf("installCursorMcpToolTimeoutOverride();");
+		const acquireIndex = prepareSource.indexOf("acquireSessionCursorAgent(sessionAgentAcquireParams)");
 
-		expect(turnRunnerSource).toContain(
+		expect(prepareSource).toContain(
 			'import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";',
 		);
 		expect(installIndex).toBeGreaterThanOrEqual(0);

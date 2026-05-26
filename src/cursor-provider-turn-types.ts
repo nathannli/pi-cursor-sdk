@@ -1,0 +1,80 @@
+import type {
+	Api,
+	AssistantMessage,
+	AssistantMessageEventStream,
+	Context,
+	Model,
+	SimpleStreamOptions,
+} from "@earendil-works/pi-ai";
+import type { SDKAgent } from "@cursor/sdk";
+import type { CursorPiBridgeToolRequest, CursorPiToolBridgeRun } from "./cursor-pi-tool-bridge.js";
+import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
+import type { SessionCursorAgentLease } from "./cursor-session-agent.js";
+import type { planCursorSessionSend } from "./cursor-session-agent.js";
+import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
+import type { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
+
+export interface CursorProviderTurnRunnerParams {
+	model: Model<Api>;
+	context: Context;
+	stream: AssistantMessageEventStream;
+	partial: AssistantMessage;
+	options?: SimpleStreamOptions;
+	sdkEventDebug?: CursorSdkEventDebugSink;
+	sdkEventDebugRef: { current?: CursorSdkEventDebugSink };
+}
+
+export interface CursorProviderTurnPrepared {
+	cwd: string;
+	sessionAgentLease: SessionCursorAgentLease;
+	bridgeRun: CursorPiToolBridgeRun | undefined;
+	sendPlan: ReturnType<typeof planCursorSessionSend>;
+	bootstrap: boolean;
+	promptInputTokens: number;
+	useNativeToolReplay: boolean;
+	activeToolNames: ReadonlySet<string> | undefined;
+	nativeReplayId: string;
+	textDeltas: string[];
+	liveRun: CursorLiveRun | undefined;
+	turnCoordinator: CursorSdkTurnCoordinator;
+	cursorAgentMessageOffset: number | undefined;
+}
+
+export interface CursorProviderTurnSend {
+	run: Awaited<ReturnType<SDKAgent["send"]>>;
+	prepared: CursorProviderTurnPrepared;
+}
+
+export interface CursorProviderTurnRuntime {
+	resolvedApiKey: string | undefined;
+	sessionAgentScopeKey: string;
+	agent: SDKAgent | null;
+	bridgeRun: CursorPiToolBridgeRun | undefined;
+	activeLiveRun: CursorLiveRun | undefined;
+	liveRunForBridgeQueue: CursorLiveRun | undefined;
+	queuedBridgeRequestsBeforeLiveRun: CursorPiBridgeToolRequest[];
+	abortSignal: AbortSignal | undefined;
+	abortListener: (() => void) | undefined;
+	restoreCursorSdkOutputFilter: (() => void) | undefined;
+	deferSdkEventDebugFinalize: boolean;
+	turnCoordinatorForCleanup: CursorSdkTurnCoordinator | undefined;
+	sdkRun: Awaited<ReturnType<SDKAgent["send"]>> | null;
+}
+
+export function createCursorProviderTurnRuntime(): CursorProviderTurnRuntime {
+	return {
+		resolvedApiKey: undefined,
+		sessionAgentScopeKey: "",
+		agent: null,
+		bridgeRun: undefined,
+		activeLiveRun: undefined,
+		liveRunForBridgeQueue: undefined,
+		queuedBridgeRequestsBeforeLiveRun: [],
+		abortSignal: undefined,
+		abortListener: undefined,
+		restoreCursorSdkOutputFilter: undefined,
+		deferSdkEventDebugFinalize: false,
+		turnCoordinatorForCleanup: undefined,
+		sdkRun: null,
+	};
+}

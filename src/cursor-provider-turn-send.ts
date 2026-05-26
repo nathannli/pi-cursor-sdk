@@ -1,0 +1,89 @@
+import { CursorLiveRunAbortError } from "./cursor-live-run-coordinator.js";
+import { buildCursorSessionSendPrompt } from "./cursor-session-agent.js";
+import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
+import { getCursorPromptOptions } from "./cursor-usage-accounting.js";
+import type { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-guard.js";
+import type {
+	CursorProviderTurnPrepared,
+	CursorProviderTurnRunnerParams,
+	CursorProviderTurnRuntime,
+	CursorProviderTurnSend,
+} from "./cursor-provider-turn-types.js";
+
+export interface SendCursorProviderTurnParams {
+	params: CursorProviderTurnRunnerParams;
+	runtime: CursorProviderTurnRuntime;
+	prepared: CursorProviderTurnPrepared;
+	sdkAbortErrorSuppression: ReturnType<typeof installCursorSdkAbortErrorSuppression>;
+	throwIfAborted: () => void;
+}
+
+export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnParams): Promise<CursorProviderTurnSend> {
+	const { params, runtime, prepared, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
+	const { model, context, options } = params;
+	const { turnCoordinator, sendPlan, bootstrap, liveRun } = prepared;
+
+	runtime.sdkRun = null;
+	runtime.abortListener = () => {
+		sdkAbortErrorSuppression.suppressAbortErrors();
+		runtime.activeLiveRun?.bridgeRun?.cancel("Cursor SDK run aborted");
+		if (runtime.sdkRun) {
+			runtime.sdkRun.cancel().catch(() => {});
+		}
+	};
+	runtime.abortSignal = options?.signal;
+	runtime.abortSignal?.addEventListener("abort", runtime.abortListener, { once: true });
+
+	throwIfAborted();
+	const promptOptions = getCursorPromptOptions(model);
+	const prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
+	params.sdkEventDebug?.recordSendMeta({
+		mode: sendPlan.mode,
+		reason: sendPlan.reason,
+		resetAgent: sendPlan.resetAgent,
+		bootstrap,
+		promptText: prompt.text,
+		imageCount: prompt.images.length,
+		useNativeToolReplay: prepared.useNativeToolReplay,
+		bridgeEnabled: prepared.bridgeRun !== undefined,
+		nativeReplayId: prepared.nativeReplayId,
+		promptInputTokens: prepared.promptInputTokens,
+	});
+	const sendPayload = {
+		text: prompt.text,
+		images: prompt.images.length > 0 ? prompt.images : undefined,
+	};
+	params.sdkEventDebug?.recordSendPayload(sendPayload);
+	params.sdkEventDebug?.recordProviderEvent("agent_send_start", sendPayload);
+	const run = await runtime.agent!.send(sendPayload, {
+		onDelta: (args) => {
+			params.sdkEventDebug?.recordOnDelta(args.update);
+			turnCoordinator.handleDelta(args.update);
+		},
+		onStep: (args) => {
+			params.sdkEventDebug?.recordOnStep(args.step);
+			turnCoordinator.handleStep(args.step);
+		},
+	});
+	runtime.sdkRun = run;
+	params.sdkEventDebug?.recordRunMeta({
+		runId: run.id,
+		agentId: run.agentId,
+		status: run.status,
+	});
+	params.sdkEventDebug?.attachRunStream(run);
+	params.sdkEventDebug?.recordProviderEvent("agent_send_returned", {
+		runId: run.id,
+		agentId: run.agentId,
+		status: run.status,
+	});
+	if (liveRun) cursorLiveRuns.attachSdkRun(liveRun, run);
+	if (options?.signal?.aborted) {
+		sdkAbortErrorSuppression.suppressAbortErrors();
+		liveRun?.bridgeRun?.cancel("Cursor SDK run aborted");
+		await run.cancel().catch(() => {});
+		throw new CursorLiveRunAbortError();
+	}
+
+	return { run, prepared };
+}
