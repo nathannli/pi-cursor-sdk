@@ -50,13 +50,13 @@ import {
 	collectAssistantEvents,
 	createBridgePiHarness,
 	createBuiltinToolInfo,
+	createExtensionCommandContext,
 	createExtensionTestContext,
 	createPiHarness,
 	makeAssistantMessage,
 	makeContext,
 	makeModel,
 	type ExtensionContextOverrides,
-	type HarnessOn,
 	type RegisteredTool,
 } from "./pi-harness.js";
 
@@ -64,6 +64,7 @@ export {
 	collectAssistantEvents,
 	createBridgePiHarness,
 	createBuiltinToolInfo,
+	createExtensionCommandContext,
 	createExtensionTestContext,
 	createPiHarness,
 	createTestToolInfo,
@@ -80,13 +81,9 @@ export const mockedMessagesList = vi.mocked(Agent.messages.list);
 export const mockedCreateAgentPlatform = vi.mocked(createAgentPlatform);
 
 export function registerBridgeForProviderTest(options: { active: string[]; tools: ToolInfo[] }) {
-	const sessionShutdownHandlers: Array<(event: { reason: string }) => Promise<void> | void> = [];
 	const pi = createBridgePiHarness(options);
-	pi.on.mockImplementation(((event: string, handler: (event: { reason: string }) => Promise<void> | void) => {
-		if (event === "session_shutdown") sessionShutdownHandlers.push(handler);
-	}) as HarnessOn);
 	registerCursorPiToolBridge(pi);
-	return { pi, sessionShutdownHandlers };
+	return { pi, runSessionShutdown: pi.runSessionShutdown.bind(pi) };
 }
 
 export async function connectMcpClient(url: string) {

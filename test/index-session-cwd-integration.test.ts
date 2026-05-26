@@ -23,10 +23,16 @@ function createMockAgentRun() {
 	};
 }
 
-function createMockAgent() {
+function createMockAgent(): SDKAgent {
 	const mockSend = vi.fn().mockResolvedValue(createMockAgentRun());
 	return {
+		agentId: "agent-1",
+		model: undefined,
 		send: mockSend,
+		close: vi.fn(),
+		reload: vi.fn().mockResolvedValue(undefined),
+		listArtifacts: vi.fn().mockResolvedValue([]),
+		downloadArtifact: vi.fn().mockResolvedValue(Buffer.from("")),
 		[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
 	};
 }
@@ -40,13 +46,19 @@ vi.mock("@cursor/sdk", () => ({
 	}),
 }));
 
-import { Agent } from "@cursor/sdk";
+import { Agent, type SDKAgent } from "@cursor/sdk";
 import extensionFactory from "../src/index.js";
 import { discoverModels } from "../src/model-discovery.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
 import { __testUtils as cursorSessionCwdTestUtils } from "../src/cursor-session-cwd.js";
 import { __testUtils as cursorPiToolBridgeTestUtils } from "../src/cursor-pi-tool-bridge.js";
-import { collectEvents, createPiHarness, makeContext, makeModel } from "./helpers/pi-harness.js";
+import {
+	collectEvents,
+	createExtensionRegistrationPi,
+	makeContext,
+	makeModel,
+	makeProviderModelConfig,
+} from "./helpers/pi-harness.js";
 
 const mockedDiscover = vi.mocked(discoverModels);
 const mockedAgentCreate = vi.mocked(Agent.create);
@@ -62,15 +74,7 @@ describe("extension session cwd integration", () => {
 		cursorSessionCwdTestUtils.reset();
 		mockedAgentCreate.mockResolvedValue(createMockAgent());
 		mockedDiscover.mockResolvedValue([
-			{
-				id: "composer-2.5",
-				name: "Cursor Composer 2.5",
-				reasoning: false,
-				input: ["text"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16384,
-			},
+			makeProviderModelConfig("composer-2.5", { name: "Cursor Composer 2.5", input: ["text"] }),
 		]);
 	});
 
@@ -82,7 +86,7 @@ describe("extension session cwd integration", () => {
 	it("passes pi session cwd from extension registration through streamSimple to Agent.create", async () => {
 		const sessionDir = mkdtempSync(join(tmpdir(), "pi-cursor-index-agent-cwd-"));
 		try {
-			const pi = createPiHarness();
+			const pi = createExtensionRegistrationPi();
 			await extensionFactory(pi);
 			await pi.runSessionStart({ cwd: sessionDir, hasUI: false });
 

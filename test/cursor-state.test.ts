@@ -6,7 +6,13 @@ import { registerCursorFastControls, getEffectiveFastForModelId, __testUtils } f
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
 import type { ModelListItem } from "@cursor/sdk";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createExtensionTestContext, createPiHarness, makeModel } from "./helpers/pi-harness.js";
+import {
+	createExtensionCommandContext,
+	createExtensionTestContext,
+	createPiHarness,
+	makeHarnessModel,
+	makeModel,
+} from "./helpers/pi-harness.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 const modelItems: ModelListItem[] = [
@@ -74,8 +80,13 @@ function createFastHarness(options: {
 			getBranch: vi.fn<ExtensionContext["sessionManager"]["getBranch"]>(() => options.branch ?? []),
 		},
 	});
-	registerCursorFastControls(pi as Parameters<typeof registerCursorFastControls>[0]);
-	return { pi, ctx, commands: pi._commands };
+	registerCursorFastControls(pi);
+	const commandCtx = createExtensionCommandContext({
+		model: ctx.model,
+		ui: ctx.ui,
+		sessionManager: ctx.sessionManager,
+	});
+	return { pi, ctx, commandCtx, commands: pi._commands };
 }
 
 describe("Cursor fast state", () => {
@@ -100,12 +111,12 @@ describe("Cursor fast state", () => {
 	});
 
 	it("toggles fast per session and writes the global default", async () => {
-		const { pi, ctx, commands } = createFastHarness({ modelId: "composer-2" });
+		const { pi, ctx, commandCtx, commands } = createFastHarness({ modelId: "composer-2" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor fast");
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.FAST_ENTRY_TYPE, {
 			baseModelId: "composer-2",
@@ -122,10 +133,10 @@ describe("Cursor fast state", () => {
 		const blockedAgentDir = join(tmpAgentDir, "not-a-directory");
 		writeFileSync(blockedAgentDir, "x");
 		process.env.PI_CODING_AGENT_DIR = blockedAgentDir;
-		const { pi, ctx, commands } = createFastHarness({ modelId: "composer-2" });
+		const { pi, ctx, commandCtx, commands } = createFastHarness({ modelId: "composer-2" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Failed to save Cursor fast preference"), "error");
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor fast");
@@ -135,13 +146,13 @@ describe("Cursor fast state", () => {
 
 	it("rolls fast state back when the session journal append fails", async () => {
 		writeFileSync(__testUtils.getConfigPath(), JSON.stringify({ fastDefaults: { "composer-2": true } }));
-		const { pi, ctx, commands } = createFastHarness({ modelId: "composer-2" });
+		const { pi, ctx, commandCtx, commands } = createFastHarness({ modelId: "composer-2" });
 		pi.appendEntry.mockImplementationOnce(() => {
 			throw new Error("journal unavailable");
 		});
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Failed to save Cursor fast preference"), "error");
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor fast");
@@ -223,10 +234,10 @@ describe("Cursor fast state", () => {
 	});
 
 	it("does not let /cursor-fast persist while --cursor-no-fast is active", async () => {
-		const { pi, ctx, commands } = createFastHarness({ modelId: "composer-2", cursorNoFastFlag: true });
+		const { pi, ctx, commandCtx, commands } = createFastHarness({ modelId: "composer-2", cursorNoFastFlag: true });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor fast is forced off by --cursor-no-fast", "info");
 		expect(getEffectiveFastForModelId("composer-2")).toBe(false);
@@ -234,19 +245,19 @@ describe("Cursor fast state", () => {
 	});
 
 	it("mentions --cursor-no-fast when both force flags block /cursor-fast", async () => {
-		const { ctx, commands, pi } = createFastHarness({ modelId: "composer-2", cursorFastFlag: true, cursorNoFastFlag: true });
+		const { ctx, commandCtx, commands, pi } = createFastHarness({ modelId: "composer-2", cursorFastFlag: true, cursorNoFastFlag: true });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor fast is forced off by --cursor-no-fast", "info");
 	});
 
 	it("does not let /cursor-fast persist an opposite value when --cursor-fast is active", async () => {
-		const { pi, ctx, commands } = createFastHarness({ modelId: "gpt-5.5@1m", cursorFastFlag: true });
+		const { pi, ctx, commandCtx, commands } = createFastHarness({ modelId: "gpt-5.5@1m", cursorFastFlag: true });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor fast is forced by --cursor-fast", "info");
 		expect(getEffectiveFastForModelId("gpt-5.5@1m")).toBe(true);
@@ -254,19 +265,19 @@ describe("Cursor fast state", () => {
 	});
 
 	it("notifies and no-ops when the selected model does not support fast", async () => {
-		const { ctx, commands, pi } = createFastHarness({ modelId: "gemini-3.1-pro" });
+		const { ctx, commandCtx, commands, pi } = createFastHarness({ modelId: "gemini-3.1-pro" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Fast mode not supported by gemini-3.1-pro", "info");
 	});
 
 	it("toggles fast by base model id so context sibling variants share the preference", async () => {
-		const { ctx, commands, pi } = createFastHarness({ modelId: "gpt-5.5@1m" });
+		const { ctx, commandCtx, commands, pi } = createFastHarness({ modelId: "gpt-5.5@1m" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		await commands.get("cursor-fast")!.handler("", ctx);
+		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(getEffectiveFastForModelId("gpt-5.5@1m")).toBe(true);
 		expect(getEffectiveFastForModelId("gpt-5.5@272k")).toBe(true);
@@ -284,8 +295,8 @@ describe("Cursor fast state", () => {
 			"model_select",
 			{
 				type: "model_select",
-				model: { provider: "anthropic", id: "claude-sonnet-4-5", api: "anthropic-messages" } as ExtensionContext["model"],
-				previousModel: ctx.model,
+				model: makeHarnessModel("anthropic", "anthropic-messages", "claude-sonnet-4-5"),
+				previousModel: ctx.model!,
 				source: "set",
 			},
 			ctx,

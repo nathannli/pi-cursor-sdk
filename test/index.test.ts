@@ -2,13 +2,19 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
 	createBuiltinToolInfo,
+	createExtensionRegistrationPi,
+	createExtensionCommandContext,
 	createExtensionTestContext,
-	createPiHarness,
+	getHarnessRegisteredTool,
+	makeHarnessModel,
+	makeModel,
+	makeProviderModelConfig,
+	type CursorExtensionRegistrationPi,
 	type PiHarness,
 	type PiHarnessOptions,
 } from "./helpers/pi-harness.js";
@@ -39,8 +45,10 @@ const mockedStreamCursor = vi.mocked(streamCursor);
 
 type DiscoverOptions = Parameters<typeof discoverModels>[0];
 
-function createExtensionPi(initialTools?: PiHarnessOptions["initialTools"]): PiHarness {
-	return createPiHarness(initialTools ? { initialTools } : undefined);
+function createExtensionPi(
+	initialTools?: PiHarnessOptions["initialTools"],
+): PiHarness & CursorExtensionRegistrationPi {
+	return createExtensionRegistrationPi(initialTools ? { initialTools } : undefined);
 }
 
 describe("extension factory", () => {
@@ -55,17 +63,7 @@ describe("extension factory", () => {
 	});
 
 	it("registers Cursor fast controls and one provider with correct fields", async () => {
-		const mockModels = [
-			{
-				id: "composer-2",
-				name: "Cursor Composer 2",
-				reasoning: false,
-				input: ["text", "image"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16384,
-			},
-		];
+		const mockModels = [makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" })];
 		mockedDiscover.mockResolvedValueOnce(mockModels);
 
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
@@ -152,7 +150,7 @@ describe("extension factory", () => {
 		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 		expect(pi._activeToolNames()).not.toContain("cursor_edit");
 
-		await pi.runModelSelect({ provider: "openai-codex", api: "openai-codex-responses", id: "gpt-5.5" } as ExtensionContext["model"]);
+		await pi.runModelSelect(makeHarnessModel("openai-codex", "openai-codex-responses", "gpt-5.5"));
 		expect(pi._activeToolNames()).not.toContain("cursor_edit");
 		expect(pi._activeToolNames()).not.toContain("cursor_generate_image");
 		expect(pi._activeToolNames()).not.toContain("cursor");
@@ -161,7 +159,7 @@ describe("extension factory", () => {
 		expect(pi._activeToolNames()).not.toContain("find");
 		expect(pi._activeToolNames()).toContain("read");
 
-		await pi.runModelSelect({ provider: "cursor", api: "cursor-sdk", id: "composer-2.5" } as ExtensionContext["model"]);
+		await pi.runModelSelect(makeModel("composer-2.5"));
 		expect(pi._activeToolNames()).toContain("cursor");
 		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 		expect(pi._activeToolNames()).not.toContain("cursor_edit");
@@ -179,7 +177,7 @@ describe("extension factory", () => {
 		expect(pi._activeToolNames()).not.toContain("grep");
 		expect(pi._activeToolNames()).not.toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 
-		await pi.runBeforeAgentStart({ model: { provider: "cursor", api: "cursor-sdk", id: "composer-2.5" } as ExtensionContext["model"] });
+		await pi.runBeforeAgentStart({ model: makeModel("composer-2.5") });
 
 		expect(pi._activeToolNames()).toContain("cursor");
 		expect(pi._activeToolNames()).toContain("grep");
@@ -191,7 +189,7 @@ describe("extension factory", () => {
 		expect(pi._activeToolNames()).not.toContain("grep");
 		expect(pi._activeToolNames()).not.toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 
-		await pi.runTurnStart({ model: { provider: "cursor", api: "cursor-sdk", id: "composer-2.5" } as ExtensionContext["model"] });
+		await pi.runTurnStart({ model: makeModel("composer-2.5") });
 
 		expect(pi._activeToolNames()).toContain("cursor");
 		expect(pi._activeToolNames()).toContain("grep");
@@ -265,24 +263,12 @@ describe("extension factory", () => {
 
 	it("registers provider even with fallback models", async () => {
 		mockedDiscover.mockResolvedValueOnce([
-			{
-				id: "composer-2",
-				name: "Cursor Composer 2",
-				reasoning: false,
-				input: ["text", "image"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16384,
-			},
-			{
-				id: "gpt-5.5@1m",
+			makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" }),
+			makeProviderModelConfig("gpt-5.5@1m", {
 				name: "GPT-5.5 @ 1m",
 				reasoning: true,
-				input: ["text", "image"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 1000000,
-				maxTokens: 16384,
-			},
+				contextWindow: 1_000_000,
+			}),
 		]);
 
 		const pi = createExtensionPi();
@@ -294,40 +280,28 @@ describe("extension factory", () => {
 	});
 
 	it("refreshes Cursor models through a live command without reload", async () => {
-		const startupModels = [
-			{
-				id: "composer-2",
-				name: "Cursor Composer 2",
-				reasoning: false,
-				input: ["text", "image"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 128000,
-				maxTokens: 16384,
-			},
-		];
+		const startupModels = [makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" })];
 		const refreshedModels = [
-			{
-				id: "gpt-5.5@1m",
+			makeProviderModelConfig("gpt-5.5@1m", {
 				name: "GPT-5.5 @ 1m",
 				reasoning: true,
-				input: ["text", "image"],
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 1000000,
-				maxTokens: 16384,
-			},
+				contextWindow: 1_000_000,
+			}),
 		];
 		mockedDiscover.mockResolvedValueOnce(startupModels).mockResolvedValueOnce(refreshedModels);
 		const pi = createExtensionPi();
 		await extensionFactory(pi);
 		const notify = vi.fn();
 
-		await pi._commands.get("cursor-refresh-models")!.handler("", {
-			cwd: process.cwd(),
-			hasUI: true,
-			model: undefined,
-			ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
-			sessionManager: { getBranch: vi.fn(() => []) },
-		});
+		await pi.runCommand(
+			"cursor-refresh-models",
+			"",
+			createExtensionCommandContext({
+				hasUI: true,
+				model: undefined,
+				ui: { notify },
+			}),
+		);
 
 		expect(mockedDiscover).toHaveBeenCalledTimes(2);
 		expect(pi.registerProvider).toHaveBeenCalledTimes(2);
@@ -341,20 +315,22 @@ describe("extension factory", () => {
 		mockedDiscover
 			.mockResolvedValueOnce([])
 			.mockImplementationOnce(async (options: DiscoverOptions) => {
-				options.onFallback({ reason: "missing-api-key", message: "missing key; using fallback models" });
+				options?.onFallback?.({ reason: "missing-api-key", message: "missing key; using fallback models" });
 				return [];
 			});
 		const pi = createExtensionPi();
 		await extensionFactory(pi);
 		const notify = vi.fn();
 
-		await pi._commands.get("cursor-refresh-models")!.handler("", {
-			cwd: process.cwd(),
-			hasUI: true,
-			model: undefined,
-			ui: { notify, setStatus: vi.fn(), select: vi.fn(), input: vi.fn() },
-			sessionManager: { getBranch: vi.fn(() => []) },
-		});
+		await pi.runCommand(
+			"cursor-refresh-models",
+			"",
+			createExtensionCommandContext({
+				hasUI: true,
+				model: undefined,
+				ui: { notify },
+			}),
+		);
 
 		expect(pi.registerProvider).toHaveBeenCalledTimes(2);
 		expect(notify).toHaveBeenCalledWith(
@@ -365,35 +341,23 @@ describe("extension factory", () => {
 
 	it("notifies interactive users when fallback models are registered", async () => {
 		mockedDiscover.mockImplementationOnce(async (options: DiscoverOptions) => {
-			options.onFallback({
+			options?.onFallback?.({
 				reason: "missing-api-key",
 				message:
 					"Cursor model discovery needs an API key from /login (Use an API key -> Cursor), CURSOR_API_KEY, or --api-key. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
 			});
-			return [
-				{
-					id: "composer-2",
-					name: "Cursor Composer 2",
-					reasoning: false,
-					input: ["text", "image"],
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-					contextWindow: 128000,
-					maxTokens: 16384,
-				},
-			];
+			return [makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" })];
 		});
 
 		const pi = createExtensionPi();
 		await extensionFactory(pi);
 
 		const notify = vi.fn();
-		const ctx = {
-			cwd: process.cwd(),
+		await pi.runSessionStart({
 			hasUI: true,
 			ui: { notify, setStatus: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
-		};
-		await pi.invokeEvent("session_start", {}, ctx);
+		});
 
 		expect(notify).toHaveBeenCalledWith(
 			"Cursor model discovery needs an API key from /login (Use an API key -> Cursor), CURSOR_API_KEY, or --api-key. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
@@ -403,7 +367,10 @@ describe("extension factory", () => {
 
 	it("does not notify fallback discovery issues without UI", async () => {
 		mockedDiscover.mockImplementationOnce(async (options: DiscoverOptions) => {
-			options.onFallback({ reason: "empty-model-list", message: "Cursor model discovery returned no models; using fallback Cursor model list." });
+			options?.onFallback?.({
+				reason: "empty-model-list",
+				message: "Cursor model discovery returned no models; using fallback Cursor model list.",
+			});
 			return [];
 		});
 
@@ -411,8 +378,11 @@ describe("extension factory", () => {
 		await extensionFactory(pi);
 
 		const notify = vi.fn();
-		const ctx = { cwd: process.cwd(), hasUI: false, ui: { notify, setStatus: vi.fn() }, sessionManager: { getBranch: vi.fn(() => []) } };
-		await pi.invokeEvent("session_start", {}, ctx);
+		await pi.runSessionStart({
+			hasUI: false,
+			ui: { notify, setStatus: vi.fn() },
+			sessionManager: { getBranch: vi.fn(() => []) },
+		});
 
 		expect(notify).not.toHaveBeenCalled();
 	});
@@ -441,8 +411,15 @@ describe("extension factory", () => {
 			await extensionFactory(pi);
 			await pi.runSessionStart({ cwd: dir });
 
-			const readTool = pi._tools.find((tool) => tool.name === "read");
-			const result = await readTool.execute("ordinary-read", { path: "session-file.txt" }, undefined, undefined, {});
+			const readTool = getHarnessRegisteredTool(pi._tools, "read");
+			expect(readTool).toBeDefined();
+			const result = await readTool!.execute(
+				"ordinary-read",
+				{ path: "session-file.txt" },
+				undefined,
+				undefined,
+				createExtensionTestContext({ cwd: dir }),
+			);
 
 			expect(result.content).toEqual([{ type: "text", text: "from session cwd\n" }]);
 		} finally {
@@ -463,8 +440,15 @@ describe("extension factory", () => {
 			await pi.runSessionStart({ cwd: firstDir });
 			await pi.runSessionStart({ cwd: secondDir });
 
-			const readTool = pi._tools.find((tool) => tool.name === "read");
-			const result = await readTool.execute("ordinary-read", { path: "session-file.txt" }, undefined, undefined, {});
+			const readTool = getHarnessRegisteredTool(pi._tools, "read");
+			expect(readTool).toBeDefined();
+			const result = await readTool!.execute(
+				"ordinary-read",
+				{ path: "session-file.txt" },
+				undefined,
+				undefined,
+				createExtensionTestContext({ cwd: secondDir }),
+			);
 
 			expect(pi.registerTool).toHaveBeenCalledTimes(22);
 			expect(result.content).toEqual([{ type: "text", text: "from second cwd\n" }]);
@@ -489,8 +473,15 @@ describe("extension factory", () => {
 			isError: false,
 		});
 
-		const readTool = pi._tools.find((tool) => tool.name === "read");
-		const result = await readTool.execute("cursor-tool-1", { path: "README.md" }, undefined, undefined, {});
+		const readTool = getHarnessRegisteredTool(pi._tools, "read");
+		expect(readTool).toBeDefined();
+		const result = await readTool!.execute(
+			"cursor-tool-1",
+			{ path: "README.md" },
+			undefined,
+			undefined,
+			createExtensionTestContext(),
+		);
 
 		expect(result).toEqual({
 			content: [{ type: "text", text: "# pi-cursor-sdk" }],
@@ -521,7 +512,8 @@ describe("extension factory", () => {
 				isError: false,
 			});
 
-			const readTool = pi._tools.find((tool) => tool.name === "read");
+			const readTool = getHarnessRegisteredTool(pi._tools, "read");
+			expect(readTool).toBeDefined();
 			const theme = {
 				fg: (style: string, text: string) => (style === "warning" || style === "muted" ? `<${style}>${text}</${style}>` : text),
 				bold: (text: string) => text,
@@ -534,9 +526,9 @@ describe("extension factory", () => {
 			} as never;
 			const options = { expanded: false, isPartial: false } as never;
 
-			const callRendered = readTool.renderCall?.({ path: "README.md", localReadPreview: true }, theme, replayContext)?.render(120).join("\n") ?? "";
+			const callRendered = readTool!.renderCall?.({ path: "README.md", localReadPreview: true }, theme, replayContext)?.render(120).join("\n") ?? "";
 			const resultRendered =
-				readTool.renderResult?.(
+				readTool!.renderResult?.(
 					{
 						content: [{ type: "text", text: `${notice}\n# Local preview body\n` }],
 						details: { localReadPreview: true },
@@ -567,7 +559,7 @@ describe("extension factory", () => {
 			await extensionFactory(pi);
 			await pi.runSessionStart();
 
-			const generateImageTool = pi._tools.find((tool) => tool.name === "cursor_generate_image");
+			const generateImageTool = getHarnessRegisteredTool(pi._tools, "cursor_generate_image");
 			const component = generateImageTool.renderResult?.(
 				{
 					content: [{ type: "text", text: `generateImage Small badge\n\nSaved image: ${imagePath}` }],
@@ -602,7 +594,7 @@ describe("extension factory", () => {
 		await extensionFactory(pi);
 		await pi.runSessionStart();
 		const theme = { fg: (_style: string, text: string) => text, bold: (text: string) => text } as never;
-		const cursorTool = pi._tools.find((tool) => tool.name === "cursor");
+		const cursorTool = getHarnessRegisteredTool(pi._tools, "cursor");
 
 		const rendered = [
 			cursorTool.renderCall?.({ activityTitle: "Cursor plan", activitySummary: "2 items", totalCount: 2 }, theme, { isPartial: true } as never)?.render(120).join("\n"),
@@ -629,7 +621,7 @@ describe("extension factory", () => {
 		await pi.runSessionStart();
 		const theme = { fg: (_style: string, text: string) => text, bold: (text: string) => text } as never;
 		const context = { isError: false, showImages: false } as never;
-		const cursorTool = pi._tools.find((tool) => tool.name === "cursor");
+		const cursorTool = getHarnessRegisteredTool(pi._tools, "cursor");
 		const result = {
 			content: [{ type: "text" as const, text: "web search azure-functions python\n\nLinks:\n1. [Release](https://example.com)" }],
 			details: {
@@ -641,8 +633,8 @@ describe("extension factory", () => {
 			},
 		};
 
-		const collapsed = cursorTool.renderResult?.(result, { expanded: false, isPartial: false } as never, theme, context)?.render(120).join("\n").trimEnd() ?? "";
-		const expanded = cursorTool.renderResult?.(result, { expanded: true, isPartial: false } as never, theme, context)?.render(120).join("\n") ?? "";
+		const collapsed = cursorTool!.renderResult?.(result, { expanded: false, isPartial: false } as never, theme, context)?.render(120).join("\n").trimEnd() ?? "";
+		const expanded = cursorTool!.renderResult?.(result, { expanded: true, isPartial: false } as never, theme, context)?.render(120).join("\n") ?? "";
 
 		expect(collapsed).toBe("Cursor web search web search azure-functions python");
 		expect(collapsed).not.toContain("Links:");
@@ -661,9 +653,9 @@ describe("extension factory", () => {
 		const options = { expanded: false, isPartial: false } as never;
 		const context = { isError: false, showImages: false } as never;
 
-		const editTool = pi._tools.find((tool) => tool.name === "cursor_edit");
-		const writeTool = pi._tools.find((tool) => tool.name === "cursor_write");
-		const mcpTool = pi._tools.find((tool) => tool.name === "cursor_mcp");
+		const editTool = getHarnessRegisteredTool(pi._tools, "cursor_edit");
+		const writeTool = getHarnessRegisteredTool(pi._tools, "cursor_write");
+		const mcpTool = getHarnessRegisteredTool(pi._tools, "cursor_mcp");
 
 		// Cursor replay-only tools should use pi's default tool shell so they get
 		// the same green/red status card background as native tools.
@@ -680,7 +672,7 @@ describe("extension factory", () => {
 				theme,
 				context,
 			)?.render(120).join("\n"),
-			mcpTool.renderResult?.(
+			mcpTool!.renderResult?.(
 				{
 					content: [{ type: "text", text: "mcp git\n\nstatus" }],
 					details: { cursorToolName: "mcp", title: "Cursor MCP activity", summary: "git", expandedText: "status" },
@@ -717,8 +709,8 @@ describe("extension factory", () => {
 		const options = { expanded: false, isPartial: false } as never;
 		const replayContext = { isError: false, showImages: false, toolCallId: "cursor-replay-1-1-tool-1" } as never;
 
-		const editTool = pi._tools.find((tool) => tool.name === "edit");
-		const writeTool = pi._tools.find((tool) => tool.name === "write");
+		const editTool = getHarnessRegisteredTool(pi._tools, "edit");
+		const writeTool = getHarnessRegisteredTool(pi._tools, "write");
 		const rendered = [
 			editTool.renderCall?.({ path: "src/index.ts" }, theme, { isPartial: true, toolCallId: "cursor-replay-1-1-tool-1" } as never)?.render(120).join("\n"),
 			editTool.renderResult?.(
@@ -736,8 +728,8 @@ describe("extension factory", () => {
 				theme,
 				replayContext,
 			)?.render(120).join("\n"),
-			writeTool.renderCall?.({ path: "new.txt", content: "hello\n" }, theme, { isPartial: true, toolCallId: "cursor-replay-1-1-tool-2" } as never)?.render(120).join("\n"),
-			writeTool.renderResult?.(
+			writeTool!.renderCall?.({ path: "new.txt", content: "hello\n" }, theme, { isPartial: true, toolCallId: "cursor-replay-1-1-tool-2" } as never)?.render(120).join("\n"),
+			writeTool!.renderResult?.(
 				{
 					content: [{ type: "text", text: "write new.txt\n\nCreated 3 lines\n\n# Title\n\nBody" }],
 					details: { cursorToolName: "write", path: "new.txt", linesCreated: 3, fileSize: 13, fileContentAfterWrite: "# Title\n\nBody\n" },
@@ -777,7 +769,7 @@ describe("extension factory", () => {
 		const options = { expanded: false, isPartial: false } as never;
 		const context = { isError: false, showImages: false } as never;
 
-		const todosTool = pi._tools.find((tool) => tool.name === "cursor_update_todos");
+		const todosTool = getHarnessRegisteredTool(pi._tools, "cursor_update_todos");
 		const todosRendered = todosTool.renderResult?.(
 			{
 				content: [{ type: "text", text: "updateTodos\n\n✓ Demo TodoWrite tool output (completed)\n… Run remaining Cursor tools once (inProgress)" }],
@@ -795,7 +787,7 @@ describe("extension factory", () => {
 		expect(todosRendered).toContain("Demo TodoWrite tool output");
 		expect(todosRendered).toContain("Run remaining Cursor tools once");
 
-		const taskTool = pi._tools.find((tool) => tool.name === "cursor_task");
+		const taskTool = getHarnessRegisteredTool(pi._tools, "cursor_task");
 		const taskRendered = taskTool.renderResult?.(
 			{
 				content: [{ type: "text", text: "task Quick repo file count\n\n20" }],
@@ -812,7 +804,7 @@ describe("extension factory", () => {
 		)?.render(120).join("\n") ?? "";
 		expect(taskRendered).toContain("Cursor task Quick repo file count: 20");
 
-		const editTool = pi._tools.find((tool) => tool.name === "cursor_edit");
+		const editTool = getHarnessRegisteredTool(pi._tools, "cursor_edit");
 		const editRendered = editTool.renderResult?.(
 			{
 				content: [{ type: "text", text: "edit src/index.ts\n\n+1 -1" }],
@@ -836,7 +828,7 @@ describe("extension factory", () => {
 		expect(editRendered).not.toContain("@@");
 		expect(editRendered).not.toContain("expand for diff");
 
-		const createRendered = editTool.renderResult?.(
+		const createRendered = editTool!.renderResult?.(
 			{
 				content: [{ type: "text", text: "edit new.txt\n\n+2 -1" }],
 				details: {
@@ -858,7 +850,7 @@ describe("extension factory", () => {
 		expect(createRendered).not.toContain("/dev/null");
 		expect(createRendered).not.toContain("@@");
 
-		const neutralPathOnlyEditTool = pi._tools.find((tool) => tool.name === "cursor");
+		const neutralPathOnlyEditTool = getHarnessRegisteredTool(pi._tools, "cursor");
 		const neutralPathOnlyEditRendered = neutralPathOnlyEditTool.renderResult?.(
 			{
 				content: [{ type: "text", text: "edit .tool-demo/ux-demo.ts\n\n+1 -1" }],
@@ -898,8 +890,10 @@ describe("extension factory", () => {
 			isError: true,
 		});
 
-		const bashTool = pi._tools.find((tool) => tool.name === "bash");
-		await expect(bashTool.execute("cursor-tool-error", { command: "exit 7" }, undefined, undefined, {})).rejects.toThrow(
+		const bashTool = getHarnessRegisteredTool(pi._tools, "bash");
+		await expect(
+			bashTool.execute("cursor-tool-error", { command: "exit 7" }, undefined, undefined, createExtensionTestContext()),
+		).rejects.toThrow(
 			"Command exited with code 7",
 		);
 	});

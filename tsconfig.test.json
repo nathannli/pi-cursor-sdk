@@ -7,8 +7,13 @@
   "include": [
     "src/**/*.ts",
     "test/helpers/pi-harness.ts",
+    "test/helpers/pi-harness-event-types.test.ts",
     "test/helpers/cursor-provider-harness.ts",
     "test/cursor-state.test.ts",
-    "test/cursor-session-agent.test.ts"
+    "test/cursor-session-agent.test.ts",
+    "test/index.test.ts",
+    "test/index-session-cwd-integration.test.ts",
+    "test/cursor-session-cwd.test.ts",
+    "test/cursor-pi-tool-bridge.test.ts"
   ]
 }

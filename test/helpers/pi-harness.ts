@@ -1,20 +1,32 @@
 import { vi, type MockedFunction } from "vitest";
-import type { AssistantMessage, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
 import {
 	AuthStorage,
 	ModelRegistry,
 	type BeforeAgentStartEvent,
 	type BuildSystemPromptOptions,
 	type ExtensionAPI,
+	type ExtensionCommandContext,
 	type ExtensionContext,
 	type ExtensionHandler,
 	type ProviderConfig,
+	type ProviderModelConfig,
+	type RegisteredCommand,
+	type SessionBeforeTreeEvent,
+	type SessionCompactEvent,
+	type SessionShutdownEvent,
 	type SessionStartEvent,
+	type SessionTreeEvent,
+	type ToolCallEvent,
+	type ToolCallEventResult,
 	type ToolDefinition,
 	type ToolInfo,
+	type ToolResultEvent,
+	type TurnStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type, type TSchema } from "typebox";
 import type { CursorNativeToolDisplayExtensionApi } from "../../src/cursor-native-tool-display-registration.js";
+import type cursorExtensionFactory from "../../src/index.js";
 
 export type RegisteredTool = ToolDefinition<TSchema, unknown, unknown>;
 
@@ -23,10 +35,17 @@ export type ExtensionContextOverrides = Omit<Partial<ExtensionContext>, "session
 	ui?: Partial<ExtensionContext["ui"]>;
 };
 
-export type HarnessOn = <E extends HarnessEventName>(
-	event: E,
-	handler: ExtensionHandler<HarnessEventMap[E]>,
-) => void;
+export type ExtensionCommandContextOverrides = Omit<
+	Partial<ExtensionCommandContext>,
+	"sessionManager" | "ui"
+> & {
+	sessionManager?: Partial<ExtensionCommandContext["sessionManager"]>;
+	ui?: Partial<ExtensionCommandContext["ui"]>;
+};
+
+export type RegisteredCommandOptions = Omit<RegisteredCommand, "name" | "sourceInfo">;
+
+export type HarnessOn = ExtensionAPI["on"];
 
 export type HarnessEventName =
 	| "session_start"
@@ -34,21 +53,31 @@ export type HarnessEventName =
 	| "before_agent_start"
 	| "turn_start"
 	| "session_shutdown"
+	| "session_compact"
 	| "session_tree"
-	| "session_before_tree";
+	| "session_before_tree"
+	| "tool_call"
+	| "tool_result";
 
-type HarnessEventHandler<E extends HarnessEventName> = Extract<
-	ExtensionAPI["on"],
-	(event: E, handler: ExtensionHandler<unknown, unknown>) => void
->;
+/** Matches installed pi `ModelSelectEvent` (not re-exported from package root). */
+export type HarnessModelSelectEvent = {
+	type: "model_select";
+	model: NonNullable<ExtensionContext["model"]>;
+	previousModel: ExtensionContext["model"];
+	source: "set" | "cycle" | "restore";
+};
 
 export type HarnessEventMap = {
-	[E in HarnessEventName]: HarnessEventHandler<E> extends (
-		event: E,
-		handler: ExtensionHandler<infer EventPayload, unknown>,
-	) => void
-		? EventPayload
-		: never;
+	session_start: SessionStartEvent;
+	model_select: HarnessModelSelectEvent;
+	before_agent_start: BeforeAgentStartEvent;
+	turn_start: TurnStartEvent;
+	session_shutdown: SessionShutdownEvent;
+	session_compact: SessionCompactEvent;
+	session_tree: SessionTreeEvent;
+	session_before_tree: SessionBeforeTreeEvent;
+	tool_call: ToolCallEvent;
+	tool_result: ToolResultEvent;
 };
 
 /** @deprecated Use ExtensionContextOverrides */
@@ -73,21 +102,28 @@ export interface EventHarness {
 		event: E,
 		payload: HarnessEventMap[E],
 		ctxOverrides?: ExtensionContextOverrides,
-	) => Promise<void>;
+	) => Promise<HarnessEventInvokeResult<E>>;
 	invokeEventWithContext: <E extends HarnessEventName>(
 		event: E,
 		payload: HarnessEventMap[E],
 		ctx: ExtensionContext,
-	) => Promise<void>;
+	) => Promise<HarnessEventInvokeResult<E>>;
 	runSessionStart: (
 		ctxOverrides?: ExtensionContextOverrides,
 		eventOverrides?: Partial<SessionStartEvent>,
 	) => Promise<void>;
-	runModelSelect: (model: ExtensionContext["model"], ctxOverrides?: ExtensionContextOverrides) => Promise<void>;
+	runModelSelect: (
+		model: NonNullable<ExtensionContext["model"]>,
+		ctxOverrides?: ExtensionContextOverrides,
+	) => Promise<void>;
 	runBeforeAgentStart: (ctxOverrides?: ExtensionContextOverrides) => Promise<void>;
 	runTurnStart: (ctxOverrides?: ExtensionContextOverrides) => Promise<void>;
 	runSessionShutdown: (
 		eventOverrides?: Partial<HarnessEventMap["session_shutdown"]>,
+		ctxOverrides?: ExtensionContextOverrides,
+	) => Promise<void>;
+	runSessionCompact: (
+		eventOverrides?: Partial<SessionCompactEvent>,
 		ctxOverrides?: ExtensionContextOverrides,
 	) => Promise<void>;
 	runSessionTree: (
@@ -96,6 +132,18 @@ export interface EventHarness {
 	) => Promise<void>;
 	runSessionBeforeTree: (
 		eventOverrides?: Partial<HarnessEventMap["session_before_tree"]>,
+		ctxOverrides?: ExtensionContextOverrides,
+	) => Promise<void>;
+	runToolCall: (
+		event: ToolCallEvent,
+		ctxOverrides?: ExtensionContextOverrides,
+	) => Promise<ToolCallEventResult | undefined>;
+	runToolCallWithContext: (
+		event: ToolCallEvent,
+		ctx: ExtensionContext,
+	) => Promise<ToolCallEventResult | undefined>;
+	runToolResult: (
+		event: ToolResultEvent,
 		ctxOverrides?: ExtensionContextOverrides,
 	) => Promise<void>;
 }
@@ -111,18 +159,26 @@ export interface PiHarness extends EventHarness {
 	sendMessage: MockFn<ExtensionAPI["sendMessage"]>;
 	getFlag: MockFn<ExtensionAPI["getFlag"]>;
 	appendEntry: MockFn<ExtensionAPI["appendEntry"]>;
+	runCommand: (
+		name: string,
+		args?: string,
+		ctxOverrides?: ExtensionCommandContextOverrides,
+	) => Promise<void>;
 	_registered: Array<{ name: string; config: ProviderConfig }>;
-	_commands: Map<string, { description?: string; handler: (args: string, ctx: ExtensionContext) => Promise<void> | void }>;
+	_commands: Map<string, RegisteredCommandOptions>;
 	_tools: RegisteredTool[];
 	_activeToolNames: () => string[];
 }
 
-export interface BridgePiHarness {
+export interface BridgePiHarness extends EventHarness {
 	getActiveTools: MockFn<ExtensionAPI["getActiveTools"]>;
 	getAllTools: MockFn<ExtensionAPI["getAllTools"]>;
 	setActiveTools: MockFn<ExtensionAPI["setActiveTools"]>;
-	on: MockFn<HarnessOn>;
 }
+
+export type HarnessEventInvokeResult<E extends HarnessEventName> = E extends "tool_call"
+	? ToolCallEventResult | undefined
+	: void;
 
 const DEFAULT_BUILTIN_TOOL_NAMES = ["read", "bash", "grep", "find", "ls", "edit", "write"] as const;
 const DEFAULT_ACTIVE_TOOL_NAMES = ["read", "bash", "edit", "write"] as const;
@@ -193,6 +249,30 @@ function createMinimalExtensionUi(): ExtensionContext["ui"] {
 	} satisfies ExtensionContext["ui"];
 }
 
+function createMinimalExtensionCommandContextInternal(
+	overrides: ExtensionCommandContextOverrides = {},
+): ExtensionCommandContext {
+	const base = createMinimalExtensionContextInternal(overrides) as ExtensionCommandContext;
+	return {
+		...base,
+		...overrides,
+		waitForIdle: overrides.waitForIdle ?? vi.fn(async () => undefined),
+		newSession: overrides.newSession ?? vi.fn(async () => ({ cancelled: false })),
+		fork: overrides.fork ?? vi.fn(async () => ({ cancelled: false })),
+		navigateTree: overrides.navigateTree ?? vi.fn(async () => ({ cancelled: false })),
+		switchSession: overrides.switchSession ?? vi.fn(async () => ({ cancelled: false })),
+		reload: overrides.reload ?? vi.fn(async () => undefined),
+		ui: {
+			...base.ui,
+			...overrides.ui,
+		},
+		sessionManager: {
+			...base.sessionManager,
+			...overrides.sessionManager,
+		},
+	};
+}
+
 function createMinimalExtensionContextInternal(overrides: ExtensionContextOverrides = {}): ExtensionContext {
 	const cwd = overrides.cwd ?? process.cwd();
 	const base: ExtensionContext = {
@@ -225,30 +305,40 @@ function createMinimalExtensionContextInternal(overrides: ExtensionContextOverri
 	};
 }
 
-function createHarnessEventApi() {
-	const handlers = new Map<HarnessEventName, ExtensionHandler<HarnessEventMap[HarnessEventName]>[]>();
+type HarnessStoredHandler = ExtensionHandler<HarnessEventMap[HarnessEventName], ToolCallEventResult | undefined>;
 
-	const on = vi.fn<HarnessOn>((event, handler) => {
+function createHarnessEventApi() {
+	const handlers = new Map<HarnessEventName, HarnessStoredHandler[]>();
+
+	const on = vi.fn(((event: HarnessEventName, handler: HarnessStoredHandler) => {
 		const existing = handlers.get(event) ?? [];
-		handlers.set(event, [...existing, handler as ExtensionHandler<HarnessEventMap[HarnessEventName]>]);
-	});
+		handlers.set(event, [...existing, handler]);
+	}) as HarnessOn);
 
 	const invokeEventWithContext = async <E extends HarnessEventName>(
 		event: E,
 		payload: HarnessEventMap[E],
 		ctx: ExtensionContext,
-	): Promise<void> => {
+	): Promise<HarnessEventInvokeResult<E>> => {
+		let toolCallResult: ToolCallEventResult | undefined;
 		for (const handler of handlers.get(event) ?? []) {
-			await (handler as ExtensionHandler<HarnessEventMap[E]>)(payload, ctx);
+			const result = await (handler as ExtensionHandler<HarnessEventMap[E]>)(payload, ctx);
+			if (event === "tool_call" && result !== undefined) {
+				toolCallResult = result as ToolCallEventResult;
+			}
 		}
+		if (event === "tool_call") {
+			return toolCallResult as HarnessEventInvokeResult<E>;
+		}
+		return undefined as HarnessEventInvokeResult<E>;
 	};
 
 	const invokeEvent = async <E extends HarnessEventName>(
 		event: E,
 		payload: HarnessEventMap[E],
 		ctxOverrides: ExtensionContextOverrides = {},
-	): Promise<void> => {
-		await invokeEventWithContext(event, payload, createExtensionTestContext(ctxOverrides));
+	): Promise<HarnessEventInvokeResult<E>> => {
+		return invokeEventWithContext(event, payload, createExtensionTestContext(ctxOverrides));
 	};
 
 	const runSessionStart = async (
@@ -263,7 +353,7 @@ function createHarnessEventApi() {
 	};
 
 	const runModelSelect = async (
-		model: ExtensionContext["model"],
+		model: NonNullable<ExtensionContext["model"]>,
 		ctxOverrides: ExtensionContextOverrides = {},
 	): Promise<void> => {
 		await invokeEvent(
@@ -302,6 +392,51 @@ function createHarnessEventApi() {
 		);
 	};
 
+	const runSessionCompact = async (
+		eventOverrides: Partial<SessionCompactEvent> = {},
+		ctxOverrides: ExtensionContextOverrides = {},
+	): Promise<void> => {
+		await invokeEvent(
+			"session_compact",
+			{
+				type: "session_compact",
+				compactionEntry: {
+					type: "compaction",
+					id: "compaction-1",
+					parentId: null,
+					timestamp: new Date().toISOString(),
+					summary: "summary",
+					firstKeptEntryId: "entry-1",
+					tokensBefore: 0,
+				},
+				fromExtension: false,
+				...eventOverrides,
+			},
+			ctxOverrides,
+		);
+	};
+
+	const runToolCallWithContext = async (
+		event: ToolCallEvent,
+		ctx: ExtensionContext,
+	): Promise<ToolCallEventResult | undefined> => {
+		return invokeEventWithContext("tool_call", event, ctx);
+	};
+
+	const runToolCall = async (
+		event: ToolCallEvent,
+		ctxOverrides: ExtensionContextOverrides = {},
+	): Promise<ToolCallEventResult | undefined> => {
+		return runToolCallWithContext(event, createExtensionTestContext(ctxOverrides));
+	};
+
+	const runToolResult = async (
+		event: ToolResultEvent,
+		ctxOverrides: ExtensionContextOverrides = {},
+	): Promise<void> => {
+		await invokeEvent("tool_result", event, ctxOverrides);
+	};
+
 	const runSessionTree = async (
 		eventOverrides: Partial<HarnessEventMap["session_tree"]> = {},
 		ctxOverrides: ExtensionContextOverrides = {},
@@ -336,7 +471,7 @@ function createHarnessEventApi() {
 	};
 
 	return {
-		on,
+		on: on as MockFn<HarnessOn>,
 		invokeEvent,
 		invokeEventWithContext,
 		runSessionStart,
@@ -344,8 +479,12 @@ function createHarnessEventApi() {
 		runBeforeAgentStart,
 		runTurnStart,
 		runSessionShutdown,
+		runSessionCompact,
 		runSessionTree,
 		runSessionBeforeTree,
+		runToolCall,
+		runToolCallWithContext,
+		runToolResult,
 	};
 }
 
@@ -380,6 +519,12 @@ export function createExtensionTestContext(ctxOverrides: ExtensionContextOverrid
 	return createMinimalExtensionContextInternal(ctxOverrides);
 }
 
+export function createExtensionCommandContext(
+	ctxOverrides: ExtensionCommandContextOverrides = {},
+): ExtensionCommandContext {
+	return createMinimalExtensionCommandContextInternal(ctxOverrides);
+}
+
 export function makeModel(id = "test-model"): Model<"cursor-sdk"> {
 	return {
 		id,
@@ -393,6 +538,69 @@ export function makeModel(id = "test-model"): Model<"cursor-sdk"> {
 		contextWindow: 128000,
 		maxTokens: 16384,
 	};
+}
+
+export function makeHarnessModel<TApi extends Api>(
+	provider: string,
+	api: TApi,
+	id: string,
+	overrides: Partial<Model<TApi>> = {},
+): Model<TApi> {
+	return {
+		id,
+		name: id,
+		api,
+		provider,
+		baseUrl: "",
+		reasoning: false,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 16384,
+		...overrides,
+	};
+}
+
+export function getHarnessRegisteredTool(tools: readonly RegisteredTool[], name: string): RegisteredTool {
+	const tool = tools.find((entry) => entry.name === name);
+	if (!tool) {
+		throw new Error(`Tool not registered: ${name}`);
+	}
+	return tool;
+}
+
+export function makeProviderModelConfig(
+	id: string,
+	overrides: Partial<ProviderModelConfig> = {},
+): ProviderModelConfig {
+	return {
+		id,
+		name: id,
+		reasoning: false,
+		input: ["text", "image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 16384,
+		...overrides,
+	};
+}
+
+/** Pi harness surface accepted by `src/index.ts` extension factory registration. */
+export type CursorExtensionRegistrationPi = Parameters<typeof cursorExtensionFactory>[0];
+
+export function createExtensionRegistrationPi(
+	options: PiHarnessOptions = {},
+): PiHarness & CursorExtensionRegistrationPi {
+	return createPiHarness(options) as unknown as PiHarness & CursorExtensionRegistrationPi;
+}
+
+/** HTTP MCP URL for a bridge run's `pi_tools` server (narrows SDK union config). */
+export function getCursorPiBridgeMcpUrl(run: { mcpServers?: Record<string, unknown> }): string {
+	const piTools = run.mcpServers?.pi_tools;
+	if (!piTools || typeof piTools !== "object" || !("url" in piTools) || typeof piTools.url !== "string") {
+		throw new Error("Bridge run has no pi_tools HTTP MCP URL");
+	}
+	return piTools.url;
 }
 
 export function makeContext(messages: Context["messages"] = [{ role: "user", content: "Hello", timestamp: 1 }]): Context {
@@ -442,11 +650,12 @@ export function createEventHarness(): EventHarness {
 }
 
 export function createBridgePiHarness(options: { active: string[]; tools: ToolInfo[] }): BridgePiHarness {
+	const eventApi = createHarnessEventApi();
 	return {
+		...eventApi,
 		getActiveTools: vi.fn<ExtensionAPI["getActiveTools"]>(() => [...options.active]),
 		getAllTools: vi.fn<ExtensionAPI["getAllTools"]>(() => [...options.tools]),
 		setActiveTools: vi.fn<ExtensionAPI["setActiveTools"]>(),
-		on: vi.fn<HarnessOn>(),
 	};
 }
 
@@ -454,10 +663,7 @@ export function createBridgePiHarness(options: { active: string[]; tools: ToolIn
 export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 	const eventApi = createHarnessEventApi();
 	const registered: Array<{ name: string; config: ProviderConfig }> = [];
-	const commands = new Map<
-		string,
-		{ description?: string; handler: (args: string, ctx: ExtensionContext) => Promise<void> | void }
-	>();
+	const commands = new Map<string, RegisteredCommandOptions>();
 	const tools: RegisteredTool[] = [];
 	const initialTools =
 		options.initialTools ?? [...DEFAULT_BUILTIN_TOOL_NAMES].map((name) => createBuiltinToolInfo(name));
@@ -470,6 +676,18 @@ export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 		return options.defaultFlagValue ?? false;
 	};
 
+	const runCommand = async (
+		name: string,
+		args = "",
+		ctxOverrides: ExtensionCommandContextOverrides = {},
+	): Promise<void> => {
+		const command = commands.get(name);
+		if (!command) {
+			throw new Error(`Command not registered: ${name}`);
+		}
+		await command.handler(args, createExtensionCommandContext(ctxOverrides));
+	};
+
 	return {
 		...eventApi,
 		registerProvider: vi.fn<ExtensionAPI["registerProvider"]>((name: string, config: ProviderConfig) => {
@@ -477,10 +695,7 @@ export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 		}),
 		registerFlag: vi.fn<ExtensionAPI["registerFlag"]>(),
 		registerCommand: vi.fn<ExtensionAPI["registerCommand"]>((name: string, command) => {
-			commands.set(name, {
-				description: command.description,
-				handler: command.handler as (args: string, ctx: ExtensionContext) => Promise<void> | void,
-			});
+			commands.set(name, command);
 		}),
 		registerTool: vi.fn<ExtensionAPI["registerTool"]>((tool) => {
 			tools.push(tool as RegisteredTool);
@@ -505,6 +720,7 @@ export function createPiHarness(options: PiHarnessOptions = {}): PiHarness {
 		sendMessage: vi.fn<ExtensionAPI["sendMessage"]>(),
 		getFlag: vi.fn<ExtensionAPI["getFlag"]>((name: string) => resolveFlagValue(name)),
 		appendEntry: vi.fn<ExtensionAPI["appendEntry"]>(),
+		runCommand,
 		_registered: registered,
 		_commands: commands,
 		_tools: tools,
