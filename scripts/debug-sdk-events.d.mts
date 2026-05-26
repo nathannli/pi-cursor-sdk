@@ -6,6 +6,7 @@ export interface CursorDebugSdkEventsArgs {
 	settingSources?: string[] | undefined;
 	includeConversation: boolean;
 	apiKey?: string;
+	help: boolean;
 }
 
 export interface CursorSdkEventDebugSummary {

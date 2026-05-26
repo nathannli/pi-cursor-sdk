@@ -8,7 +8,7 @@ export declare function parseArgv(
 	argv: string[],
 	options: { defaults: Record<string, unknown>; flags: Record<string, unknown>; fail: (message: string) => never },
 ): Record<string, unknown>;
-export declare function defaultSettingSourcesFromEnv(env?: NodeJS.ProcessEnv): string;
+export declare function defaultSettingSourcesFromEnv(env?: NodeJS.ProcessEnv): string[] | undefined;
 export declare function defaultApiKeyFromEnv(env?: NodeJS.ProcessEnv): string | undefined;
 export declare function requireApiKey(
 	args: { apiKey?: string },
