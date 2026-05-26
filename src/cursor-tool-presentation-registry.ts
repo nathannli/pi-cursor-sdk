@@ -393,8 +393,10 @@ export function getCursorReplaySourceToolName(toolName: CursorReplayLegacyToolNa
 
 export function getCursorReplayPromptLabel(toolName: string): string {
 	if (toolName === CURSOR_REPLAY_ACTIVITY_TOOL_NAME) return "Cursor activity";
-	const spec = getCursorToolPresentationSpec(toolName);
-	if (spec) return spec.promptLabel;
+	if (isCursorReplayLegacyToolName(toolName)) {
+		const spec = SPECS_BY_REPLAY_LEGACY_NAME.get(toolName);
+		return spec?.promptLabel ?? toolName;
+	}
 	return toolName;
 }
 
