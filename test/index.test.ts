@@ -727,6 +727,36 @@ describe("extension factory", () => {
 		expect(rendered).not.toContain("cursor_mcp");
 	});
 
+	it("renders Cursor web replay cards summary-only until expanded", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createMockPi();
+		await extensionFactory(pi);
+		await runSessionStartHandlers(pi);
+		const theme = { fg: (_style: string, text: string) => text, bold: (text: string) => text } as never;
+		const context = { isError: false, showImages: false } as never;
+		const cursorTool = pi._tools.find((tool) => tool.name === "cursor");
+		const result = {
+			content: [{ type: "text" as const, text: "web search azure-functions python\n\nLinks:\n1. [Release](https://example.com)" }],
+			details: {
+				cursorToolName: "webSearch",
+				title: "Cursor web search",
+				summary: "web search azure-functions python",
+				expandedText: "web search azure-functions python\n\nLinks:\n1. [Release](https://example.com)",
+				collapseDetailsByDefault: true,
+			},
+		};
+
+		const collapsed = cursorTool.renderResult?.(result, { expanded: false, isPartial: false } as never, theme, context)?.render(120).join("\n").trimEnd() ?? "";
+		const expanded = cursorTool.renderResult?.(result, { expanded: true, isPartial: false } as never, theme, context)?.render(120).join("\n") ?? "";
+
+		expect(collapsed).toBe("Cursor web search web search azure-functions python");
+		expect(collapsed).not.toContain("Links:");
+		expect(expanded).toContain("Cursor web search web search azure-functions python");
+		expect(expanded).toContain("Links:");
+		expect(expanded).toContain("https://example.com");
+	});
+
 	it("renders legacy Cursor replay-only tool labels without raw synthetic names", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		mockedDiscover.mockResolvedValueOnce([]);

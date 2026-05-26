@@ -112,6 +112,14 @@ async function cacheSdkContextWindow(agentId: string, modelId: string): Promise<
 	}
 }
 
+function hasCursorAssistantText(resultText: unknown, textDeltas: readonly string[], fallbackText?: string): boolean {
+	return (
+		hasUsableText(typeof resultText === "string" ? resultText : undefined) ||
+		hasUsableText(textDeltas.join("")) ||
+		hasUsableText(fallbackText)
+	);
+}
+
 export function streamCursor(
 	model: Model<Api>,
 	context: Context,
@@ -371,26 +379,31 @@ export function streamCursor(
 					.wait()
 					.then(async (result) => {
 						sdkEventDebug?.recordWaitResult(result);
-						if (result.status === "finished" && !options?.signal?.aborted) {
+						const finishedSuccessfully = result.status === "finished" && !options?.signal?.aborted;
+						if (finishedSuccessfully) {
 							await replayCursorTranscriptWebToolCalls(activeRun.agentId, cwd, cursorAgentMessageOffset, turnCoordinator);
 						}
+						const finalCursorText = finishedSuccessfully
+							? selectCursorFinalText(result.result, liveRun.textDeltas, liveRun.emittedText, turnCoordinator.planTextCandidate)
+							: "";
 						turnCoordinator.discardIncompleteStartedToolCalls(
 							result.status === "cancelled" || options?.signal?.aborted
 								? "abort"
 								: result.status === "error"
 									? "sdk-failure"
 									: DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+							{
+								suppressFastLocalToolsOnSuccessfulText:
+									finishedSuccessfully && hasCursorAssistantText(result.result, liveRun.textDeltas, turnCoordinator.planTextCandidate),
+							},
 						);
 						await sdkEventDebug?.captureRunArtifacts(run);
 						if (liveRun.disposed) return;
 						await cacheSdkContextWindow(liveRun.agent.agentId, model.id);
 						if (liveRun.disposed) return;
-						if (result.status === "finished" && !options?.signal?.aborted) {
+						if (finishedSuccessfully) {
 							commitSessionAgentSend(sessionAgentScopeKey, context, bootstrap);
-							cursorLiveRuns.markFinished(
-								liveRun,
-								selectCursorFinalText(result.result, liveRun.textDeltas, liveRun.emittedText, turnCoordinator.planTextCandidate),
-							);
+							cursorLiveRuns.markFinished(liveRun, finalCursorText);
 						} else if (result.status === "cancelled" || options?.signal?.aborted) {
 							cursorLiveRuns.markCancelled(
 								liveRun,
@@ -459,15 +472,25 @@ export function streamCursor(
 
 			const result = await run.wait();
 			sdkEventDebug?.recordWaitResult(result);
-			if (result.status === "finished" && !options?.signal?.aborted) {
+			const finishedSuccessfully = result.status === "finished" && !options?.signal?.aborted;
+			if (finishedSuccessfully) {
 				await replayCursorTranscriptWebToolCalls(run.agentId, cwd, cursorAgentMessageOffset, turnCoordinator);
 			}
+			const finalCursorText = finishedSuccessfully
+				? selectCursorFinalText(result.result, textDeltas, textDeltas.join(""), turnCoordinator.planTextCandidate, {
+						allowPartialPrefix: true,
+					})
+				: "";
 			turnCoordinator.discardIncompleteStartedToolCalls(
 				result.status === "cancelled" || options?.signal?.aborted
 					? "abort"
 					: result.status === "error"
 						? "sdk-failure"
 						: DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+				{
+					suppressFastLocalToolsOnSuccessfulText:
+						finishedSuccessfully && hasCursorAssistantText(result.result, textDeltas, turnCoordinator.planTextCandidate),
+				},
 			);
 			await sdkEventDebug?.captureRunArtifacts(run);
 			await cacheSdkContextWindow(agent.agentId, model.id);
@@ -494,9 +517,6 @@ export function streamCursor(
 				stream.push({ type: "error", reason: "error", error: partial });
 			} else {
 				commitSessionAgentSend(sessionAgentScopeKey, context, bootstrap);
-				const finalCursorText = selectCursorFinalText(result.result, textDeltas, textDeltas.join(""), turnCoordinator.planTextCandidate, {
-					allowPartialPrefix: true,
-				});
 				turnCoordinator.flushText(hasUsableText(finalCursorText) ? [finalCursorText] : []);
 				applyCursorApproximateUsage(partial, model, context, promptInputTokens);
 				stream.push({ type: "done", reason: "stop", message: partial });

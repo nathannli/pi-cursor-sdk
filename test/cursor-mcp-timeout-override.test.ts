@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	cursorMcpToolTimeoutOverrideDefaults,
 	installCursorMcpToolTimeoutOverride,
+	isCursorSdkMcpConnectTimeoutStack,
 	isCursorSdkMcpToolTimeoutStack,
+	resolveCursorMcpConnectTimeoutMs,
 	resolveCursorMcpToolTimeoutMs,
 	restoreCursorMcpToolTimeoutOverrideForTests,
 } from "../src/cursor-mcp-timeout-override.js";
@@ -14,6 +16,100 @@ afterEach(() => {
 	restoreCursorMcpToolTimeoutOverrideForTests();
 	vi.useRealTimers();
 });
+
+function scheduleSyntheticCursorSdkMcpListToolsTimeout(callback: () => void): ReturnType<typeof setTimeout> {
+	const sdkUrl = pathToFileURL(join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/index.js")).href;
+	const source = `
+return (() => {
+	class Protocol {
+		_setupTimeout() {
+			return setTimeout(callback, 60000);
+		}
+
+		request() {
+			return this._setupTimeout();
+		}
+	}
+
+	class Client extends Protocol {
+		listTools() {
+			return this.request();
+		}
+	}
+
+	class McpSdkClient {
+		constructor() {
+			this.client = new Client();
+		}
+
+		getTools() {
+			return this.client.listTools();
+		}
+	}
+
+	return new McpSdkClient().getTools();
+})();
+//# sourceURL=${sdkUrl}
+`;
+	const run = new Function("callback", source) as (callback: () => void) => ReturnType<typeof setTimeout>;
+	return run(callback);
+}
+
+function scheduleSyntheticCursorSdkMcpInitializeTimeout(callback: () => void): ReturnType<typeof setTimeout> {
+	const sdkUrl = pathToFileURL(join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/index.js")).href;
+	const source = `
+return (() => {
+	class Protocol {
+		_setupTimeout() {
+			return setTimeout(callback, 60000);
+		}
+
+		request() {
+			return this._setupTimeout();
+		}
+	}
+
+	class Client extends Protocol {
+		connect() {
+			return this.request();
+		}
+	}
+
+	return new Client().connect();
+})();
+//# sourceURL=${sdkUrl}
+`;
+	const run = new Function("callback", source) as (callback: () => void) => ReturnType<typeof setTimeout>;
+	return run(callback);
+}
+
+function scheduleSyntheticCursorSdkMcpUnknownProtocolTimeout(callback: () => void): ReturnType<typeof setTimeout> {
+	const sdkUrl = pathToFileURL(join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/index.js")).href;
+	const source = `
+return (() => {
+	class Protocol {
+		_setupTimeout() {
+			return setTimeout(callback, 60000);
+		}
+
+		request() {
+			return this._setupTimeout();
+		}
+	}
+
+	class Client extends Protocol {
+		listPrompts() {
+			return this.request();
+		}
+	}
+
+	return new Client().listPrompts();
+})();
+//# sourceURL=${sdkUrl}
+`;
+	const run = new Function("callback", source) as (callback: () => void) => ReturnType<typeof setTimeout>;
+	return run(callback);
+}
 
 function scheduleSyntheticCursorSdkMcpToolTimeout(callback: () => void): ReturnType<typeof setTimeout> {
 	const sdkUrl = pathToFileURL(join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/index.js")).href;
@@ -62,6 +158,8 @@ describe("Cursor MCP timeout override", () => {
 
 		expect(sdkBundle).toContain("class McpSdkClient");
 		expect(sdkBundle).toContain("this.client.callTool({name:t,arguments:r})");
+		expect(sdkBundle).toContain("this.client.listTools({cursor:e})");
+		expect(sdkBundle).toContain('this.request({method:"initialize"');
 		expect(sdkBundle).toContain(
 			"const h=r?.timeout??DEFAULT_REQUEST_TIMEOUT_MSEC;this._setupTimeout",
 		);
@@ -74,8 +172,16 @@ describe("Cursor MCP timeout override", () => {
     at Client.callTool (${process.cwd()}/node_modules/@cursor/sdk/dist/esm/index.js:1:1)
     at McpSdkClient.callTool (${process.cwd()}/node_modules/@cursor/sdk/dist/esm/index.js:1:1)`;
 
+		const listToolsStack = stack.replace(/callTool/g, "listTools").replace(/McpSdkClient\.listTools/, "McpSdkClient.getTools");
+		const initializeStack = stack.replace(/callTool/g, "connect");
+		const unknownProtocolStack = stack.replace(/callTool/g, "listPrompts");
+
 		expect(isCursorSdkMcpToolTimeoutStack(stack)).toBe(true);
-		expect(isCursorSdkMcpToolTimeoutStack(stack.replace(/callTool/g, "listTools"))).toBe(false);
+		expect(isCursorSdkMcpToolTimeoutStack(listToolsStack)).toBe(false);
+		expect(isCursorSdkMcpConnectTimeoutStack(listToolsStack)).toBe(true);
+		expect(isCursorSdkMcpConnectTimeoutStack(initializeStack)).toBe(true);
+		expect(isCursorSdkMcpConnectTimeoutStack(unknownProtocolStack)).toBe(false);
+		expect(isCursorSdkMcpConnectTimeoutStack(stack)).toBe(false);
 		expect(isCursorSdkMcpToolTimeoutStack(stack.replace(/node_modules\/\@cursor\/sdk/g, "src"))).toBe(false);
 	});
 
@@ -104,6 +210,59 @@ describe("Cursor MCP timeout override", () => {
 
 		vi.advanceTimersByTime(3_600_000 - 60_000);
 		expect(callback).toHaveBeenCalledTimes(1);
+	});
+
+	it("shortens known Cursor SDK MCP initialize and listTools default timeouts", () => {
+		vi.useFakeTimers();
+		installCursorMcpToolTimeoutOverride({ connectTimeoutMs: 10_000 });
+		const listToolsCallback = vi.fn();
+		const initializeCallback = vi.fn();
+
+		scheduleSyntheticCursorSdkMcpListToolsTimeout(listToolsCallback);
+		scheduleSyntheticCursorSdkMcpInitializeTimeout(initializeCallback);
+
+		vi.advanceTimersByTime(9_999);
+		expect(listToolsCallback).not.toHaveBeenCalled();
+		expect(initializeCallback).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(1);
+		expect(listToolsCallback).toHaveBeenCalledTimes(1);
+		expect(initializeCallback).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not shorten unknown Cursor SDK MCP protocol default timeouts", () => {
+		vi.useFakeTimers();
+		installCursorMcpToolTimeoutOverride({ connectTimeoutMs: 10_000 });
+		const callback = vi.fn();
+
+		scheduleSyntheticCursorSdkMcpUnknownProtocolTimeout(callback);
+
+		vi.advanceTimersByTime(10_000);
+		expect(callback).not.toHaveBeenCalled();
+
+		vi.advanceTimersByTime(50_000);
+		expect(callback).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses a 10s connect default and supports explicit connect overrides", () => {
+		expect(resolveCursorMcpConnectTimeoutMs({})).toBe(
+			cursorMcpToolTimeoutOverrideDefaults.defaultConnectTimeoutMs,
+		);
+		expect(
+			resolveCursorMcpConnectTimeoutMs({
+				[cursorMcpToolTimeoutOverrideDefaults.connectTimeoutSecondsEnv]: "5",
+			}),
+		).toBe(5_000);
+		expect(
+			resolveCursorMcpConnectTimeoutMs({
+				[cursorMcpToolTimeoutOverrideDefaults.connectTimeoutMsEnv]: "500",
+			}),
+		).toBe(cursorMcpToolTimeoutOverrideDefaults.minConnectTimeoutMs);
+		expect(
+			resolveCursorMcpConnectTimeoutMs({
+				[cursorMcpToolTimeoutOverrideDefaults.connectTimeoutMsEnv]: "120000",
+			}),
+		).toBe(cursorMcpToolTimeoutOverrideDefaults.cursorSdkDefaultTimeoutMs);
 	});
 
 	it("does not extend unrelated 60s timers", () => {

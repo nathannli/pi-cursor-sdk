@@ -507,6 +507,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 			buildActivitySummary: ({ args }) => truncateArg(extractWebSearchQuery(args) ?? "web search"),
 			buildDetails: ({ result }, contentText) => ({
 				summary: result.status === "error" ? undefined : firstNonEmptyLine(contentText) ?? "web search result captured",
+				collapseDetailsByDefault: true,
 			}),
 		},
 	},
@@ -522,6 +523,7 @@ const TOOL_DISPLAY_SPECS: Record<string, ToolDisplaySpec> = {
 			buildActivitySummary: ({ args }) => truncateArg(extractWebFetchTarget(args) ?? "web fetch"),
 			buildDetails: ({ result }, contentText) => ({
 				summary: result.status === "error" ? undefined : firstNonEmptyLine(contentText) ?? "web fetch result captured",
+				collapseDetailsByDefault: true,
 			}),
 		},
 	},

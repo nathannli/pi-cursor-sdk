@@ -517,7 +517,7 @@ describe("streamCursor bridge MCP", () => {
 		}
 	});
 
-	it("surfaces incomplete Cursor tools as transcript traces in bridge-only live runs", async () => {
+	it("surfaces incomplete external Cursor tools as transcript traces in bridge-only live runs", async () => {
 		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";
 		registerBridgeForProviderTest({
 			active: ["read"],
@@ -528,7 +528,7 @@ describe("streamCursor bridge MCP", () => {
 			opts.onDelta({
 				update: {
 					type: "tool-call-started",
-					toolCall: { name: "read", args: { path: "README.md" } },
+					toolCall: { name: "mcp", args: { toolName: "demo" } },
 					callId: "c-incomplete",
 				},
 			});
@@ -552,7 +552,7 @@ describe("streamCursor bridge MCP", () => {
 		const trace = collectThinkingDeltas(events);
 
 		expect(hasEventType(events, "toolcall_start")).toBe(false);
-		expect(trace).toContain("Cursor read did not complete");
+		expect(trace).toContain("Cursor MCP did not complete");
 		expect(trace).toContain("missing completion");
 	});
 });

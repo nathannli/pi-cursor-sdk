@@ -273,7 +273,7 @@ describe("native replay stress", () => {
 		expect(trace).not.toContain("bearer-token-value");
 	});
 
-	it("incomplete started read uses inactive trace when cursor is not in context", async () => {
+	it("incomplete started external tool uses inactive trace when cursor is not in context", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		await createNativeToolDisplayPiForTest();
 		mockedCreate.mockResolvedValue({
@@ -282,8 +282,8 @@ describe("native replay stress", () => {
 				opts.onDelta({
 					update: {
 						type: "tool-call-started",
-						toolCall: { name: "read", args: { path: "README.md" } },
-						callId: "read-incomplete-1",
+						toolCall: { name: "mcp", args: { toolName: "demo" } },
+						callId: "mcp-incomplete-1",
 					},
 				});
 				return {
@@ -305,11 +305,11 @@ describe("native replay stress", () => {
 		const trace = collectThinkingDeltas(events);
 
 		expect(hasEventType(events, "toolcall_start")).toBe(false);
-		expect(trace).toContain("Cursor read did not complete");
+		expect(trace).toContain("Cursor MCP did not complete");
 		expect(trace).toContain("missing completion");
 	});
 
-	it("incomplete started read uses transcript trace when native replay is unavailable", async () => {
+	it("incomplete started external tool uses transcript trace when native replay is unavailable", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		process.env.PI_CURSOR_REGISTER_NATIVE_TOOLS = "0";
 		mockedCreate.mockResolvedValue({
@@ -318,8 +318,8 @@ describe("native replay stress", () => {
 				opts.onDelta({
 					update: {
 						type: "tool-call-started",
-						toolCall: { name: "read", args: { path: "README.md" } },
-						callId: "read-incomplete-2",
+						toolCall: { name: "mcp", args: { toolName: "demo" } },
+						callId: "mcp-incomplete-2",
 					},
 				});
 				return {
@@ -339,7 +339,7 @@ describe("native replay stress", () => {
 		const trace = collectThinkingDeltas(events);
 
 		expect(hasEventType(events, "toolcall_start")).toBe(false);
-		expect(trace).toContain("Cursor read did not complete");
+		expect(trace).toContain("Cursor MCP did not complete");
 		expect(trace).toContain("missing completion");
 	});
 });

@@ -40,9 +40,18 @@ interface CursorShellOutputDeltas {
 	stderr: string[];
 }
 
+const FAST_LOCAL_INCOMPLETE_CURSOR_TOOL_NAMES = new Set(["read", "grep", "glob", "ls"]);
+
+function getNormalizedCursorToolName(toolCall: unknown): string {
+	return normalizeToolName(getToolName(toolCall));
+}
+
 function isCursorShellToolCall(toolCall: unknown): boolean {
-	const normalizedName = getToolName(toolCall).replace(/\s+/g, " ").trim().toLowerCase();
-	return normalizedName === "shell" || normalizedName === "run_terminal_cmd" || normalizedName === "terminal" || normalizedName === "bash";
+	return getNormalizedCursorToolName(toolCall).toLowerCase() === "shell";
+}
+
+function isFastLocalIncompleteCursorTool(toolCall: unknown): boolean {
+	return FAST_LOCAL_INCOMPLETE_CURSOR_TOOL_NAMES.has(getNormalizedCursorToolName(toolCall).toLowerCase());
 }
 
 function getCursorShellOutputDelta(update: InteractionUpdate): CursorShellOutputDelta | undefined {
@@ -112,6 +121,10 @@ export interface CursorSdkTurnCoordinatorOptions {
 	debugRecorder?: CursorSdkEventDebugRecorder;
 }
 
+interface DiscardIncompleteStartedToolCallsOptions {
+	suppressFastLocalToolsOnSuccessfulText?: boolean;
+}
+
 export class CursorSdkTurnCoordinator {
 	readonly stream: AssistantMessageEventStream;
 	readonly partial: AssistantMessage;
@@ -163,14 +176,29 @@ export class CursorSdkTurnCoordinator {
 
 	discardIncompleteStartedToolCalls(
 		reason: IncompleteCursorToolDiscardReason = DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
+		options: DiscardIncompleteStartedToolCallsOptions = {},
 	): void {
 		for (const [callId, toolCall] of this.startedToolCalls) {
 			if (typeof callId !== "string") continue;
+			const toolName = getNormalizedCursorToolName(toolCall);
 			recordDiscardedIncompleteStartedToolCall(this.debugRecorder, process.env, {
-				toolName: normalizeToolName(getToolName(toolCall)),
+				toolName,
 				callId,
 				reason,
 			});
+			if (
+				reason === DISCARDED_INCOMPLETE_TOOL_CALL_REASON &&
+				options.suppressFastLocalToolsOnSuccessfulText === true &&
+				isFastLocalIncompleteCursorTool(toolCall)
+			) {
+				this.recordDisplayDecision({
+					action: "skip-incomplete-fast-local",
+					toolName,
+					source: "started",
+					reason: "successful-run-text-produced",
+				});
+				continue;
+			}
 			this.emitIncompleteStartedToolCall(toolCall, reason);
 		}
 		this.startedToolCalls.clear();

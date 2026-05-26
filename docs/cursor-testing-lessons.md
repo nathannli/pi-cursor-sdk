@@ -313,7 +313,7 @@ Capture is file-only by default: no stderr markers, and bridge diagnostics durin
 
 ### Discarded incomplete SDK tool calls
 
-When Cursor emits `tool-call-started` without a matching completion/step result, the provider surfaces a bounded neutral **Cursor … did not complete** activity card or thinking trace at run end. pi bridge MCP calls (`pi__*`) are excluded because pi already shows the real pi tool execution path.
+When Cursor emits `tool-call-started` without a matching completion/step result, the provider surfaces a bounded neutral **Cursor … did not complete** activity card or thinking trace at run end for failed/aborted runs, runs with no assistant text, and external/side-effectful tools. Incomplete fast local discovery starts (`read`, `grep`, `glob`, `ls`) are debug-only after a successful text-producing run so stale SDK start events do not create red post-answer cards. pi bridge MCP calls (`pi__*`) are excluded because pi already shows the real pi tool execution path.
 
 With `PI_CURSOR_SDK_EVENT_DEBUG=1`, each discarded started call is also recorded in `coordinator-events.jsonl` under phase `discarded-incomplete-started-tool-call` with:
 
@@ -321,7 +321,7 @@ With `PI_CURSOR_SDK_EVENT_DEBUG=1`, each discarded started call is also recorded
 - scrubbed call-id hash (raw call IDs are not written)
 - reason such as `no-completion-at-run-end`, `abort`, or `sdk-failure`
 
-Stderr output for these records requires `PI_CURSOR_SDK_EVENT_DEBUG_STDERR=1`. This complements the standalone `npm run debug:sdk-events` probe by interpreting a specific provider discard path during normal pi runs. User-visible incomplete cards explain the gap in the TUI; debug artifacts remain maintainer-only (**#52**).
+Stderr output for these records requires `PI_CURSOR_SDK_EVENT_DEBUG_STDERR=1`. This complements the standalone `npm run debug:sdk-events` probe by interpreting a specific provider discard path during normal pi runs. User-visible incomplete cards explain actionable gaps in the TUI; debug artifacts remain maintainer-only (**#52**) and are the source of truth for suppressed fast-local stale starts.
 
 ## Tool calls listed as plain text (#40 triage)
 

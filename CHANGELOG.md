@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Shorten known Cursor SDK MCP initialize/listTools timeouts to 10 seconds by default so unavailable configured MCP servers fail fast on first send instead of blocking for the SDK's 60-second protocol default; unknown MCP protocol timeout stacks keep the SDK default. Override with `PI_CURSOR_MCP_CONNECT_TIMEOUT_MS` or `PI_CURSOR_MCP_CONNECT_TIMEOUT_SECONDS`.
+- Add maintainer cold-start timing probe `scripts/probe-mcp-coldstart.mjs` and `npm run debug:mcp-coldstart`.
+
+### Changed
+
+- Document first-send MCP cold-start behavior and initialize/listTools timeout defaults in README troubleshooting.
 ## 0.1.19 - 2026-05-25
 
 ### Added

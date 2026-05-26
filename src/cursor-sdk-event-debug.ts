@@ -35,7 +35,12 @@ export {
 	resolveCursorSdkEventDebugBaseDir,
 } from "./cursor-sdk-event-debug-constants.js";
 
-export type CursorSdkDisplayDecisionAction = "skip-duplicate" | "queue_replay" | "emit_trace" | "ignore-bridge";
+export type CursorSdkDisplayDecisionAction =
+	| "skip-duplicate"
+	| "skip-incomplete-fast-local"
+	| "queue_replay"
+	| "emit_trace"
+	| "ignore-bridge";
 
 export interface CursorSdkDisplayDecisionRecord {
 	action: CursorSdkDisplayDecisionAction;

@@ -35,6 +35,7 @@ export interface CursorReplayToolDetails {
 	diff?: string;
 	firstChangedLine?: number;
 	expandedText?: string;
+	collapseDetailsByDefault?: boolean;
 }
 
 export function asCursorReplayToolDetails(value: unknown): CursorReplayToolDetails | undefined {
@@ -406,7 +407,7 @@ function renderExpandableCursorReplayResult(
 	const summary = details?.summary ?? text.split("\n").find((line) => line.trim()) ?? "completed";
 	let rendered = `${theme.fg("toolTitle", theme.bold(title))} ${theme.fg(isError ? "error" : "success", summary)}`;
 	const expandedText = details?.expandedText ?? (text.includes("\n") ? text : undefined);
-	if (expandedText) {
+	if (expandedText && (options.expanded || !details?.collapseDetailsByDefault)) {
 		const preview = options.expanded ? formatMutedBlock(expandedText, theme) : formatCursorReplayPreview(expandedText, theme);
 		if (preview) rendered += `\n${preview}`;
 	}

@@ -409,7 +409,7 @@ it("replays Cursor createPlan as a neutral cursor card before final plan text", 
 				}),
 		);
 		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
-			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "mcp", args: { toolName: "demo" } }, callId: "c1" } });
 			return {
 				id: "run-1",
 				agentId: "agent-1",
@@ -437,7 +437,7 @@ it("replays Cursor createPlan as a neutral cursor card before final plan text", 
 		expect(text).toBe("");
 		expect(done.message.content.find(isToolCallBlock)).toMatchObject({
 			name: "cursor",
-			arguments: { activityTitle: "Cursor read", activitySummary: "missing completion" },
+			arguments: { activityTitle: "Cursor MCP", activitySummary: "missing completion" },
 		});
 		expect(hasEventType(events, "toolcall_start")).toBe(true);
 		expect(nativeToolDisplayTestUtils.nativeToolResultCount()).toBe(1);
@@ -450,7 +450,7 @@ it("replays Cursor createPlan as a neutral cursor card before final plan text", 
 				role: "toolResult" as const,
 				toolCallId: done.message.content.find(isToolCallBlock)!.id,
 				toolName: "cursor",
-				content: [{ type: "text" as const, text: "Cursor read did not complete" }],
+				content: [{ type: "text" as const, text: "Cursor MCP did not complete" }],
 				isError: true,
 				timestamp: 2,
 			},

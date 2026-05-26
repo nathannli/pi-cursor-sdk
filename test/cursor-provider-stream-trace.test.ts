@@ -543,7 +543,7 @@ it("detects trailing user messages only after tool results", () => {
 
 	it("surfaces incomplete started Cursor tool calls with neutral activity traces", async () => {
 		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
-			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "shell", args: { command: "sleep 10" } }, callId: "c1" } });
 			return {
 				id: "run-1",
 				agentId: "agent-1",
@@ -564,7 +564,7 @@ it("detects trailing user messages only after tool results", () => {
 		const trace = collectThinkingDeltas(events);
 		const text = collectTextDeltas(events);
 
-		expect(trace).toContain("Cursor read did not complete");
+		expect(trace).toContain("Cursor shell did not complete");
 		expect(trace).toContain("missing completion");
 		expect(text).toBe("done");
 		expect(hasEventType(events, "toolcall_start")).toBe(false);
@@ -656,6 +656,49 @@ it("detects trailing user messages only after tool results", () => {
 			expect(coordinatorEvents).toContain('"toolName":"read"');
 			expect(coordinatorEvents).toContain('"reason":"no-completion-at-run-end"');
 			expect(coordinatorEvents).not.toContain("c1");
+		} finally {
+			delete process.env.PI_CURSOR_SDK_EVENT_DEBUG;
+			delete process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR;
+			rmSync(artifactDir, { recursive: true, force: true });
+		}
+	});
+
+	it("suppresses incomplete missing-file reads with final error text while keeping debug evidence", async () => {
+		const artifactDir = mkdtempSync(join(tmpdir(), "pi-cursor-sdk-provider-missing-read-debug-"));
+		process.env.PI_CURSOR_SDK_EVENT_DEBUG = "1";
+		process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR = artifactDir;
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "missing.txt" } }, callId: "c-missing" } });
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "Error: File not found" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockedCreate.mockResolvedValue({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		try {
+			const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+			const trace = collectThinkingDeltas(events);
+			const text = collectTextDeltas(events);
+			const coordinatorEvents = readFileSync(join(artifactDir, "coordinator-events.jsonl"), "utf8");
+			const displayDecisions = readFileSync(join(artifactDir, "display-decisions.jsonl"), "utf8");
+
+			expect(text).toBe("Error: File not found");
+			expect(trace).not.toContain("Cursor read did not complete");
+			expect(hasEventType(events, "toolcall_start")).toBe(false);
+			expect(coordinatorEvents).toContain("discarded-incomplete-started-tool-call");
+			expect(coordinatorEvents).toContain('"toolName":"read"');
+			expect(coordinatorEvents).not.toContain("c-missing");
+			expect(displayDecisions).toContain('"action":"skip-incomplete-fast-local"');
+			expect(displayDecisions).toContain('"toolName":"read"');
 		} finally {
 			delete process.env.PI_CURSOR_SDK_EVENT_DEBUG;
 			delete process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR;
