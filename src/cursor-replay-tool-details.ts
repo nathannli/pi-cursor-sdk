@@ -63,7 +63,7 @@ export interface CursorReplayGenerateImageDetails {
 	imageMimeType?: string;
 	summary?: string;
 	expandedText?: string;
-	/** Display title override; renderer defaults to `Cursor generateImage` when omitted. */
+	/** Legacy parsed title retained on older payloads; display always uses `Cursor generateImage`. */
 	title?: string;
 	collapseDetailsByDefault?: boolean;
 }

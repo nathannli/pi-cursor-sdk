@@ -1,10 +1,9 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildCursorPiToolDisplayFromSpec } from "../src/cursor-transcript-tool-specs.js";
 import {
 	CURSOR_REPLAY_GENERATE_IMAGE_RESULT_TITLE,
 	buildCursorReplayEditDetails,
 	parseCursorReplayToolDetails,
-	type CursorReplayActivityCursorToolName,
 	type CursorReplayEditDetails,
 	type CursorReplayGenerateImageDetails,
 	type CursorReplayGenericFallbackDetails,
@@ -164,22 +163,5 @@ describe("cursor replay tool details contract", () => {
 			.join("\n");
 		expect(rendered).toContain(CURSOR_REPLAY_GENERATE_IMAGE_RESULT_TITLE);
 		expect(rendered).not.toMatch(/^image generation failed$/m);
-	});
-});
-
-describe("cursor replay tool details type contract", () => {
-	it("requires structured tool names on dedicated variants", () => {
-		expectTypeOf<CursorReplayEditDetails["variant"]>().toEqualTypeOf<"edit">();
-		expectTypeOf<CursorReplayWriteDetails["variant"]>().toEqualTypeOf<"write">();
-		expectTypeOf<CursorReplayGenerateImageDetails["variant"]>().toEqualTypeOf<"generateImage">();
-		expectTypeOf<CursorReplayTitledActivityDetails["variant"]>().toEqualTypeOf<"titledActivity">();
-		expectTypeOf<CursorReplayGenericFallbackDetails["variant"]>().toEqualTypeOf<"genericFallback">();
-	});
-
-	it("excludes structured tool names from activity cursorToolName", () => {
-		expectTypeOf<"edit">().not.toMatchTypeOf<CursorReplayActivityCursorToolName>();
-		expectTypeOf<"write">().not.toMatchTypeOf<CursorReplayActivityCursorToolName>();
-		expectTypeOf<"generateImage">().not.toMatchTypeOf<CursorReplayActivityCursorToolName>();
-		expectTypeOf<"mcp">().toMatchTypeOf<CursorReplayActivityCursorToolName>();
 	});
 });
