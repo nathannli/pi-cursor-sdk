@@ -21,7 +21,12 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-session-agent.ts` owns session-scoped SDK agent pooling, send-state commits, and lifecycle invalidation on compaction/tree/shutdown.
 - `src/cursor-session-send-policy.ts` owns session send planning (`bootstrap` vs `incremental`), periodic agent rebootstrap threshold, and prompt mode selection.
 - `src/cursor-provider-live-run-drain.ts` owns live-run drain/replay mirroring, pre-send continuation, and native replay turn emission.
-- `src/cursor-provider-turn-coordinator.ts` owns SDK delta/step handling, tool completion routing, and trace/native-replay emission during a turn.
+- `src/cursor-provider-turn-coordinator.ts` orchestrates SDK delta/step handling during a turn over focused collaborators.
+- `src/cursor-provider-turn-shell-output.ts` owns shell-output-delta tracking and merging into completed shell tool calls.
+- `src/cursor-provider-turn-tool-ledger.ts` owns started/completed tool identities, fingerprints, and duplicate suppression.
+- `src/cursor-provider-turn-sdk-normalizer.ts` normalizes SDK delta/step completions via the ledger and shell tracker.
+- `src/cursor-provider-turn-display-router.ts` owns trace vs native-replay display routing during a turn.
+- `src/cursor-provider-turn-lifecycle-emitter.ts` owns deferred in-progress lifecycle labels during a turn.
 - `src/cursor-tool-lifecycle.ts` owns low-noise deferred in-progress lifecycle labels for long-running Cursor tools (coalesced with completed replay cards; bridge excluded).
 - `src/cursor-tool-visibility.ts` owns canonical Cursor tool visibility classification for lifecycle, incomplete-tool, and replay activity titles.
 - `src/cursor-incomplete-tool-visibility.ts` owns bounded user-visible labels/traces for started Cursor SDK tool calls discarded without completion.
