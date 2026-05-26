@@ -39,6 +39,7 @@ export async function prepareCursorProviderTurn(
 ): Promise<CursorProviderTurnPrepared> {
 	const { params, runtime, cwd, resolvedApiKey, throwIfAborted } = prepareParams;
 	const { model, context, options } = params;
+	const { sdkEventDebug } = runtime;
 
 	const fastEnabled = getEffectiveFastForModelId(model.id);
 	const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
@@ -51,7 +52,7 @@ export async function prepareCursorProviderTurn(
 		cwd,
 		modelSelection: selection,
 		settingSources,
-		debugRecorder: params.sdkEventDebug,
+		debugRecorder: sdkEventDebug,
 		onBridgeToolRequest: (request: CursorPiBridgeToolRequest) => {
 			if (runtime.liveRunForBridgeQueue && !runtime.liveRunForBridgeQueue.disposed) {
 				cursorLiveRuns.queueEvent(runtime.liveRunForBridgeQueue, { type: "bridge-tool", request });
@@ -87,7 +88,7 @@ export async function prepareCursorProviderTurn(
 	const promptInputTokens = estimateCursorPromptInputTokens(prompt, promptOptions);
 	const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();
 	const activeToolNames = getActiveContextToolNames(context);
-	params.sdkEventDebug?.recordProviderMeta({
+	sdkEventDebug?.recordProviderMeta({
 		model: {
 			id: model.id,
 			provider: model.provider,
@@ -116,7 +117,7 @@ export async function prepareCursorProviderTurn(
 				sessionAgentScopeKey: runtime.sessionAgentScopeKey,
 				promptInputTokens,
 				textDeltas,
-				debugRecorder: params.sdkEventDebug,
+				debugRecorder: sdkEventDebug,
 			})
 		: undefined;
 	if (liveRun) {
@@ -136,7 +137,7 @@ export async function prepareCursorProviderTurn(
 		activeToolNames,
 		nativeReplayId,
 		textDeltas,
-		debugRecorder: params.sdkEventDebug,
+		debugRecorder: sdkEventDebug,
 	});
 	runtime.turnCoordinatorForCleanup = turnCoordinator;
 
@@ -156,7 +157,6 @@ export async function prepareCursorProviderTurn(
 		textDeltas,
 		liveRun,
 		turnCoordinator,
-		cursorAgentMessageOffset: undefined,
 	};
 }
 

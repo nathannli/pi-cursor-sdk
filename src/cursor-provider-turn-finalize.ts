@@ -78,6 +78,7 @@ async function replayCursorTranscriptWebToolCalls(
 export interface AwaitFinalizeCursorRunOutcomeParams {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
 	prepared: CursorProviderTurnPrepared;
+	cursorAgentMessageOffset: number | undefined;
 	modelId: string;
 	signalAborted?: boolean;
 	runResultFallback?: string;
@@ -106,7 +107,7 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 		await replayCursorTranscriptWebToolCalls(
 			params.run.agentId,
 			params.prepared.cwd,
-			params.prepared.cursorAgentMessageOffset,
+			params.cursorAgentMessageOffset,
 			params.prepared.turnCoordinator,
 			params.sdkEventDebug,
 		);

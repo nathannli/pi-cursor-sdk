@@ -21,7 +21,6 @@ export interface CursorProviderTurnRunnerParams {
 	stream: AssistantMessageEventStream;
 	partial: AssistantMessage;
 	options?: SimpleStreamOptions;
-	sdkEventDebug?: CursorSdkEventDebugSink;
 	sdkEventDebugRef: { current?: CursorSdkEventDebugSink };
 }
 
@@ -46,15 +45,16 @@ export interface CursorProviderTurnPrepared {
 	textDeltas: string[];
 	liveRun: CursorLiveRun | undefined;
 	turnCoordinator: CursorSdkTurnCoordinator;
-	cursorAgentMessageOffset: number | undefined;
 }
 
 export interface CursorProviderTurnSend {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
 	prepared: CursorProviderTurnPrepared;
+	cursorAgentMessageOffset: number | undefined;
 }
 
 export interface CursorProviderTurnRuntime {
+	sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	resolvedApiKey: string | undefined;
 	sessionAgentScopeKey: string;
 	activeLiveRun: CursorLiveRun | undefined;
@@ -70,6 +70,7 @@ export interface CursorProviderTurnRuntime {
 
 export function createCursorProviderTurnRuntime(): CursorProviderTurnRuntime {
 	return {
+		sdkEventDebug: undefined,
 		resolvedApiKey: undefined,
 		sessionAgentScopeKey: "",
 		activeLiveRun: undefined,

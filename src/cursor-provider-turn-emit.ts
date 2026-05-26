@@ -61,23 +61,25 @@ export interface EmitCursorLiveTurnParams {
 
 export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): Promise<void> {
 	const { params, runtime, send, sdkAbortErrorSuppression, discardIncompleteTools, finalizeSdkEventDebug } = emitParams;
-	const { run, prepared } = send;
+	const { run, prepared, cursorAgentMessageOffset } = send;
 	const { liveRun, turnCoordinator, sessionAgentLease, bootstrap } = prepared;
 	if (!liveRun) return;
 
 	runtime.deferSdkEventDebugFinalize = true;
 	const activeSessionAgentLease = sessionAgentLease;
 	const { options, model } = params;
+	const { sdkEventDebug } = runtime;
 
 	const waitCompletion = awaitFinalizeCursorRunOutcome({
 		run,
 		prepared,
+		cursorAgentMessageOffset,
 		modelId: model.id,
 		signalAborted: options?.signal?.aborted,
 		runResultFallback: run.result,
 		resolvedApiKey: runtime.resolvedApiKey,
 		optionsApiKey: options?.apiKey,
-		sdkEventDebug: params.sdkEventDebug,
+		sdkEventDebug,
 		cacheContextWindow: true,
 		contextWindowAgentId: liveRun.agent.agentId,
 	})
@@ -86,10 +88,10 @@ export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): 
 			applyLiveRunOutcome(liveRun, outcome, activeSessionAgentLease, params.context, bootstrap);
 		})
 		.catch(async (error: unknown) => {
-			params.sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) });
-			params.sdkEventDebug?.recordError("run_wait", error);
+			sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) });
+			sdkEventDebug?.recordError("run_wait", error);
 			discardIncompleteTools({ status: "error" });
-			await params.sdkEventDebug?.captureRunArtifacts(run);
+			await sdkEventDebug?.captureRunArtifacts(run);
 			if (liveRun.disposed) return;
 			cursorLiveRuns.markError(
 				liveRun,
@@ -105,7 +107,7 @@ export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): 
 			await drainCursorLiveRunTurn(params.stream, params.partial, model, params.context, liveRun, 0, {
 				mode: "emit",
 				signal: options?.signal,
-				debugRecorder: params.sdkEventDebug,
+				debugRecorder: sdkEventDebug,
 			});
 		});
 	} catch (error) {

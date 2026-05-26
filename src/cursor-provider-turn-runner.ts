@@ -39,7 +39,7 @@ export class CursorProviderTurnRunner {
 	}
 
 	private get sdkEventDebug() {
-		return this.params.sdkEventDebug;
+		return this.runtime.sdkEventDebug;
 	}
 
 	private throwIfAborted(): void {
@@ -76,12 +76,12 @@ export class CursorProviderTurnRunner {
 			stream.push({ type: "start", partial });
 			this.throwIfAborted();
 			const cwd = getCursorSessionCwd();
-			this.params.sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
+			this.runtime.sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
 				cwd,
 				modelId: model.id,
 				provider: model.provider,
 			});
-			sdkEventDebugRef.current = this.params.sdkEventDebug;
+			sdkEventDebugRef.current = this.runtime.sdkEventDebug;
 			this.sdkEventDebug?.recordContextSnapshot(context);
 			if (
 				(await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, this.sdkEventDebug)) ===
@@ -123,12 +123,13 @@ export class CursorProviderTurnRunner {
 			const outcome = await awaitFinalizeCursorRunOutcome({
 				run: sent.run,
 				prepared: sent.prepared,
+				cursorAgentMessageOffset: sent.cursorAgentMessageOffset,
 				modelId: model.id,
 				signalAborted: options?.signal?.aborted,
 				runResultFallback: sent.run.result,
 				resolvedApiKey: this.runtime.resolvedApiKey,
 				optionsApiKey: options?.apiKey,
-				sdkEventDebug: this.sdkEventDebug,
+				sdkEventDebug: this.runtime.sdkEventDebug,
 				contextWindowAgentId: prepared.agent.agentId,
 			});
 			await emitCursorDirectOutcome({
@@ -138,7 +139,7 @@ export class CursorProviderTurnRunner {
 				outcome,
 			});
 		} catch (error) {
-			this.sdkEventDebug?.recordError("provider_stream", error);
+			this.runtime.sdkEventDebug?.recordError("provider_stream", error);
 			this.discardIncompleteTools({
 				status: error instanceof CursorLiveRunAbortError ? "cancelled" : "error",
 				signalAborted: error instanceof CursorLiveRunAbortError,

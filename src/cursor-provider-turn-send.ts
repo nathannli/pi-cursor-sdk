@@ -21,6 +21,7 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 	const { params, runtime, prepared, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
 	const { options } = params;
 	const { agent, turnCoordinator, sendPlan, bootstrap, liveRun, prompt, sendPayload, cwd } = prepared;
+	const { sdkEventDebug } = runtime;
 
 	runtime.sdkRun = null;
 	runtime.abortListener = () => {
@@ -34,9 +35,9 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 	runtime.abortSignal?.addEventListener("abort", runtime.abortListener, { once: true });
 
 	throwIfAborted();
-	prepared.cursorAgentMessageOffset = await getCursorAgentMessageOffset(agent.agentId, cwd, params.sdkEventDebug);
+	const cursorAgentMessageOffset = await getCursorAgentMessageOffset(agent.agentId, cwd, sdkEventDebug);
 	throwIfAborted();
-	params.sdkEventDebug?.recordSendMeta({
+	sdkEventDebug?.recordSendMeta({
 		mode: sendPlan.mode,
 		reason: sendPlan.reason,
 		resetAgent: sendPlan.resetAgent,
@@ -48,26 +49,26 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		nativeReplayId: prepared.nativeReplayId,
 		promptInputTokens: prepared.promptInputTokens,
 	});
-	params.sdkEventDebug?.recordSendPayload(sendPayload);
-	params.sdkEventDebug?.recordProviderEvent("agent_send_start", sendPayload);
+	sdkEventDebug?.recordSendPayload(sendPayload);
+	sdkEventDebug?.recordProviderEvent("agent_send_start", sendPayload);
 	const run = await agent.send(sendPayload, {
 		onDelta: (args) => {
-			params.sdkEventDebug?.recordOnDelta(args.update);
+			sdkEventDebug?.recordOnDelta(args.update);
 			turnCoordinator.handleDelta(args.update);
 		},
 		onStep: (args) => {
-			params.sdkEventDebug?.recordOnStep(args.step);
+			sdkEventDebug?.recordOnStep(args.step);
 			turnCoordinator.handleStep(args.step);
 		},
 	});
 	runtime.sdkRun = run;
-	params.sdkEventDebug?.recordRunMeta({
+	sdkEventDebug?.recordRunMeta({
 		runId: run.id,
 		agentId: run.agentId,
 		status: run.status,
 	});
-	params.sdkEventDebug?.attachRunStream(run);
-	params.sdkEventDebug?.recordProviderEvent("agent_send_returned", {
+	sdkEventDebug?.attachRunStream(run);
+	sdkEventDebug?.recordProviderEvent("agent_send_returned", {
 		runId: run.id,
 		agentId: run.agentId,
 		status: run.status,
@@ -80,5 +81,5 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		throw new CursorLiveRunAbortError();
 	}
 
-	return { run, prepared };
+	return { run, prepared, cursorAgentMessageOffset };
 }
