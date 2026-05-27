@@ -14,7 +14,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-provider-turn-send.ts` owns SDK `agent.send()` wiring and abort listener registration.
 - `src/cursor-provider-turn-finalize.ts` owns unified `awaitFinalizeCursorRunOutcome()` (wait, transcript replay, incomplete tools, artifacts, context cache).
 - `src/cursor-provider-turn-emit.ts` owns live vs direct emission from finalized outcomes.
-- `src/cursor-provider-turn-types.ts` owns immutable turn phase data and mutable per-turn runtime state.
+- `src/cursor-provider-turn-types.ts` owns immutable turn phase data, explicit phase handle types, and the runner cleanup registry.
 - `src/cursor-provider-run-outcome.ts` owns the discriminated `CursorRunOutcome` model and live vs direct emission classification.
 - `src/cursor-run-final-text.ts` owns final assistant text selection for run outcomes and live-run drain.
 - `src/cursor-provider-errors.ts` owns scrubbed Cursor SDK run failure detail, abort reason formatting, and provider error sanitization.

@@ -5,34 +5,41 @@ import type { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-e
 import type {
 	CursorProviderTurnPrepared,
 	CursorProviderTurnRunnerParams,
-	CursorProviderTurnRuntime,
-	CursorProviderTurnSend,
+	CursorProviderTurnSendHandles,
+	CursorProviderTurnSendResult,
 } from "./cursor-provider-turn-types.js";
+import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 
 export interface SendCursorProviderTurnParams {
 	params: CursorProviderTurnRunnerParams;
-	runtime: CursorProviderTurnRuntime;
 	prepared: CursorProviderTurnPrepared;
+	sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	sdkAbortErrorSuppression: ReturnType<typeof installCursorSdkAbortErrorSuppression>;
 	throwIfAborted: () => void;
+	registerSendHandles: (partial: Partial<CursorProviderTurnSendHandles>) => void;
 }
 
-export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnParams): Promise<CursorProviderTurnSend> {
-	const { params, runtime, prepared, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
+export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnParams): Promise<CursorProviderTurnSendResult> {
+	const { params, prepared, sdkEventDebug, sdkAbortErrorSuppression, throwIfAborted, registerSendHandles } = sendParams;
 	const { options } = params;
 	const { agent, turnCoordinator, sendPlan, bootstrap, liveRun, prompt, sendPayload, cwd } = prepared;
-	const { sdkEventDebug } = runtime;
 
-	runtime.sdkRun = null;
-	runtime.abortListener = () => {
+	let sdkRun: Awaited<ReturnType<typeof agent.send>> | null = null;
+	const abortListener = () => {
 		sdkAbortErrorSuppression.suppressAbortErrors();
-		runtime.activeLiveRun?.bridgeRun?.cancel("Cursor SDK run aborted");
-		if (runtime.sdkRun) {
-			runtime.sdkRun.cancel().catch(() => {});
+		liveRun?.bridgeRun?.cancel("Cursor SDK run aborted");
+		if (sdkRun) {
+			sdkRun.cancel().catch(() => {});
 		}
 	};
-	runtime.abortSignal = options?.signal;
-	runtime.abortSignal?.addEventListener("abort", runtime.abortListener, { once: true });
+	const abortSignal = options?.signal;
+	const abortRegistration = abortSignal
+		? { signal: abortSignal, listener: abortListener }
+		: undefined;
+	if (abortRegistration) {
+		abortRegistration.signal.addEventListener("abort", abortListener, { once: true });
+		registerSendHandles({ abortRegistration });
+	}
 
 	throwIfAborted();
 	const cursorAgentMessageOffset = await getCursorAgentMessageOffset(agent.agentId, cwd, sdkEventDebug);
@@ -61,7 +68,7 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 			turnCoordinator.handleStep(args.step);
 		},
 	});
-	runtime.sdkRun = run;
+	sdkRun = run;
 	sdkEventDebug?.recordRunMeta({
 		runId: run.id,
 		agentId: run.agentId,
@@ -81,5 +88,8 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		throw new CursorLiveRunAbortError();
 	}
 
-	return { run, prepared, cursorAgentMessageOffset };
+	return {
+		send: { run, prepared, cursorAgentMessageOffset },
+		handles: { abortRegistration },
+	};
 }

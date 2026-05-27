@@ -21,21 +21,18 @@ export type CursorRunOutcome =
 			finalText: string;
 			incompleteTools: IncompleteCursorToolRunOutcome;
 			assistantTextProduced: boolean;
-			signalAborted?: boolean;
 	  }
 	| {
 			kind: "cancelled";
 			waitResult: RunResult;
 			incompleteTools: IncompleteCursorToolRunOutcome;
 			abortMessage: string;
-			signalAborted?: boolean;
 	  }
 	| {
 			kind: "error";
 			waitResult: RunResult;
 			incompleteTools: IncompleteCursorToolRunOutcome;
 			errorMessage: string;
-			signalAborted?: boolean;
 	  };
 
 export interface ResolveCursorRunOutcomeParams {
@@ -63,93 +60,96 @@ function hasCursorAssistantText(
 }
 
 export function isCursorRunFinishedSuccessfully(outcome: CursorRunOutcome): boolean {
-	return outcome.kind === "finished" && !outcome.signalAborted;
+	return outcome.kind === "finished";
+}
+
+function buildCursorRunAbortMessage(signalAborted: boolean | undefined, sdkStatusCancelled: boolean): string {
+	return formatCursorSdkAbortMessage(
+		resolveCursorSdkAbortCause({
+			signalAborted,
+			sdkStatusCancelled,
+		}),
+	);
 }
 
 export function resolveCursorRunOutcome(params: ResolveCursorRunOutcomeParams): CursorRunOutcome {
 	const { waitResult, signalAborted } = params;
-	const finishedSuccessfully = waitResult.status === "finished" && !signalAborted;
-	const incompleteToolsInput: IncompleteCursorToolRunOutcomeInput = {
-		status: waitResult.status,
-		signalAborted,
-		assistantTextProduced:
-			finishedSuccessfully &&
-			hasCursorAssistantText(waitResult.result, params.textDeltas, params.planTextCandidate),
-	};
-	const incompleteTools = buildIncompleteCursorToolRunOutcome(incompleteToolsInput);
+	const sdkCancelled = waitResult.status === "cancelled";
+	const callerAborted = signalAborted === true;
+
+	if (callerAborted || sdkCancelled) {
+		const incompleteTools = buildIncompleteCursorToolRunOutcome({
+			status: "cancelled",
+			signalAborted: callerAborted,
+			assistantTextProduced: false,
+		});
+		return {
+			kind: "cancelled",
+			waitResult,
+			incompleteTools,
+			abortMessage: buildCursorRunAbortMessage(callerAborted, sdkCancelled),
+		};
+	}
 
 	if (waitResult.status === "error") {
 		const failureDetail = formatCursorSdkRunFailureDetail(waitResult, params.runResultFallback);
 		return {
 			kind: "error",
 			waitResult,
-			incompleteTools,
+			incompleteTools: buildIncompleteCursorToolRunOutcome({
+				status: "error",
+				assistantTextProduced: false,
+			}),
 			errorMessage: sanitizeCursorProviderError(failureDetail, params.resolvedApiKey ?? params.optionsApiKey),
-			signalAborted,
 		};
 	}
 
-	if (waitResult.status === "cancelled") {
-		return {
-			kind: "cancelled",
-			waitResult,
-			incompleteTools,
-			abortMessage: formatCursorSdkAbortMessage(
-				resolveCursorSdkAbortCause({
-					signalAborted,
-					sdkStatusCancelled: true,
-				}),
-			),
-			signalAborted,
-		};
-	}
-
-	const finalText = finishedSuccessfully
-		? selectCursorFinalText(
-				waitResult.result,
-				params.textDeltas,
-				params.emittedText,
-				params.planTextCandidate,
-				params.selectFinalTextOptions,
-			)
-		: "";
+	const assistantTextProduced = hasCursorAssistantText(
+		waitResult.result,
+		params.textDeltas,
+		params.planTextCandidate,
+	);
+	const incompleteTools = buildIncompleteCursorToolRunOutcome({
+		status: waitResult.status,
+		assistantTextProduced,
+	});
+	const finalText = selectCursorFinalText(
+		waitResult.result,
+		params.textDeltas,
+		params.emittedText,
+		params.planTextCandidate,
+		params.selectFinalTextOptions,
+	);
 
 	return {
 		kind: "finished",
 		waitResult,
 		finalText,
 		incompleteTools,
-		assistantTextProduced: incompleteToolsInput.assistantTextProduced ?? false,
-		signalAborted,
+		assistantTextProduced,
 	};
 }
 
 export type CursorRunLiveEmission = "finished" | "cancelled" | "failed";
 
-function cursorRunOutcomeSignalAborted(outcome: CursorRunOutcome): boolean | undefined {
-	return outcome.signalAborted;
-}
-
 export function classifyCursorRunLiveEmission(outcome: CursorRunOutcome): CursorRunLiveEmission {
-	if (isCursorRunFinishedSuccessfully(outcome)) return "finished";
-	if (outcome.kind === "cancelled" || cursorRunOutcomeSignalAborted(outcome)) return "cancelled";
-	return "failed";
+	switch (outcome.kind) {
+		case "finished":
+			return "finished";
+		case "cancelled":
+			return "cancelled";
+		case "error":
+			return "failed";
+	}
 }
 
 export type CursorRunDirectEmission = "finished" | "cancelled" | "failed";
 
 export function classifyCursorRunDirectEmission(outcome: CursorRunOutcome): CursorRunDirectEmission {
-	if (outcome.kind === "cancelled") return "cancelled";
-	if (outcome.kind === "error") return "failed";
-	return "finished";
+	return classifyCursorRunLiveEmission(outcome);
 }
 
 export function getCursorRunAbortMessage(outcome: CursorRunOutcome): string {
 	if (outcome.kind === "cancelled") return outcome.abortMessage;
-	return formatCursorSdkAbortMessage(
-		resolveCursorSdkAbortCause({
-			signalAborted: cursorRunOutcomeSignalAborted(outcome),
-			sdkStatusCancelled: outcome.waitResult.status === "cancelled",
-		}),
-	);
+	return buildCursorRunAbortMessage(false, outcome.waitResult.status === "cancelled");
 }

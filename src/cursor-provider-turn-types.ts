@@ -47,40 +47,50 @@ export interface CursorProviderTurnPrepared {
 	turnCoordinator: CursorSdkTurnCoordinator;
 }
 
+/** Concrete handles produced during prepare; owned by runner cleanup. */
+export interface CursorProviderTurnPrepareHandles {
+	sessionAgentScopeKey: string;
+	restoreCursorSdkOutputFilter: () => void;
+	activeLiveRun: CursorLiveRun | undefined;
+	turnCoordinator: CursorSdkTurnCoordinator;
+}
+
+export interface CursorProviderTurnPrepareResult {
+	prepared: CursorProviderTurnPrepared;
+	handles: CursorProviderTurnPrepareHandles;
+}
+
 export interface CursorProviderTurnSend {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
 	prepared: CursorProviderTurnPrepared;
 	cursorAgentMessageOffset: number | undefined;
 }
 
-export interface CursorProviderTurnRuntime {
-	sdkEventDebug: CursorSdkEventDebugSink | undefined;
-	resolvedApiKey: string | undefined;
-	sessionAgentScopeKey: string;
-	activeLiveRun: CursorLiveRun | undefined;
-	liveRunForBridgeQueue: CursorLiveRun | undefined;
-	queuedBridgeRequestsBeforeLiveRun: CursorPiBridgeToolRequest[];
-	abortSignal: AbortSignal | undefined;
-	abortListener: (() => void) | undefined;
-	restoreCursorSdkOutputFilter: (() => void) | undefined;
-	deferSdkEventDebugFinalize: boolean;
-	turnCoordinatorForCleanup: CursorSdkTurnCoordinator | undefined;
-	sdkRun: Awaited<ReturnType<SDKAgent["send"]>> | null;
+/** Concrete handles produced during send; owned by runner cleanup. */
+export interface CursorProviderTurnSendHandles {
+	abortRegistration: { signal: AbortSignal; listener: () => void } | undefined;
 }
 
-export function createCursorProviderTurnRuntime(): CursorProviderTurnRuntime {
+export interface CursorProviderTurnSendResult {
+	send: CursorProviderTurnSend;
+	handles: CursorProviderTurnSendHandles;
+}
+
+/** Explicit cleanup registry populated as phases complete; not a cross-phase API surface. */
+export interface CursorProviderTurnCleanup {
+	sdkEventDebug: CursorSdkEventDebugSink | undefined;
+	resolvedApiKey: string | undefined;
+	prepare: Partial<CursorProviderTurnPrepareHandles> | undefined;
+	send: Partial<CursorProviderTurnSendHandles> | undefined;
+	deferSdkEventDebugFinalize: boolean;
+}
+
+export function createCursorProviderTurnCleanup(): CursorProviderTurnCleanup {
 	return {
 		sdkEventDebug: undefined,
 		resolvedApiKey: undefined,
-		sessionAgentScopeKey: "",
-		activeLiveRun: undefined,
-		liveRunForBridgeQueue: undefined,
-		queuedBridgeRequestsBeforeLiveRun: [],
-		abortSignal: undefined,
-		abortListener: undefined,
-		restoreCursorSdkOutputFilter: undefined,
+		prepare: undefined,
+		send: undefined,
 		deferSdkEventDebugFinalize: false,
-		turnCoordinatorForCleanup: undefined,
-		sdkRun: null,
 	};
 }

@@ -24,8 +24,8 @@ import type { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-e
 import type { SessionCursorAgentLease } from "./cursor-session-agent.js";
 import { awaitFinalizeCursorRunOutcome } from "./cursor-provider-turn-finalize.js";
 import type {
+	CursorProviderTurnCleanup,
 	CursorProviderTurnRunnerParams,
-	CursorProviderTurnRuntime,
 	CursorProviderTurnSend,
 } from "./cursor-provider-turn-types.js";
 
@@ -52,7 +52,7 @@ function applyLiveRunOutcome(
 
 export interface EmitCursorLiveTurnParams {
 	params: CursorProviderTurnRunnerParams;
-	runtime: CursorProviderTurnRuntime;
+	cleanup: CursorProviderTurnCleanup;
 	send: CursorProviderTurnSend;
 	sdkAbortErrorSuppression: ReturnType<typeof installCursorSdkAbortErrorSuppression>;
 	discardIncompleteTools: (outcome: IncompleteCursorToolRunOutcomeInput) => void;
@@ -60,24 +60,24 @@ export interface EmitCursorLiveTurnParams {
 }
 
 export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): Promise<void> {
-	const { params, runtime, send, sdkAbortErrorSuppression, discardIncompleteTools, finalizeSdkEventDebug } = emitParams;
+	const { params, cleanup, send, sdkAbortErrorSuppression, discardIncompleteTools, finalizeSdkEventDebug } = emitParams;
 	const { run, prepared, cursorAgentMessageOffset } = send;
 	const { liveRun, turnCoordinator, sessionAgentLease, bootstrap } = prepared;
 	if (!liveRun) return;
 
-	runtime.deferSdkEventDebugFinalize = true;
+	cleanup.deferSdkEventDebugFinalize = true;
 	const activeSessionAgentLease = sessionAgentLease;
 	const { options, model } = params;
-	const { sdkEventDebug } = runtime;
+	const { sdkEventDebug, resolvedApiKey } = cleanup;
 
 	const waitCompletion = awaitFinalizeCursorRunOutcome({
 		run,
 		prepared,
 		cursorAgentMessageOffset,
 		modelId: model.id,
-		signalAborted: options?.signal?.aborted,
+		signal: options?.signal,
 		runResultFallback: run.result,
-		resolvedApiKey: runtime.resolvedApiKey,
+		resolvedApiKey,
 		optionsApiKey: options?.apiKey,
 		sdkEventDebug,
 		cacheContextWindow: true,
@@ -95,7 +95,7 @@ export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): 
 			if (liveRun.disposed) return;
 			cursorLiveRuns.markError(
 				liveRun,
-				sanitizeCursorProviderError(error, runtime.resolvedApiKey ?? options?.apiKey),
+				sanitizeCursorProviderError(error, resolvedApiKey ?? options?.apiKey),
 			);
 		});
 
@@ -138,28 +138,29 @@ export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): 
 
 export interface EmitCursorDirectOutcomeParams {
 	params: CursorProviderTurnRunnerParams;
-	runtime: CursorProviderTurnRuntime;
+	cleanup: CursorProviderTurnCleanup;
 	send: CursorProviderTurnSend;
 	outcome: CursorRunOutcome;
 }
 
 export async function emitCursorDirectOutcome(emitParams: EmitCursorDirectOutcomeParams): Promise<void> {
-	const { params, runtime, send, outcome } = emitParams;
+	const { params, cleanup, send, outcome } = emitParams;
 	const { prepared } = send;
 	const { turnCoordinator, sessionAgentLease, bootstrap, promptInputTokens } = prepared;
 	const { stream, partial, model, context } = params;
+	const sessionAgentScopeKey = cleanup.prepare?.sessionAgentScopeKey ?? "";
 
 	turnCoordinator.closeTraceBlock();
 
 	switch (classifyCursorRunDirectEmission(outcome)) {
 		case "cancelled":
-			await abandonSessionCursorAgent(runtime.sessionAgentScopeKey);
+			await abandonSessionCursorAgent(sessionAgentScopeKey);
 			partial.stopReason = "aborted";
 			partial.errorMessage = getCursorRunAbortMessage(outcome);
 			stream.push({ type: "error", reason: "aborted", error: partial });
 			break;
 		case "failed":
-			await abandonSessionCursorAgent(runtime.sessionAgentScopeKey);
+			await abandonSessionCursorAgent(sessionAgentScopeKey);
 			partial.stopReason = "error";
 			partial.errorMessage = outcome.kind === "error" ? outcome.errorMessage : "Cursor SDK run failed.";
 			stream.push({ type: "error", reason: "error", error: partial });
@@ -175,9 +176,9 @@ export async function emitCursorDirectOutcome(emitParams: EmitCursorDirectOutcom
 	}
 }
 
-export function discardIncompleteToolsFromRuntime(
-	runtime: CursorProviderTurnRuntime,
+export function discardIncompleteToolsFromCleanup(
+	cleanup: CursorProviderTurnCleanup,
 	outcome: IncompleteCursorToolRunOutcomeInput,
 ): void {
-	runtime.turnCoordinatorForCleanup?.discardIncompleteStartedToolCalls(buildIncompleteCursorToolRunOutcome(outcome));
+	cleanup.prepare?.turnCoordinator?.discardIncompleteStartedToolCalls(buildIncompleteCursorToolRunOutcome(outcome));
 }

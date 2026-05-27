@@ -14,23 +14,23 @@ import { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-
 import { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import { awaitFinalizeCursorRunOutcome } from "./cursor-provider-turn-finalize.js";
 import {
-	discardIncompleteToolsFromRuntime,
+	discardIncompleteToolsFromCleanup,
 	emitCursorDirectOutcome,
 	emitCursorLiveTurn,
 } from "./cursor-provider-turn-emit.js";
 import { prepareCursorProviderTurn, requireCursorApiKey } from "./cursor-provider-turn-prepare.js";
 import { sendCursorProviderTurn } from "./cursor-provider-turn-send.js";
 import {
-	createCursorProviderTurnRuntime,
+	createCursorProviderTurnCleanup,
+	type CursorProviderTurnCleanup,
 	type CursorProviderTurnRunnerParams,
-	type CursorProviderTurnRuntime,
 } from "./cursor-provider-turn-types.js";
 
 export { resolveCursorApiKey } from "./cursor-provider-turn-api-key.js";
 export type { CursorProviderTurnRunnerParams } from "./cursor-provider-turn-types.js";
 
 export class CursorProviderTurnRunner {
-	private readonly runtime: CursorProviderTurnRuntime = createCursorProviderTurnRuntime();
+	private readonly cleanup: CursorProviderTurnCleanup = createCursorProviderTurnCleanup();
 
 	constructor(private readonly params: CursorProviderTurnRunnerParams) {}
 
@@ -39,7 +39,7 @@ export class CursorProviderTurnRunner {
 	}
 
 	private get sdkEventDebug() {
-		return this.runtime.sdkEventDebug;
+		return this.cleanup.sdkEventDebug;
 	}
 
 	private throwIfAborted(): void {
@@ -54,14 +54,14 @@ export class CursorProviderTurnRunner {
 				? formatCursorSdkAbortMessage(
 						resolveCursorSdkAbortCause({ signalAborted: options?.signal?.aborted }),
 					)
-				: sanitizeCursorProviderError(error, this.runtime.resolvedApiKey ?? options?.apiKey);
+				: sanitizeCursorProviderError(error, this.cleanup.resolvedApiKey ?? options?.apiKey);
 		this.params.stream.push({ type: "error", reason, error: partial });
 	}
 
 	private discardIncompleteTools(
 		outcome: import("./cursor-incomplete-tool-visibility.js").IncompleteCursorToolRunOutcomeInput,
 	): void {
-		discardIncompleteToolsFromRuntime(this.runtime, outcome);
+		discardIncompleteToolsFromCleanup(this.cleanup, outcome);
 	}
 
 	private async finalizeSdkEventDebug(): Promise<void> {
@@ -76,12 +76,12 @@ export class CursorProviderTurnRunner {
 			stream.push({ type: "start", partial });
 			this.throwIfAborted();
 			const cwd = getCursorSessionCwd();
-			this.runtime.sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
+			this.cleanup.sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
 				cwd,
 				modelId: model.id,
 				provider: model.provider,
 			});
-			sdkEventDebugRef.current = this.runtime.sdkEventDebug;
+			sdkEventDebugRef.current = this.cleanup.sdkEventDebug;
 			this.sdkEventDebug?.recordContextSnapshot(context);
 			if (
 				(await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, this.sdkEventDebug)) ===
@@ -92,27 +92,36 @@ export class CursorProviderTurnRunner {
 				return;
 			}
 
-			this.runtime.resolvedApiKey = requireCursorApiKey(options);
-			const prepared = await prepareCursorProviderTurn({
+			this.cleanup.resolvedApiKey = requireCursorApiKey(options);
+			const { prepared, handles: prepareHandles } = await prepareCursorProviderTurn({
 				params: this.params,
-				runtime: this.runtime,
 				cwd,
-				resolvedApiKey: this.runtime.resolvedApiKey,
+				resolvedApiKey: this.cleanup.resolvedApiKey,
+				sdkEventDebug: this.cleanup.sdkEventDebug,
 				throwIfAborted: () => this.throwIfAborted(),
+				registerPrepareHandles: (partial) => {
+					this.cleanup.prepare = { ...this.cleanup.prepare, ...partial };
+				},
 			});
-			const sent = await sendCursorProviderTurn({
+			this.cleanup.prepare = { ...this.cleanup.prepare, ...prepareHandles };
+
+			const { send, handles: sendHandles } = await sendCursorProviderTurn({
 				params: this.params,
-				runtime: this.runtime,
 				prepared,
+				sdkEventDebug: this.cleanup.sdkEventDebug,
 				sdkAbortErrorSuppression,
 				throwIfAborted: () => this.throwIfAborted(),
+				registerSendHandles: (partial) => {
+					this.cleanup.send = { ...this.cleanup.send, ...partial };
+				},
 			});
+			this.cleanup.send = sendHandles;
 
 			if (prepared.liveRun) {
 				await emitCursorLiveTurn({
 					params: this.params,
-					runtime: this.runtime,
-					send: sent,
+					cleanup: this.cleanup,
+					send,
 					sdkAbortErrorSuppression,
 					discardIncompleteTools: (outcome) => this.discardIncompleteTools(outcome),
 					finalizeSdkEventDebug: () => this.finalizeSdkEventDebug(),
@@ -121,33 +130,34 @@ export class CursorProviderTurnRunner {
 			}
 
 			const outcome = await awaitFinalizeCursorRunOutcome({
-				run: sent.run,
-				prepared: sent.prepared,
-				cursorAgentMessageOffset: sent.cursorAgentMessageOffset,
+				run: send.run,
+				prepared: send.prepared,
+				cursorAgentMessageOffset: send.cursorAgentMessageOffset,
 				modelId: model.id,
-				signalAborted: options?.signal?.aborted,
-				runResultFallback: sent.run.result,
-				resolvedApiKey: this.runtime.resolvedApiKey,
+				signal: options?.signal,
+				runResultFallback: send.run.result,
+				resolvedApiKey: this.cleanup.resolvedApiKey,
 				optionsApiKey: options?.apiKey,
-				sdkEventDebug: this.runtime.sdkEventDebug,
+				sdkEventDebug: this.cleanup.sdkEventDebug,
 				contextWindowAgentId: prepared.agent.agentId,
 			});
 			await emitCursorDirectOutcome({
 				params: this.params,
-				runtime: this.runtime,
-				send: sent,
+				cleanup: this.cleanup,
+				send,
 				outcome,
 			});
 		} catch (error) {
-			this.runtime.sdkEventDebug?.recordError("provider_stream", error);
+			this.cleanup.sdkEventDebug?.recordError("provider_stream", error);
 			this.discardIncompleteTools({
 				status: error instanceof CursorLiveRunAbortError ? "cancelled" : "error",
 				signalAborted: error instanceof CursorLiveRunAbortError,
 			});
-			if (this.runtime.activeLiveRun && !this.runtime.activeLiveRun.disposed) {
-				await cursorLiveRuns.release(this.runtime.activeLiveRun);
+			const activeLiveRun = this.cleanup.prepare?.activeLiveRun;
+			if (activeLiveRun && !activeLiveRun.disposed) {
+				await cursorLiveRuns.release(activeLiveRun);
 			} else {
-				await abandonSessionCursorAgent(this.runtime.sessionAgentScopeKey);
+				await abandonSessionCursorAgent(this.cleanup.prepare?.sessionAgentScopeKey ?? "");
 			}
 			if (error instanceof CursorLiveRunAbortError) {
 				sdkAbortErrorSuppression.suppressAbortErrors();
@@ -156,12 +166,14 @@ export class CursorProviderTurnRunner {
 				this.pushSanitizedStreamError(error, "error");
 			}
 		} finally {
-			await this.cleanup(sdkAbortErrorSuppression);
+			await this.cleanupTurn(sdkAbortErrorSuppression);
 		}
 	}
 
-	private async cleanup(sdkAbortErrorSuppression: ReturnType<typeof installCursorSdkAbortErrorSuppression>): Promise<void> {
-		if (!this.runtime.deferSdkEventDebugFinalize) {
+	private async cleanupTurn(
+		sdkAbortErrorSuppression: ReturnType<typeof installCursorSdkAbortErrorSuppression>,
+	): Promise<void> {
+		if (!this.cleanup.deferSdkEventDebugFinalize) {
 			try {
 				await this.finalizeSdkEventDebug();
 			} finally {
@@ -169,17 +181,19 @@ export class CursorProviderTurnRunner {
 			}
 		}
 		this.params.sdkEventDebugRef.current = undefined;
-		this.runtime.restoreCursorSdkOutputFilter?.();
-		if (this.runtime.abortSignal && this.runtime.abortListener) {
-			this.runtime.abortSignal.removeEventListener("abort", this.runtime.abortListener);
+		this.cleanup.prepare?.restoreCursorSdkOutputFilter?.();
+		const abortRegistration = this.cleanup.send?.abortRegistration;
+		if (abortRegistration) {
+			abortRegistration.signal.removeEventListener("abort", abortRegistration.listener);
 		}
 	}
 
 	async handleOuterCatch(error: unknown): Promise<void> {
-		if (this.runtime.activeLiveRun && !this.runtime.activeLiveRun.disposed) {
-			await cursorLiveRuns.release(this.runtime.activeLiveRun).catch(() => {});
+		const activeLiveRun = this.cleanup.prepare?.activeLiveRun;
+		if (activeLiveRun && !activeLiveRun.disposed) {
+			await cursorLiveRuns.release(activeLiveRun).catch(() => {});
 		} else {
-			await abandonSessionCursorAgent(this.runtime.sessionAgentScopeKey).catch(() => {});
+			await abandonSessionCursorAgent(this.cleanup.prepare?.sessionAgentScopeKey ?? "").catch(() => {});
 		}
 		this.pushSanitizedStreamError(error, error instanceof CursorLiveRunAbortError ? "aborted" : "error");
 	}
