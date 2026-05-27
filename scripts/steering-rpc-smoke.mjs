@@ -20,7 +20,7 @@ Usage:
 
 Environment:
   SMOKE_SESSION_DIR            Session directory for the RPC pi run. Defaults to /tmp/pi-cursor-steer-smoke-<timestamp>.
-  CURSOR_API_KEY               Required Cursor API key for live pi runs.
+  CURSOR_API_KEY               Optional fallback auth. Stored pi auth in ~/.pi/agent/auth.json is also supported.
 
 Options:
   -h, --help                   Show this help.
@@ -178,10 +178,6 @@ async function main() {
 	if (process.argv.includes("-h") || process.argv.includes("--help")) {
 		printHelp();
 		return;
-	}
-
-	if (!process.env.CURSOR_API_KEY) {
-		fail("steering-rpc-smoke: CURSOR_API_KEY is required");
 	}
 
 	const sessionDir = process.env.SMOKE_SESSION_DIR ?? join("/tmp", `pi-cursor-steer-smoke-${Date.now()}`);

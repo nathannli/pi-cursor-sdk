@@ -32,6 +32,12 @@ The repo also ships partial automation for the prerequisite/basic/default-settin
 npm run smoke:live
 ```
 
+The canonical visual runner for section 4 is checked in separately:
+
+```bash
+npm run smoke:visual -- --help
+```
+
 For native replay regression checks (packed install, plan-strip resync, JSONL replay-error scan), use the isolated helper:
 
 ```bash
@@ -49,7 +55,7 @@ node scripts/validate-smoke-jsonl.mjs --replay-errors-only "$SMOKE_DIR/session-s
 
 The replay scan flags only error `toolResult` / error assistant messages with `Tool grep/cursor/find/ls not found`, not successful reads of docs that mention those strings. See [Cursor testing lessons](./cursor-testing-lessons.md#what-counts-as-a-replay-failure).
 
-The script is a helper only; it polls the section 3 TUI for answer/footer evidence and then cleans up the tmux session, but it does not replace manual visual review of the full TUI checklist. Release readiness still requires the manual checks below for detailed TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
+`npm run smoke:live` is a helper only; it polls the section 3 TUI for answer/footer evidence and then cleans up the tmux session, but it does not replace the canonical rendered-PNG visual review in section 4. Release readiness still requires the manual checks below for detailed visual TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
 
 Pass criteria:
 
@@ -119,41 +125,70 @@ Pass criteria:
 
 ## 4. Mandatory visual card/color rendering check
 
-This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, a stable `--session-id`, Cursor SDK `plan` mode, and native replay enabled:
+This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, Cursor SDK `plan` mode, native replay enabled, and the checked-in visual runner:
 
 ```bash
-VISUAL_SESSION="pi-cursor-sdk-1014-visual-$(date +%s)"
 VISUAL_DIR="$(mktemp -d /tmp/pi-cursor-sdk-1014-visual.XXXXXX)"
-tmux new-session -d -s "$VISUAL_SESSION" -x 140 -y 44 -- zsh -lc \
-  "cd '$PWD' && PI_CURSOR_SDK_EVENT_DEBUG=1 PI_CURSOR_NATIVE_TOOL_DISPLAY=1 pi -e . --cursor-no-fast --cursor-mode plan --session-dir '$VISUAL_DIR/session' --session-id cursor-sdk-1014-visual --model cursor/composer-2.5"
+VISUAL_ARGS=(
+  --ext "$PWD"
+  --cwd "$PWD"
+  --out-dir "$VISUAL_DIR"
+  --wait-ms 60000
+  --event-debug
+)
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label read-package \
+  --prompt 'Use only your file read tool. Read ./package.json and answer with only the package name. Do not use shell, grep, glob, find, or list tools.'
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label grep-readme \
+  --prompt 'Use only your grep/search tool to search ./README.md for the literal string "pi-cursor-sdk". Do not use shell, read, glob, find, ls, or list tools. Report only the first matching file path.'
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label find-readme \
+  --prompt 'Use only your glob/file-search/find tool to find README.md from the repository root. Do not use shell, read, grep, ls, or list tools. Report matched paths exactly.'
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label list-src \
+  --prompt 'Use only your directory listing tool to list ./src. Do not use shell, read, grep, glob, or find tools. Report whether cursor-provider.ts is present.'
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label shell-success \
+  --prompt "Use only your shell/terminal tool to run printf 'cursor visual smoke\\n'. Do not use read, grep, glob, find, ls, edit, or write. Report the output."
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label write-file \
+  --prompt 'Use your normal file write tool to create .debug/visual-smoke/cursor-mode.txt with exactly two lines: alpha and beta. Do not use shell.'
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label edit-file \
+  --prompt 'Use your normal file edit/str-replace tool to change beta to gamma in .debug/visual-smoke/cursor-mode.txt. Do not use shell.'
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label read-missing \
+  --prompt 'Use only your file read tool to read .debug/visual-smoke/does-not-exist.txt. Then explain the result. Do not use shell, grep, glob, find, ls, edit, or write.'
+
+npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
+  --label workflow-activity \
+  --prompt 'Stay in Cursor plan mode. If Cursor exposes plan, todo, task, or mode activity for this request, use that capability to outline a tiny unit test without editing files. Otherwise answer with a concise numbered plan. Do not use shell or file mutation tools.'
 ```
 
-Run these prompts interactively:
+By default, `npm run smoke:visual` writes `.ansi`, `.txt`, `.html`, `.png`, and `.jsonl.path` artifacts. If Playwright Chromium is unavailable in an agent-harness run, rerun with `--no-screenshot`, open the generated `.html` with `agent_browser`, save a PNG screenshot, and record that PNG path beside the runner artifacts.
 
-1. `Use your file tools to inspect package.json and src/cursor-provider.ts, then summarize only the Cursor SDK and Pi package versions you saw.`
-2. `Run a safe shell command that prints "cursor visual smoke" and report the output.`
-3. `Create .debug/visual-smoke/cursor-mode.txt with two short lines, then change one line. Use your normal file editing tools.`
-4. `Stay in Cursor plan mode. Create a concise numbered plan for adding a tiny unit test, but do not edit files.`
-5. `Try to read .debug/visual-smoke/does-not-exist.txt and explain the result.`
-
-Capture and render evidence without committing raw artifacts:
-
-```bash
-tmux capture-pane -e -p -S -3000 -t "$VISUAL_SESSION" > "$VISUAL_DIR/visual.ansi"
-tmux capture-pane -p -S -3000 -t "$VISUAL_SESSION" > "$VISUAL_DIR/visual.txt"
-```
-
-Then render the ANSI/text through the browser-backed terminal renderer described in [Cursor Native Tool Visual Audit Workflow](./cursor-native-tool-visual-audit.md) and save PNG screenshots. When running in the pi agent harness, open the generated HTML with `agent_browser` and save screenshots from the rendered page. Outside the harness, use Playwright directly against the same generated HTML/xterm view.
+Expected proof for each category is defined in [Cursor Native Tool Visual Audit Workflow](./cursor-native-tool-visual-audit.md). Do not mark a category passed because the prompt was sent. A category passes only when the PNG shows the expected card and the JSONL shows the expected completed `toolCall` / `toolResult` pair with the expected `isError` state.
 
 Pass criteria:
 
-- PNG screenshots exist for the inspected card categories, not only text/JSONL logs.
-- Native-looking read/search/list/shell/write/edit cards use intended pi card styling.
+- PNG screenshots exist for every claimed card category, not only text/JSONL logs.
+- JSONL paths exist for every claimed card category.
+- Required cutover categories have matching PNG + JSONL proof: read, grep/search, find/glob, list, shell success, write, edit/diff, and true read failure.
+- Native-looking read/search/find/list/shell/write/edit cards use intended pi card styling.
 - Shell success is not red/error-styled; stdout is readable.
 - Edit/diff previews show red/green added/removed colors and readable paths.
-- Neutral Cursor plan/todo/task/mode activity is neutral, not red, and does not mutate pi plan/todo state.
 - True failures are visible, bounded, and distinct from neutral activity.
 - Footer/status is readable in Cursor `plan` mode and combines with fast when applicable.
+- Neutral Cursor plan/todo/task/mode activity is claimed only if JSONL contains a completed Cursor workflow event; if Cursor only returns plan text, record workflow activity as not exercised instead of passed.
 - Evidence paths for ANSI capture, rendered PNG screenshots, JSONL, and debug artifact directories are recorded in [Cursor native tool visual audit](./cursor-native-tool-visual-audit.md) or the release handoff.
 - No secrets, raw debug artifacts, or scratch output are committed.
 

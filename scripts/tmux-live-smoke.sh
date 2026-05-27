@@ -34,10 +34,10 @@ Usage:
 
 Environment:
   SMOKE_DIR                     Artifact directory. Defaults to /tmp/pi-cursor-sdk-live-smoke-<timestamp>.
-  CURSOR_API_KEY                Required for live Cursor runs.
+  CURSOR_API_KEY                Optional fallback auth. Stored pi auth in ~/.pi/agent/auth.json is also supported.
 
 Prerequisites:
-  pi, node, rg, tmux on PATH
+  pi, node, npm, rg, tmux on PATH
   timeout or gtimeout optional; bash process-group kill fallback is used when absent
 
 Coverage:
@@ -51,7 +51,11 @@ Coverage:
   - JSONL assistant usage validation
 
 Not covered here:
-  bridge MCP, standalone native replay, abort/cancel, packaging, full checklist sections 4-9
+  - canonical rendered-PNG visual smoke; collect separately with docs/cursor-native-tool-visual-audit.md
+  - bridge MCP
+  - standalone native replay
+  - abort/cancel cleanup
+  - packaging and isolated smoke
 
 Options:
   -h, --help                    Show this help.
@@ -298,11 +302,12 @@ fi
 
 require_cmd pi
 require_cmd node
+require_cmd npm
 require_cmd rg
 require_cmd tmux
 
 if [[ -z "${CURSOR_API_KEY:-}" ]]; then
-	fail "CURSOR_API_KEY is required"
+	log "CURSOR_API_KEY is unset; relying on stored pi auth or other supported Cursor auth"
 fi
 
 mkdir -p "$SMOKE_DIR"
@@ -310,6 +315,9 @@ printf '%s\n' "$SMOKE_DIR" >"$SMOKE_DIR/smoke-dir.txt"
 
 log "SMOKE_DIR=$SMOKE_DIR"
 log "partial live smoke: prereq, basic, default-settings, noninteractive-math, tui, steering, diagnostics, jsonl"
+
+pi --version | tee "$SMOKE_DIR/prereq.pi-version.txt"
+npm --prefix "$ROOT" ls @cursor/sdk @earendil-works/pi-coding-agent @earendil-works/pi-ai @earendil-works/pi-tui | tee "$SMOKE_DIR/prereq.npm-ls.txt"
 
 if ! PI_CURSOR_SETTING_SOURCES=none "${PI_BASE[@]}" --list-models cursor 2>"$SMOKE_DIR/prereq.stderr.txt" | tee "$SMOKE_DIR/prereq.models.txt" | rg -q "composer-2\\.5"; then
 	if ! model_listed "$SMOKE_DIR/prereq.stderr.txt"; then
@@ -366,4 +374,4 @@ log "diagnostics safety PASS"
 
 node "$ROOT/scripts/validate-smoke-jsonl.mjs" "$SMOKE_DIR"
 log "jsonl structural scan PASS"
-log "partial live smoke checks passed (see --help for uncovered checklist sections)"
+log "partial live smoke checks passed (see --help for uncovered named release checks)"

@@ -12,21 +12,29 @@ Record the required cutover validation here or in the final release handoff. Do 
 
 | Field | Required value / evidence |
 | --- | --- |
-| Command/session used | `pi -e . --cursor-no-fast --cursor-mode plan --session-id cursor-sdk-1014-visual --model cursor/composer-2.5` with a fresh temp `--session-dir` |
+| Command/session used | `npm run smoke:visual -- --ext "$PWD" --cwd "$PWD" --mode plan --out-dir <fresh /tmp dir> --label <matrix label> --prompt <matrix prompt>` |
 | Baseline versions | `pi --version` = 0.76.0; `npm ls` = `@cursor/sdk@1.0.14` and local `@earendil-works/*@0.76.0` |
-| Card categories checked | read/find/grep/list, shell success, write/edit/diff, neutral plan/todo/task/mode activity, true read failure |
+| Card categories checked | Claim only categories proven by both PNG and JSONL. Required cutover categories are read, grep/search, find/glob, list, shell success, write, edit/diff, and true read failure. Neutral Cursor plan/todo/task/mode activity is optional/opportunistic and only counts when JSONL contains a completed Cursor workflow event. |
 | Observed status/card colors | Confirm native-looking cards use native pi styling; neutral Cursor activity is not red; true errors are distinct; diff previews show red/green; plan status is readable |
-| Screenshot/ANSI evidence location | External path only, for example `/tmp/pi-cursor-sdk-1014-visual.*/visual.ansi` and optional screenshots/recordings |
+| Screenshot/ANSI evidence location | External path only, for example `/tmp/pi-cursor-sdk-1014-visual.*/read-package.{ansi,txt,html,png,jsonl.path}` |
 | Debug artifact location | External `.debug/cursor-sdk-events/...` or temp artifact directory path only; do not commit raw artifacts |
 | Pass/fail notes | Summarize any mismatch, blocker, or auth/environment limitation |
 
-Required prompts for this cutover:
+Required prompt matrix for this cutover:
 
-1. `Use your file tools to inspect package.json and src/cursor-provider.ts, then summarize only the Cursor SDK and Pi package versions you saw.`
-2. `Run a safe shell command that prints "cursor visual smoke" and report the output.`
-3. `Create .debug/visual-smoke/cursor-mode.txt with two short lines, then change one line. Use your normal file editing tools.`
-4. `Stay in Cursor plan mode. Create a concise numbered plan for adding a tiny unit test, but do not edit files.`
-5. `Try to read .debug/visual-smoke/does-not-exist.txt and explain the result.`
+| Label | Prompt | Required JSONL proof | Required visual proof |
+| --- | --- | --- | --- |
+| `read-package` | `Use only your file read tool. Read ./package.json and answer with only the package name. Do not use shell, grep, glob, find, or list tools.` | `toolCall.name=read`, `toolResult.toolName=read`, `isError=false` | Native-looking read card; collapsed label/path readable |
+| `grep-readme` | `Use only your grep/search tool to search ./README.md for the literal string "pi-cursor-sdk". Do not use shell, read, glob, find, ls, or list tools. Report only the first matching file path.` | `toolCall.name=grep`, `toolResult.toolName=grep`, `isError=false` | Native-looking grep/search card; match preview readable |
+| `find-readme` | `Use only your glob/file-search/find tool to find README.md from the repository root. Do not use shell, read, grep, ls, or list tools. Report matched paths exactly.` | `toolCall.name=find`, `toolResult.toolName=find`, `isError=false` | Native-looking find/glob card; matched path readable |
+| `list-src` | `Use only your directory listing tool to list ./src. Do not use shell, read, grep, glob, or find tools. Report whether cursor-provider.ts is present.` | `toolCall.name=ls`, `toolResult.toolName=ls`, `isError=false` | Native-looking list card; directory/path readable |
+| `shell-success` | `Use only your shell/terminal tool to run printf 'cursor visual smoke\\n'. Do not use read, grep, glob, find, ls, edit, or write. Report the output.` | `toolCall.name=bash`, `toolResult.toolName=bash`, `isError=false` | Shell success card is not red/error-styled; stdout readable |
+| `write-file` | `Use your normal file write tool to create .debug/visual-smoke/cursor-mode.txt with exactly two lines: alpha and beta. Do not use shell.` | `toolCall.name=write`, `toolResult.toolName=write`, `isError=false` | Native-looking write card; path/content preview readable |
+| `edit-file` | `Use your normal file edit/str-replace tool to change beta to gamma in .debug/visual-smoke/cursor-mode.txt. Do not use shell.` | `toolCall.name=edit`, `toolResult.toolName=edit`, `isError=false` | Native-looking edit card; diff preview shows red/green added/removed lines |
+| `read-missing` | `Use only your file read tool to read .debug/visual-smoke/does-not-exist.txt. Then explain the result. Do not use shell, grep, glob, find, ls, edit, or write.` | `toolCall.name=read`, `toolResult.toolName=read`, `isError=true` | True failure is visible, bounded, and distinct from neutral Cursor activity |
+| `workflow-activity` | `Stay in Cursor plan mode. If Cursor exposes plan, todo, task, or mode activity for this request, use that capability to outline a tiny unit test without editing files. Otherwise answer with a concise numbered plan. Do not use shell or file mutation tools.` | Optional: completed `cursor` activity whose details/source identify `createPlan`, `updateTodos`, `task`, or mode activity. If absent, record this category as not exercised. | Optional: neutral Cursor workflow activity is neutral, not red, and does not mutate pi plan/todo state. If absent, do not claim this visual category passed. |
+
+Do not mark a category passed because the prompt was sent. A category passes only when the PNG shows the expected card and the JSONL shows the expected completed `toolCall` / `toolResult` pair. If Cursor chooses a different tool, rerun with a tighter prompt or record that the category was not exercised.
 
 ## When to use this
 
@@ -57,56 +65,46 @@ This is the best default release path because it exercises the real pi TUI, capt
 
 ## Tool stack
 
-Install the renderer harness outside this repo so generated assets and temporary dependencies do not pollute commits:
+The canonical runner is checked in at `scripts/visual-tui-smoke.mjs` and exposed as `npm run smoke:visual`. It uses tmux for the fixed-size PTY, `@xterm/xterm` for browser rendering, and Playwright for automatic PNG capture.
+
+One-time setup from a clean checkout:
 
 ```bash
-HARNESS=/tmp/pi-visual-harness
-rm -rf "$HARNESS"
-mkdir -p "$HARNESS"
-cd "$HARNESS"
-npm init -y
-npm install node-pty @xterm/xterm playwright
-npm rebuild node-pty
+npm install
+npx playwright install chromium
 ```
 
-`npm rebuild node-pty` is useful after Node upgrades; without it, `node-pty` may fail with `posix_spawnp failed`.
-
-When running inside the pi agent harness, `agent_browser` is the preferred screenshot tool for rendered HTML/ANSI output because it can open local files, verify saved artifacts, and capture exact evidence paths. Outside the harness, use Playwright directly against the same generated HTML/xterm view.
+`npx playwright install chromium` is only needed for automatic PNG capture. When running inside the pi agent harness, `agent_browser` is the preferred screenshot tool for generated HTML/ANSI output because it can open local files, verify saved artifacts, and capture exact evidence paths; in that case, run `npm run smoke:visual -- --no-screenshot ...` and screenshot the generated `.html` with `agent_browser`. Outside the harness, use Playwright through the checked-in runner.
 
 ## Runner contract
 
-A runner script should:
+`scripts/visual-tui-smoke.mjs` is the durable source of truth for this workflow. It must keep supporting:
 
-- Spawn `pi -e <extension-dir> --model cursor/composer-2.5` with:
-  - `PI_CURSOR_NATIVE_TOOL_DISPLAY=1`
-  - `TERM=xterm-256color`
-  - fixed PTY size, for example `150x45`
-  - cwd set to the target audit repo.
-- Wait for startup.
-- Write the exact prompt and carriage return to the PTY.
-- Wait a bounded amount of time.
-- Save:
-  - `<label>.ansi` raw terminal bytes.
-  - `<label>.txt` stripped text for quick search.
-  - `<label>.html` browser-renderable terminal output.
-  - `<label>.png` rendered browser/xterm screenshot captured with `agent_browser` or Playwright.
-  - `<label>.jsonl.path` pointing to the latest pi session JSONL.
-- Kill the PTY child after capture.
-- Check for leftover commands when prompts can background work, especially shell timeout tests.
+- fixed-size tmux PTY execution of `pi -e <extension-dir> --model cursor/composer-2.5`
+- `PI_CURSOR_NATIVE_TOOL_DISPLAY=1`
+- `TERM=xterm-256color`
+- cwd set to the target audit repo
+- prompt paste plus carriage return into the interactive TUI
+- bounded post-prompt wait via `--wait-ms`
+- artifacts outside the repo by default
+- `<label>.ansi`, `<label>.txt`, `<label>.html`, `<label>.png`, and `<label>.jsonl.path`
+- `--label`, `--ext`, `--cwd`, `--prompt`, `--prompt-file`, `--wait-ms`, and `--out-dir`
+- repeatable `--leftover-pattern` checks for prompts that can background work
+- `-h` / `--help` with examples and exit codes
 
-Example invocation shape:
+Example invocation:
 
 ```bash
-node /tmp/pi-visual-harness/run-pi-visual.mjs \
-  --label after-shell-nonzero \
-  --ext /path/to/pi-cursor-sdk \
-  --cwd /path/to/test-workspace \
-  --prompt "Run \`printf 'cursor-shell-stderr\\n' >&2; exit 7\` using only the shell/terminal tool. Do not use read, grep, glob, find, ls, edit, or write. Print the command result exactly, then stop." \
-  --wait-ms 30000 \
-  --out-dir /tmp/pi-visual-harness/review-current
+npm run smoke:visual -- \
+  --label shell-success \
+  --ext "$PWD" \
+  --cwd "$PWD" \
+  --prompt "Use only your shell/terminal tool to run printf 'cursor visual smoke\\n'. Do not use read, grep, glob, find, ls, edit, or write. Report the output." \
+  --wait-ms 60000 \
+  --out-dir /tmp/pi-cursor-sdk-visual-review
 ```
 
-Keep the runner in `/tmp` unless the project explicitly decides to check in a maintained audit harness.
+The runner writes the `.png` through Playwright by default. In the pi agent harness, pass `--no-screenshot`, open the generated `.html` with `agent_browser`, save a PNG screenshot, and record that path beside the runner artifacts.
 
 ## Before/after comparison
 
@@ -130,21 +128,21 @@ ln -s "$AFTER_WT/node_modules" "$BEFORE_WT/node_modules"
 Then run the same prompt against both extension dirs:
 
 ```bash
-node /tmp/pi-visual-harness/run-pi-visual.mjs \
+npm run smoke:visual -- \
   --label before-glob-single \
   --ext "$BEFORE_WT" \
   --cwd "$TARGET" \
-  --prompt "Find files matching \`src/tools/reindex.ts\` using only the glob/file-search tool. Do not use shell, bash, grep, read, or ls. Print the matched files exactly as found, then stop." \
+  --prompt "Use only your glob/file-search/find tool to find src/tools/reindex.ts. Do not use shell, bash, grep, read, ls, or list. Print the matched files exactly as found, then stop." \
   --wait-ms 16000 \
-  --out-dir /tmp/pi-visual-harness/review-current
+  --out-dir /tmp/pi-cursor-sdk-visual-review-current
 
-node /tmp/pi-visual-harness/run-pi-visual.mjs \
+npm run smoke:visual -- \
   --label after-glob-single \
   --ext "$AFTER_WT" \
   --cwd "$TARGET" \
-  --prompt "Find files matching \`src/tools/reindex.ts\` using only the glob/file-search tool. Do not use shell, bash, grep, read, or ls. Print the matched files exactly as found, then stop." \
+  --prompt "Use only your glob/file-search/find tool to find src/tools/reindex.ts. Do not use shell, bash, grep, read, ls, or list. Print the matched files exactly as found, then stop." \
   --wait-ms 16000 \
-  --out-dir /tmp/pi-visual-harness/review-current
+  --out-dir /tmp/pi-cursor-sdk-visual-review-current
 ```
 
 For review, create a simple HTML/PNG gallery that places `before-*.png` and `after-*.png` side by side. Keep the generated gallery in `/tmp` unless explicitly asked to commit visual artifacts. In agent-harness runs, use `agent_browser` to open that gallery or the generated single-run HTML and save verified screenshots.
@@ -153,11 +151,12 @@ For review, create a simple HTML/PNG gallery that places `before-*.png` and `aft
 
 For each visual claim, inspect the JSONL path written by the runner. Confirm at least:
 
-- `toolCall.name` is the expected pi-facing replay tool name.
+- `toolCall.name` matches the prompt matrix for the category being claimed.
 - `toolCall.arguments` show the expected user-facing args.
 - `toolResult.toolName` matches the call.
 - `toolResult.content[0].text` contains the recorded body expected in the card.
 - `toolResult.isError` matches the visual card state.
+- The screenshot label and JSONL path are recorded together, so a card category cannot be claimed from a screenshot or JSONL alone.
 
 For local pi MCP bridge claims, also confirm:
 
@@ -170,7 +169,7 @@ Small helper pattern:
 ```bash
 python3 - <<'PY'
 import json, pathlib
-path = pathlib.Path('/tmp/pi-visual-harness/review-current/after-shell-nonzero.jsonl.path').read_text().strip()
+path = pathlib.Path('/tmp/pi-cursor-sdk-visual-review-current/shell-success.jsonl.path').read_text().strip()
 for line in pathlib.Path(path).read_text().splitlines():
     obj = json.loads(line)
     msg = obj.get('message', {})
@@ -189,10 +188,19 @@ PY
 - Prefer the canonical offscreen PTY plus browser-rendered screenshot path. Do not use `osascript`, visible Terminal windows, or `screencapture` unless a user explicitly asks for a real desktop screenshot or the bug is terminal-specific.
 - Keep generated screenshots, HTML galleries, ANSI logs, and temporary harness dependencies out of the repo by default.
 - Use short, deterministic prompts with bounded wait times.
-- For timeout/background prompts, always check for leftovers:
+- For timeout/background prompts, always check for leftovers, preferably with the runner's repeatable `--leftover-pattern` option:
 
 ```bash
-ps -axo pid,etime,command | rg "sleep 2|should-not-print|<audit-session-label>" || true
+npm run smoke:visual -- \
+  --label shell-timeout \
+  --prompt 'Run sleep 30 && echo should-not-print using only the shell tool.' \
+  --leftover-pattern 'sleep 30|should-not-print'
+```
+
+Manual fallback:
+
+```bash
+ps -axo pid,etime,command | rg "sleep 30|should-not-print|<audit-session-label>" || true
 ```
 
 - If the model uses a different tool than requested, record it as model/provider behavior unless JSONL shows replay lost or misrendered a completed Cursor tool event.
@@ -208,5 +216,5 @@ Before accepting a replay-card change, provide:
 - ANSI/text/HTML paths when helpful for review.
 - JSONL paths for each run.
 - A short statement of what changed visually.
-- The relevant JSONL `toolCall` / `toolResult` facts.
+- The relevant JSONL `toolCall` / `toolResult` facts, including expected tool name and `isError` state from the prompt matrix.
 - `npm test` and `npm run typecheck` results, unless the change is documentation-only.
