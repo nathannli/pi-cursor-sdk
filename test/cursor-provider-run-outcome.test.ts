@@ -18,28 +18,41 @@ function makeWaitResult(status: "finished" | "cancelled" | "error", result?: str
 }
 
 describe("cursor-provider-run-outcome", () => {
-	it("classifies live finished vs direct finished when signal aborted after SDK finish", () => {
+	it("normalizes signal-aborted finished waits to cancelled outcomes", () => {
 		const outcome = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("finished", "hello"),
 			signalAborted: true,
 			textDeltas: ["hello"],
 			emittedText: "",
 		});
+		expect(outcome.kind).toBe("cancelled");
 		expect(isCursorRunFinishedSuccessfully(outcome)).toBe(false);
 		expect(classifyCursorRunLiveEmission(outcome)).toBe("cancelled");
-		expect(classifyCursorRunDirectEmission(outcome)).toBe("finished");
+		expect(classifyCursorRunDirectEmission(outcome)).toBe("cancelled");
 	});
 
-	it("classifies live cancelled but direct failed when wait errors after caller abort", () => {
+	it("normalizes signal-aborted error waits to cancelled outcomes", () => {
 		const outcome = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("error", "boom"),
 			signalAborted: true,
 			textDeltas: [],
 			emittedText: "",
 		});
-		expect(outcome.kind).toBe("error");
+		expect(outcome.kind).toBe("cancelled");
 		expect(classifyCursorRunLiveEmission(outcome)).toBe("cancelled");
-		expect(classifyCursorRunDirectEmission(outcome)).toBe("failed");
+		expect(classifyCursorRunDirectEmission(outcome)).toBe("cancelled");
+	});
+
+	it("never produces finished outcomes with signalAborted", () => {
+		const outcome = resolveCursorRunOutcome({
+			waitResult: makeWaitResult("finished", "hello"),
+			signalAborted: true,
+			textDeltas: [],
+			emittedText: "",
+		});
+		if (outcome.kind === "finished") {
+			expect.fail("finished outcome must not carry caller abort");
+		}
 	});
 
 	it("classifies SDK cancelled and error statuses for both emission strategies", () => {

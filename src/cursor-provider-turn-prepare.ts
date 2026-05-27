@@ -11,6 +11,7 @@ import {
 import type { CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
 import { estimateCursorPromptInputTokens, getCursorPromptOptions } from "./cursor-usage-accounting.js";
 import { getActiveContextToolNames } from "./cursor-context-tools.js";
+import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
 import { createCursorNativeReplayId } from "./cursor-provider-live-run-drain.js";
 import { getEffectiveFastForModelId } from "./cursor-state.js";
@@ -21,32 +22,38 @@ import { MISSING_CURSOR_API_KEY_MESSAGE } from "./cursor-provider-errors.js";
 import { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
 import { resolveCursorApiKey } from "./cursor-provider-turn-api-key.js";
 import type {
-	CursorProviderTurnPrepared,
+	CursorProviderTurnPrepareHandles,
+	CursorProviderTurnPrepareResult,
 	CursorProviderTurnRunnerParams,
-	CursorProviderTurnRuntime,
 } from "./cursor-provider-turn-types.js";
+import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 
 export interface PrepareCursorProviderTurnParams {
 	params: CursorProviderTurnRunnerParams;
-	runtime: CursorProviderTurnRuntime;
 	cwd: string;
 	resolvedApiKey: string;
+	sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	throwIfAborted: () => void;
+	/** Merges concrete prepare handles as they become available for runner cleanup on early abort. */
+	registerPrepareHandles: (handles: Partial<CursorProviderTurnPrepareHandles>) => void;
 }
 
 export async function prepareCursorProviderTurn(
 	prepareParams: PrepareCursorProviderTurnParams,
-): Promise<CursorProviderTurnPrepared> {
-	const { params, runtime, cwd, resolvedApiKey, throwIfAborted } = prepareParams;
+): Promise<CursorProviderTurnPrepareResult> {
+	const { params, cwd, resolvedApiKey, sdkEventDebug, throwIfAborted, registerPrepareHandles } = prepareParams;
 	const { model, context, options } = params;
-	const { sdkEventDebug } = runtime;
 
 	const fastEnabled = getEffectiveFastForModelId(model.id);
 	const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
 	const settingSources = getEffectiveCursorSettingSources();
 
 	installCursorMcpToolTimeoutOverride();
-	runtime.restoreCursorSdkOutputFilter = installCursorSdkOutputFilter();
+	const restoreCursorSdkOutputFilter = installCursorSdkOutputFilter();
+	registerPrepareHandles({ restoreCursorSdkOutputFilter });
+	const queuedBridgeRequestsBeforeLiveRun: CursorPiBridgeToolRequest[] = [];
+	let liveRunForBridgeQueue: CursorLiveRun | undefined;
+
 	const sessionAgentAcquireParams = {
 		apiKey: resolvedApiKey,
 		cwd,
@@ -54,26 +61,26 @@ export async function prepareCursorProviderTurn(
 		settingSources,
 		debugRecorder: sdkEventDebug,
 		onBridgeToolRequest: (request: CursorPiBridgeToolRequest) => {
-			if (runtime.liveRunForBridgeQueue && !runtime.liveRunForBridgeQueue.disposed) {
-				cursorLiveRuns.queueEvent(runtime.liveRunForBridgeQueue, { type: "bridge-tool", request });
+			if (liveRunForBridgeQueue && !liveRunForBridgeQueue.disposed) {
+				cursorLiveRuns.queueEvent(liveRunForBridgeQueue, { type: "bridge-tool", request });
 			} else {
-				runtime.queuedBridgeRequestsBeforeLiveRun.push(request);
+				queuedBridgeRequestsBeforeLiveRun.push(request);
 			}
 		},
 		createAgent: (createOptions: Parameters<typeof Agent.create>[0]) =>
 			suppressCursorSdkOutput(() => Agent.create(createOptions)),
 	};
 	let sessionAgentLease = await acquireSessionCursorAgent(sessionAgentAcquireParams);
-	runtime.sessionAgentScopeKey = sessionAgentLease.scopeKey;
+	const sessionAgentScopeKey = sessionAgentLease.scopeKey;
+	registerPrepareHandles({ sessionAgentScopeKey });
 	throwIfAborted();
 
 	const promptOptions = getCursorPromptOptions(model);
 	let sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
 	let prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 	if (sendPlan.resetAgent) {
-		await resetSessionCursorAgent(sessionAgentLease.scopeKey);
+		await resetSessionCursorAgent(sessionAgentScopeKey);
 		sessionAgentLease = await acquireSessionCursorAgent(sessionAgentAcquireParams);
-		runtime.sessionAgentScopeKey = sessionAgentLease.scopeKey;
 		sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
 		prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 	}
@@ -102,7 +109,7 @@ export async function prepareCursorProviderTurn(
 		sendPlan,
 		promptOptions,
 		activeToolNames: activeToolNames ? [...activeToolNames] : [],
-		sessionAgentScopeKey: runtime.sessionAgentScopeKey,
+		sessionAgentScopeKey,
 		bridgeRunId: bridgeRun?.id,
 	});
 	const nativeReplayId = createCursorNativeReplayId();
@@ -114,16 +121,15 @@ export async function prepareCursorProviderTurn(
 				agent,
 				bridgeRun,
 				sessionBridgeRun,
-				sessionAgentScopeKey: runtime.sessionAgentScopeKey,
+				sessionAgentScopeKey,
 				promptInputTokens,
 				textDeltas,
 				debugRecorder: sdkEventDebug,
 			})
 		: undefined;
 	if (liveRun) {
-		runtime.activeLiveRun = liveRun;
-		runtime.liveRunForBridgeQueue = liveRun;
-		for (const request of runtime.queuedBridgeRequestsBeforeLiveRun.splice(0)) {
+		liveRunForBridgeQueue = liveRun;
+		for (const request of queuedBridgeRequestsBeforeLiveRun.splice(0)) {
 			cursorLiveRuns.queueEvent(liveRun, { type: "bridge-tool", request });
 		}
 	}
@@ -139,24 +145,32 @@ export async function prepareCursorProviderTurn(
 		textDeltas,
 		debugRecorder: sdkEventDebug,
 	});
-	runtime.turnCoordinatorForCleanup = turnCoordinator;
+	registerPrepareHandles({ activeLiveRun: liveRun, turnCoordinator });
 
 	return {
-		cwd,
-		sessionAgentLease,
-		agent,
-		bridgeRun,
-		sendPlan,
-		prompt,
-		sendPayload,
-		bootstrap,
-		promptInputTokens,
-		useNativeToolReplay,
-		activeToolNames,
-		nativeReplayId,
-		textDeltas,
-		liveRun,
-		turnCoordinator,
+		prepared: {
+			cwd,
+			sessionAgentLease,
+			agent,
+			bridgeRun,
+			sendPlan,
+			prompt,
+			sendPayload,
+			bootstrap,
+			promptInputTokens,
+			useNativeToolReplay,
+			activeToolNames,
+			nativeReplayId,
+			textDeltas,
+			liveRun,
+			turnCoordinator,
+		},
+		handles: {
+			sessionAgentScopeKey,
+			restoreCursorSdkOutputFilter,
+			activeLiveRun: liveRun,
+			turnCoordinator,
+		},
 	};
 }
 
