@@ -9,7 +9,7 @@ import {
 	resolveCursorRunOutcome,
 	type CursorRunOutcome,
 } from "./cursor-provider-run-outcome.js";
-import type { CursorProviderTurnFinalizeInputs } from "./cursor-provider-turn-types.js";
+import type { CursorProviderTurnPrepareResult } from "./cursor-provider-turn-types.js";
 
 export async function cacheSdkContextWindow(agentId: string, modelId: string): Promise<void> {
 	try {
@@ -24,7 +24,7 @@ export async function cacheSdkContextWindow(agentId: string, modelId: string): P
 
 export interface BuildCursorRunOutcomeParams {
 	waitResult: Awaited<ReturnType<Awaited<ReturnType<SDKAgent["send"]>>["wait"]>>;
-	finalizeInputs: CursorProviderTurnFinalizeInputs;
+	prepared: CursorProviderTurnPrepareResult;
 	signal?: AbortSignal;
 	runResultFallback?: string;
 	resolvedApiKey?: string;
@@ -32,8 +32,9 @@ export interface BuildCursorRunOutcomeParams {
 }
 
 export function buildCursorRunOutcomeFromWait(params: BuildCursorRunOutcomeParams): CursorRunOutcome {
-	const { waitResult, finalizeInputs } = params;
-	const { turnCoordinator, textDeltas, liveRun } = finalizeInputs;
+	const { waitResult, prepared } = params;
+	const { turnCoordinator, liveRun } = prepared.runtime;
+	const { textDeltas } = prepared;
 	return resolveCursorRunOutcome({
 		waitResult,
 		signalAborted: params.signal?.aborted,
@@ -74,7 +75,7 @@ async function replayCursorTranscriptWebToolCalls(
 
 export interface AwaitFinalizeCursorRunOutcomeParams {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
-	finalizeInputs: CursorProviderTurnFinalizeInputs;
+	prepared: CursorProviderTurnPrepareResult;
 	cursorAgentMessageOffset: number | undefined;
 	modelId: string;
 	signal?: AbortSignal;
@@ -94,7 +95,7 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 	params.sdkEventDebug?.recordWaitResult(waitResult);
 	const outcome = buildCursorRunOutcomeFromWait({
 		waitResult,
-		finalizeInputs: params.finalizeInputs,
+		prepared: params.prepared,
 		signal: params.signal,
 		runResultFallback: params.runResultFallback,
 		resolvedApiKey: params.resolvedApiKey,
@@ -103,13 +104,13 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 	if (isCursorRunFinishedSuccessfully(outcome)) {
 		await replayCursorTranscriptWebToolCalls(
 			params.run.agentId,
-			params.finalizeInputs.cwd,
+			params.prepared.cwd,
 			params.cursorAgentMessageOffset,
-			params.finalizeInputs.turnCoordinator,
+			params.prepared.runtime.turnCoordinator,
 			params.sdkEventDebug,
 		);
 	}
-	params.finalizeInputs.turnCoordinator.discardIncompleteStartedToolCalls(outcome.incompleteTools);
+	params.prepared.runtime.turnCoordinator.discardIncompleteStartedToolCalls(outcome.incompleteTools);
 	await params.sdkEventDebug?.captureRunArtifacts(params.run);
 	if (params.cacheContextWindow !== false) {
 		await cacheSdkContextWindow(params.contextWindowAgentId ?? params.run.agentId, params.modelId);

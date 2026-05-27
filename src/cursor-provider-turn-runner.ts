@@ -82,24 +82,23 @@ export class CursorProviderTurnRunner {
 
 			sendResult = await sendCursorProviderTurn({
 				params: this.params,
-				sendRequest: prepared.sendRequest,
+				prepared,
 				sdkEventDebug: this.sdkEventDebug,
 				sdkAbortErrorSuppression,
 				throwIfAborted: () => this.throwIfAborted(),
 			});
 			const { send } = sendResult;
 
-			if (prepared.terminalResources.liveRun) {
+			if (prepared.runtime.kind === "live") {
 				liveCompletion = runFinalizer.startLiveRunCompletion({
 					send,
-					finalizeInputs: prepared.finalizeInputs,
-					terminalResources: prepared.terminalResources,
+					prepared,
 					modelId: model.id,
 					discardIncompleteTools: (outcome) => this.discardIncompleteTools(prepared, outcome),
 				});
 				await emitCursorLiveTurn({
 					params: this.params,
-					terminalResources: prepared.terminalResources,
+					prepared,
 					sdkEventDebug: this.sdkEventDebug,
 					discardIncompleteTools: (outcome) => this.discardIncompleteTools(prepared, outcome),
 				});
@@ -108,7 +107,7 @@ export class CursorProviderTurnRunner {
 
 			const outcome = await awaitFinalizeCursorRunOutcome({
 				run: send.run,
-				finalizeInputs: prepared.finalizeInputs,
+				prepared,
 				cursorAgentMessageOffset: send.cursorAgentMessageOffset,
 				modelId: model.id,
 				signal: options?.signal,
@@ -116,13 +115,9 @@ export class CursorProviderTurnRunner {
 				resolvedApiKey: this.resolvedApiKey,
 				optionsApiKey: options?.apiKey,
 				sdkEventDebug: this.sdkEventDebug,
-				contextWindowAgentId: prepared.finalizeInputs.contextWindowAgentId,
+				contextWindowAgentId: prepared.contextWindowAgentId,
 			});
-			await runFinalizer.applyTerminalEvent({
-				kind: "direct",
-				terminalResources: prepared.terminalResources,
-				outcome,
-			});
+			await runFinalizer.applyTerminalEvent({ kind: "direct", prepared, outcome });
 		} catch (error) {
 			await runFinalizer.applyTerminalEvent({ kind: "error", prepared, error });
 		} finally {

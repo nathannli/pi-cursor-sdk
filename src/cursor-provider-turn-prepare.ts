@@ -150,38 +150,26 @@ export async function prepareCursorProviderTurn(
 
 		completed = true;
 		return {
-			sendRequest: {
-				agent,
-				cwd,
-				payload: sendPayload,
-				meta: {
-					sendPlan,
-					prompt,
-					bootstrap,
-					promptInputTokens,
-					useNativeToolReplay,
-					bridgeEnabled: bridgeRun !== undefined,
-					nativeReplayId,
-				},
-				liveRun,
-				turnCoordinator,
-			},
-			finalizeInputs: {
-				cwd,
-				contextWindowAgentId: agent.agentId,
-				turnCoordinator,
-				textDeltas,
-				liveRun,
-			},
-			terminalResources: {
-				sessionAgentScopeKey,
-				sessionAgentLease,
+			agent,
+			cwd,
+			payload: sendPayload,
+			meta: {
+				sendPlan,
+				prompt,
 				bootstrap,
 				promptInputTokens,
-				liveRun,
-				turnCoordinator,
-				restoreCursorSdkOutputFilter,
+				useNativeToolReplay,
+				bridgeEnabled: bridgeRun !== undefined,
+				nativeReplayId,
 			},
+			contextWindowAgentId: agent.agentId,
+			textDeltas,
+			sessionAgentScopeKey,
+			sessionAgentLease,
+			restoreCursorSdkOutputFilter,
+			runtime: liveRun
+				? { kind: "live", liveRun, turnCoordinator }
+				: { kind: "direct", turnCoordinator },
 		};
 	} finally {
 		if (!completed) {

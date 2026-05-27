@@ -9,7 +9,7 @@ import {
 	CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
 	getCursorReplayCallSummary,
 	getCursorReplaySideEffectDescription,
-	getCursorReplaySourceToolName,
+	getCursorReplayOperationLabel,
 	getCursorReplayWrapperLabel,
 	type CursorReplayToolName,
 } from "./cursor-tool-presentation-registry.js";
@@ -500,7 +500,7 @@ export function renderNativeLookingCursorReadReplayResult(
 }
 
 export function createCursorReplayOnlyToolDefinition(toolName: CursorReplayToolName): ToolDefinition<typeof cursorReplayToolSchema, unknown> {
-	const cursorToolName = toolName === CURSOR_REPLAY_ACTIVITY_TOOL_NAME ? "activity" : getCursorReplaySourceToolName(toolName);
+	const cursorToolName = toolName === CURSOR_REPLAY_ACTIVITY_TOOL_NAME ? "activity" : getCursorReplayOperationLabel(toolName);
 	const sideEffectDescription = getCursorReplaySideEffectDescription(toolName);
 	return {
 		name: toolName,

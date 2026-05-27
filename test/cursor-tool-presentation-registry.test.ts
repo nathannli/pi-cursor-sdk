@@ -13,6 +13,7 @@ import {
 	classifyCursorWebToolKind,
 	getCursorReplayActivityTitle,
 	getCursorReplayCallSummary,
+	getCursorReplayOperationLabel,
 	getCursorReplaySideEffectDescription,
 	getCursorReplayWrapperLabel,
 	getCursorToolLifecycleLabelKind,
@@ -23,7 +24,7 @@ import {
 	type CursorNormalizedToolName,
 } from "../src/cursor-tool-presentation-registry.js";
 import { classifyCursorToolVisibility } from "../src/cursor-tool-visibility.js";
-import { normalizeToolName } from "../src/cursor-transcript-utils.js";
+import { normalizeCursorToolName as normalizeToolName } from "../src/cursor-tool-presentation-registry.js";
 
 describe("cursor tool presentation registry", () => {
 	it("lists every known normalized tool exactly once", () => {
@@ -93,6 +94,13 @@ describe("cursor tool presentation registry", () => {
 			expect(title).toBe(spec.displayLabel);
 			expect(classifyCursorToolVisibility({ name: spec.normalizedName }).activityTitle).toBe(title);
 		}
+	});
+
+	it("derives replay operation labels from normalized names with explicit overrides", () => {
+		expect(getCursorReplayOperationLabel("cursor_edit")).toBe("edit");
+		expect(getCursorReplayOperationLabel("cursor_mcp")).toBe("MCP");
+		expect(getCursorReplayOperationLabel("cursor_web_search")).toBe("web search");
+		expect(getCursorReplayOperationLabel("cursor_web_fetch")).toBe("web fetch");
 	});
 
 	it("derives replay wrapper labels and side-effect policy from the registry", () => {

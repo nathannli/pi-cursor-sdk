@@ -24,9 +24,9 @@ export function createDefaultSystemPromptOptions(cwd: string): BuildSystemPrompt
 	};
 }
 
-function createMinimalSessionManager(overrides: Partial<ExtensionContext["sessionManager"]> = {}): ExtensionContext["sessionManager"] {
+function createMinimalSessionManager(cwd: string, overrides: Partial<ExtensionContext["sessionManager"]> = {}): ExtensionContext["sessionManager"] {
 	return {
-		getCwd: vi.fn(() => process.cwd()),
+		getCwd: vi.fn(() => cwd),
 		getSessionDir: vi.fn(() => ""),
 		getSessionId: vi.fn(() => "test-session"),
 		getSessionFile: vi.fn(() => undefined),
@@ -82,7 +82,7 @@ function createMinimalExtensionContextInternal(overrides: ExtensionContextOverri
 		ui: createMinimalExtensionUi(),
 		hasUI: true,
 		cwd,
-		sessionManager: createMinimalSessionManager(),
+		sessionManager: createMinimalSessionManager(cwd, overrides.sessionManager),
 		modelRegistry: getSharedTestModelRegistry(),
 		model: makeModel("composer-2.5"),
 		isIdle: vi.fn(() => true),

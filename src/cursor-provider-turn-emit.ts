@@ -12,21 +12,20 @@ import {
 import type {
 	CursorProviderTurnPrepareResult,
 	CursorProviderTurnRunnerParams,
-	CursorProviderTurnTerminalResources,
 } from "./cursor-provider-turn-types.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 
 export interface EmitCursorLiveTurnParams {
 	params: CursorProviderTurnRunnerParams;
-	terminalResources: CursorProviderTurnTerminalResources;
+	prepared: CursorProviderTurnPrepareResult;
 	sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	discardIncompleteTools: (outcome: IncompleteCursorToolRunOutcomeInput) => void;
 }
 
 export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): Promise<void> {
-	const { params, terminalResources, sdkEventDebug, discardIncompleteTools } = emitParams;
-	const { liveRun, turnCoordinator } = terminalResources;
-	if (!liveRun) throw new Error("emitCursorLiveTurn requires a live run");
+	const { params, prepared, sdkEventDebug, discardIncompleteTools } = emitParams;
+	if (prepared.runtime.kind !== "live") throw new Error("emitCursorLiveTurn requires a live run");
+	const { liveRun, turnCoordinator } = prepared.runtime;
 
 	const { options, model } = params;
 	try {
@@ -56,5 +55,5 @@ export function discardIncompleteToolsFromPrepared(
 	prepared: CursorProviderTurnPrepareResult | undefined,
 	outcome: IncompleteCursorToolRunOutcomeInput,
 ): void {
-	prepared?.terminalResources.turnCoordinator.discardIncompleteStartedToolCalls(buildIncompleteCursorToolRunOutcome(outcome));
+	prepared?.runtime.turnCoordinator.discardIncompleteStartedToolCalls(buildIncompleteCursorToolRunOutcome(outcome));
 }

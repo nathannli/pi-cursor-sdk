@@ -4,23 +4,24 @@ import { getCursorAgentMessageOffset } from "./cursor-provider-turn-message-offs
 import type { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-guard.js";
 import type {
 	CursorProviderTurnRunnerParams,
-	CursorProviderTurnSendRequest,
+	CursorProviderTurnPrepareResult,
 	CursorProviderTurnSendResult,
 } from "./cursor-provider-turn-types.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 
 export interface SendCursorProviderTurnParams {
 	params: CursorProviderTurnRunnerParams;
-	sendRequest: CursorProviderTurnSendRequest;
+	prepared: CursorProviderTurnPrepareResult;
 	sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	sdkAbortErrorSuppression: ReturnType<typeof installCursorSdkAbortErrorSuppression>;
 	throwIfAborted: () => void;
 }
 
 export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnParams): Promise<CursorProviderTurnSendResult> {
-	const { params, sendRequest, sdkEventDebug, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
+	const { params, prepared, sdkEventDebug, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
 	const { options } = params;
-	const { agent, turnCoordinator, liveRun, cwd, payload, meta } = sendRequest;
+	const { agent, cwd, payload, meta, runtime } = prepared;
+	const { turnCoordinator, liveRun } = runtime;
 
 	let completed = false;
 	let sdkRun: Awaited<ReturnType<typeof agent.send>> | null = null;

@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -53,12 +54,12 @@ import {
 	isCursorSdkStartupNoise,
 	suppressCursorSdkOutput,
 } from "../scripts/lib/cursor-sdk-output-filter.mjs";
-import { scrubSensitiveText as scrubSensitiveTextFromScriptLib } from "../scripts/lib/cursor-sensitive-text.mjs";
+import { scrubSensitiveText as scrubSensitiveTextFromScriptLib } from "../shared/cursor-sensitive-text.mjs";
 import {
 	CURSOR_SETTING_SOURCES_ENV as SCRIPT_CURSOR_SETTING_SOURCES_ENV,
 	resolveCursorSettingSources as resolveCursorSettingSourcesFromScriptLib,
 	serializeCursorSettingSources as serializeCursorSettingSourcesFromScriptLib,
-} from "../scripts/lib/cursor-setting-sources.mjs";
+} from "../shared/cursor-setting-sources.mjs";
 import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 import {
 	CURSOR_SETTING_SOURCES_ENV,
@@ -69,64 +70,25 @@ import {
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json") as { files: string[] };
 
-const DECLARATION_EXPORT_ASSERTIONS: Record<string, readonly string[]> = {
+/** Type-only exports that intentionally have no runtime .mjs value. */
+const DECLARATION_TYPE_ONLY_EXPORTS: Record<string, readonly string[]> = {
 	"scripts/debug-provider-events.d.mts": [
-		"CursorDebugProviderEventsArgs",
-		"CursorPiSessionSnapshotState",
 		"CursorDebugCaptureCounts",
 		"CursorDebugCaptureSummary",
+		"CursorDebugProviderEventsArgs",
 		"CursorDebugProviderEventsRunSummary",
-		"parseDebugProviderEventsArgs",
-		"backfillPiSessionSnapshot",
-		"runDebugProviderEvents",
+		"CursorPiSessionSnapshotState",
 	],
 	"scripts/debug-sdk-events.d.mts": [
 		"CursorDebugSdkEventsArgs",
 		"CursorSdkEventDebugSummary",
 		"CursorSdkEventTimingSnapshot",
-		"parseDebugSdkEventsArgs",
-		"createTimingTracker",
 		"CursorSdkEventJsonlSink",
-		"createEventJsonlSink",
-		"buildSummary",
-	],
-	"scripts/lib/cursor-child-process.d.mts": [
-		"DEFAULT_CHILD_SHUTDOWN_GRACE_MS",
-		"waitForChildClose",
-		"signalChild",
-		"terminateChild",
-		"parseJsonLines",
 	],
 	"scripts/lib/cursor-cli-args.d.mts": [
-		"readArgvValue",
-		"parseArgv",
-		"defaultSettingSourcesFromEnv",
-		"defaultApiKeyFromEnv",
-		"requireApiKey",
-		"defaultTimestampedDir",
-		"commonProbePathFlag",
-		"commonProbeStringFlag",
-		"commonProbeFlags",
-	],
-	"scripts/lib/cursor-script-fail.d.mts": ["createScriptFail"],
-	"scripts/lib/cursor-sdk-output-filter.d.mts": [
-		"CURSOR_SDK_STARTUP_NOISE_PATTERNS",
-		"isCursorSdkOutputSuppressed",
-		"suppressCursorSdkOutput",
-		"isCursorSdkStartupNoise",
-		"installCursorSdkOutputFilter",
-	],
-	"scripts/lib/cursor-sensitive-text.d.mts": ["scrubSensitiveText"],
-	"scripts/lib/cursor-setting-sources.d.mts": [
-		"CURSOR_SETTING_SOURCES_ENV",
-		"resolveCursorSettingSources",
-		"serializeCursorSettingSources",
-	],
-	"shared/cursor-sensitive-text.d.mts": ["scrubSensitiveText"],
-	"shared/cursor-setting-sources.d.mts": [
-		"CURSOR_SETTING_SOURCES_ENV",
-		"resolveCursorSettingSources",
-		"serializeCursorSettingSources",
+		"CursorCliFlagSpec",
+		"CursorCliFlagSpecMap",
+		"ParsedCursorCliArgs",
 	],
 };
 
@@ -135,11 +97,21 @@ describe("maintainer script declaration contracts", () => {
 		expect(true).toBe(true);
 	});
 
-	it("checks every published declaration-backed script surface", () => {
+	it("checks every published declaration-backed script surface", async () => {
 		const declarations = listPublishedDeclarations();
-		expect(declarations).toEqual(Object.keys(DECLARATION_EXPORT_ASSERTIONS).sort());
 		for (const declaration of declarations) {
-			expect(readDeclarationExports(declaration)).toEqual([...DECLARATION_EXPORT_ASSERTIONS[declaration]].sort());
+			const declarationValueExports = readDeclarationValueExports(declaration);
+			const declarationTypeExports = readDeclarationTypeExports(declaration);
+			const runtimeExports = await readRuntimeExports(declaration);
+			const documentedTypeOnlyExports = DECLARATION_TYPE_ONLY_EXPORTS[declaration] ?? [];
+			expect(runtimeExports, `${declaration} runtime exports`).toEqual(declarationValueExports.sort());
+			for (const runtimeExport of runtimeExports) {
+				expect(declarationValueExports, `${declaration} must declare value export ${runtimeExport}`).toContain(runtimeExport);
+			}
+			expect(
+				declarationTypeExports,
+				`${declaration} documents type-only exports explicitly when present`,
+			).toEqual([...documentedTypeOnlyExports].sort());
 		}
 	});
 });
@@ -170,10 +142,10 @@ function listDeclarationsInDirectory(directory: string): string[] {
 	});
 }
 
-function readDeclarationExports(path: string): string[] {
+function readDeclarationValueExports(path: string): string[] {
 	const source = readFileSync(path, "utf8");
 	const names = new Set<string>();
-	for (const match of source.matchAll(/export\s+(?:declare\s+)?(?:interface|type|function|const)\s+([A-Za-z0-9_]+)/g)) {
+	for (const match of source.matchAll(/export\s+(?:declare\s+)?(?:function|const)\s+([A-Za-z0-9_]+)/g)) {
 		names.add(match[1]);
 	}
 	for (const match of source.matchAll(/export\s*\{([^}]+)\}\s*from/g)) {
@@ -183,6 +155,23 @@ function readDeclarationExports(path: string): string[] {
 		}
 	}
 	return [...names].sort();
+}
+
+function readDeclarationTypeExports(path: string): string[] {
+	const source = readFileSync(path, "utf8");
+	const names = new Set<string>();
+	for (const match of source.matchAll(/export\s+(?:declare\s+)?(?:interface|type)\s+([A-Za-z0-9_]+)/g)) {
+		names.add(match[1]);
+	}
+	return [...names].sort();
+}
+
+async function readRuntimeExports(declarationPath: string): Promise<string[]> {
+	const runtimePath = declarationPath.replace(/\.d\.mts$/, ".mjs");
+	const module = await import(pathToFileURL(join(process.cwd(), runtimePath)).href);
+	return Object.keys(module)
+		.filter((name) => name !== "default")
+		.sort();
 }
 
 type AssertEqual<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : never;

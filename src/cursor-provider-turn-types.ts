@@ -38,38 +38,42 @@ export interface CursorProviderTurnSendMeta {
 	nativeReplayId: string;
 }
 
-export interface CursorProviderTurnSendRequest {
+interface CursorProviderTurnRuntimeBase {
+	turnCoordinator: CursorSdkTurnCoordinator;
+}
+
+export interface DirectCursorProviderTurnRuntime extends CursorProviderTurnRuntimeBase {
+	kind: "direct";
+	liveRun?: undefined;
+}
+
+export interface LiveCursorProviderTurnRuntime extends CursorProviderTurnRuntimeBase {
+	kind: "live";
+	liveRun: CursorLiveRun;
+}
+
+export type CursorProviderTurnRuntime = DirectCursorProviderTurnRuntime | LiveCursorProviderTurnRuntime;
+
+/**
+ * Single owned model for a prepared provider turn.
+ *
+ * Send, finalize, and cleanup phases receive this immutable object instead of
+ * keeping parallel liveRun/turnCoordinator/resource bags in sync by convention.
+ */
+export interface PreparedCursorProviderTurn {
 	agent: SDKAgent;
 	cwd: string;
 	payload: CursorProviderTurnSendPayload;
 	meta: CursorProviderTurnSendMeta;
-	liveRun: CursorLiveRun | undefined;
-	turnCoordinator: CursorSdkTurnCoordinator;
-}
-
-export interface CursorProviderTurnFinalizeInputs {
-	cwd: string;
 	contextWindowAgentId: string;
-	turnCoordinator: CursorSdkTurnCoordinator;
 	textDeltas: string[];
-	liveRun: CursorLiveRun | undefined;
-}
-
-export interface CursorProviderTurnTerminalResources {
 	sessionAgentScopeKey: string;
 	sessionAgentLease: SessionCursorAgentLease;
-	bootstrap: boolean;
-	promptInputTokens: number;
-	liveRun: CursorLiveRun | undefined;
-	turnCoordinator: CursorSdkTurnCoordinator;
 	restoreCursorSdkOutputFilter: () => void;
+	runtime: CursorProviderTurnRuntime;
 }
 
-export interface CursorProviderTurnPrepareResult {
-	sendRequest: CursorProviderTurnSendRequest;
-	finalizeInputs: CursorProviderTurnFinalizeInputs;
-	terminalResources: CursorProviderTurnTerminalResources;
-}
+export type CursorProviderTurnPrepareResult = PreparedCursorProviderTurn;
 
 export interface CursorProviderTurnSend {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
