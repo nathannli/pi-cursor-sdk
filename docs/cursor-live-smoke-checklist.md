@@ -19,6 +19,8 @@ Use this manual checklist before releasing Cursor provider/runtime changes. Unit
 ```bash
 export SMOKE_DIR="/tmp/pi-cursor-sdk-live-smoke-$(date +%Y%m%dT%H%M%S)"
 mkdir -p "$SMOKE_DIR"
+pi --version
+npm ls @cursor/sdk @earendil-works/pi-coding-agent @earendil-works/pi-ai @earendil-works/pi-tui
 pi -e . --list-models cursor
 ```
 
@@ -51,6 +53,8 @@ The script is a helper only; it polls the section 3 TUI for answer/footer eviden
 
 Pass criteria:
 
+- `pi --version` reports pi 0.76.0 for this cutover baseline.
+- `npm ls` shows `@cursor/sdk@1.0.14` and local `@earendil-works/*@0.76.0` packages.
 - `cursor/composer-2.5` appears in the model list.
 - No Cursor key or auth token is printed.
 - If neither `~/.pi/agent/auth.json` cursor auth nor `CURSOR_API_KEY` is available, stop and report the live smoke as blocked.
@@ -99,7 +103,7 @@ Run a real interactive session under tmux:
 ```bash
 SESSION="pi-cursor-sdk-smoke-$(date +%s)"
 tmux new-session -d -s "$SESSION" -x 120 -y 40 -- zsh -lc \
-  "cd '$PWD' && PI_CURSOR_SETTING_SOURCES=none pi -e . --cursor-no-fast --model cursor/composer-2.5 --session-dir '$SMOKE_DIR/tui' --no-tools 'TUI smoke. Compute 19 + 23. Reply only with SUM=<number>.'"
+  "cd '$PWD' && PI_CURSOR_SETTING_SOURCES=none pi -e . --cursor-no-fast --model cursor/composer-2.5 --session-dir '$SMOKE_DIR/tui' --session-id cursor-sdk-1014-tui --no-tools 'TUI smoke. Compute 19 + 23. Reply only with SUM=<number>.'"
 ```
 
 Observe with `tmux capture-pane -pt "$SESSION"` or attach manually.
@@ -107,12 +111,69 @@ Observe with `tmux capture-pane -pt "$SESSION"` or attach manually.
 Pass criteria:
 
 - Footer shows `(cursor) composer-2.5`. With `--cursor-no-fast`, Cursor fast mode is off and the Cursor extension status should not show `cursor fast`; ignore unrelated status text from other extensions.
+- The run uses pi 0.76.0 `--session-id` successfully.
 - Assistant answer appears correctly.
 - `/session` shows one user and one assistant message for the simple run.
 - Persisted JSONL has one assistant message. If the screen appears duplicated, inspect JSONL before deciding whether it is a rendering bug.
 - Kill the tmux session after the check and verify no smoke tmux sessions remain.
 
-## 4. Bridge multi-tool success and failure
+## 4. Mandatory visual card/color rendering check
+
+This cutover requires visual TUI inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, a stable `--session-id`, Cursor SDK `plan` mode, and native replay enabled:
+
+```bash
+VISUAL_SESSION="pi-cursor-sdk-1014-visual-$(date +%s)"
+VISUAL_DIR="$(mktemp -d /tmp/pi-cursor-sdk-1014-visual.XXXXXX)"
+tmux new-session -d -s "$VISUAL_SESSION" -x 140 -y 44 -- zsh -lc \
+  "cd '$PWD' && PI_CURSOR_SDK_EVENT_DEBUG=1 PI_CURSOR_NATIVE_TOOL_DISPLAY=1 pi -e . --cursor-no-fast --cursor-mode plan --session-dir '$VISUAL_DIR/session' --session-id cursor-sdk-1014-visual --model cursor/composer-2.5"
+```
+
+Run these prompts interactively:
+
+1. `Use your file tools to inspect package.json and src/cursor-provider.ts, then summarize only the Cursor SDK and Pi package versions you saw.`
+2. `Run a safe shell command that prints "cursor visual smoke" and report the output.`
+3. `Create .debug/visual-smoke/cursor-mode.txt with two short lines, then change one line. Use your normal file editing tools.`
+4. `Stay in Cursor plan mode. Create a concise numbered plan for adding a tiny unit test, but do not edit files.`
+5. `Try to read .debug/visual-smoke/does-not-exist.txt and explain the result.`
+
+Capture evidence without committing raw artifacts:
+
+```bash
+tmux capture-pane -e -p -S -3000 -t "$VISUAL_SESSION" > "$VISUAL_DIR/visual.ansi"
+```
+
+Pass criteria:
+
+- Native-looking read/search/list/shell/write/edit cards use intended pi card styling.
+- Shell success is not red/error-styled; stdout is readable.
+- Edit/diff previews show red/green added/removed colors and readable paths.
+- Neutral Cursor plan/todo/task/mode activity is neutral, not red, and does not mutate pi plan/todo state.
+- True failures are visible, bounded, and distinct from neutral activity.
+- Footer/status is readable in Cursor `plan` mode and combines with fast when applicable.
+- Evidence paths for ANSI capture, screenshots/recordings if used, and debug artifact directories are recorded in [Cursor native tool visual audit](./cursor-native-tool-visual-audit.md) or the release handoff.
+- No secrets, raw debug artifacts, or scratch output are committed.
+
+## 5. Cursor SDK plan-mode provider check
+
+```bash
+PI_CURSOR_SETTING_SOURCES=none \
+pi -e . --cursor-no-fast --cursor-mode plan --model cursor/composer-2.5 \
+  --session-dir "$SMOKE_DIR/cursor-mode-plan" \
+  --session-id cursor-sdk-1014-plan \
+  --no-tools \
+  -p 'Cursor mode smoke. Reply with one short implementation plan for printing hello.' \
+  > "$SMOKE_DIR/cursor-mode-plan.stdout.txt" \
+  2> "$SMOKE_DIR/cursor-mode-plan.stderr.txt"
+```
+
+Pass criteria:
+
+- Exit code is `0`.
+- stdout contains a short plan-like answer.
+- stderr is empty or contains only expected non-secret diagnostics.
+- No pi active-tool or pi plan-mode state is mutated merely because Cursor SDK mode is `plan`.
+
+## 6. Bridge multi-tool success and failure
 
 ```bash
 PI_CURSOR_SETTING_SOURCES=none \
@@ -133,7 +194,7 @@ Pass criteria:
 - Persisted JSONL contains real pi tool calls named `read`, matching `toolResult` messages, and final assistant output.
 - Later assistant usage counts consumed tool-result input; no assistant usage has negative values or nonzero cache fields.
 
-## 5. Native replay cards without the pi bridge
+## 7. Native replay cards without the pi bridge
 
 ```bash
 PI_CURSOR_SETTING_SOURCES=none \
@@ -152,7 +213,7 @@ Pass criteria:
 - Persisted JSONL shows an assistant `toolUse` turn with a replayed `read` tool call, a pi `read` `toolResult`, and a final assistant turn.
 - Native replay is display-only: it must not re-run Cursor-side mutations or create duplicate pi mutations.
 
-## 6. Diagnostics safety contract
+## 8. Diagnostics safety contract
 
 Bridge diagnostics are scrubbed operational logs, not anonymous telemetry.
 
@@ -203,7 +264,7 @@ Pass criteria:
 - The scan returns no matching files except deliberately planted test strings that are asserted not to appear in serialized diagnostics, and it does not print matched secret-bearing lines.
 - If tool names themselves are considered sensitive for a release target, do not enable `PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1` for shared logs. The diagnostics contract intentionally allows tool names.
 
-## 7. Long-running bridge and abort/cancel
+## 9. Long-running bridge and abort/cancel
 
 This check is release-blocking for every Cursor provider/runtime release.
 
@@ -224,7 +285,7 @@ Pass criteria:
 - Diagnostics either show clean cancellation/disposal or the process exits cleanly without orphaning children.
 - Persisted JSONL does not contain a false successful final answer.
 
-## 8. Final structural session scan
+## 10. Final structural session scan
 
 After all live runs, scan JSONL structurally instead of reading raw content into a report:
 
@@ -245,7 +306,7 @@ Additional manual usage checks for provider/accounting changes:
 - Tool-heavy runs should show nonzero output for visible assistant/tool-call activity.
 - Split runs should count consumed tool-result input once on the following assistant turn.
 
-## 9. Standard local gates
+## 11. Standard local gates
 
 ```bash
 git diff --check
@@ -259,7 +320,7 @@ Pass criteria:
 - All commands exit `0`.
 - `npm pack --dry-run` includes all new runtime source files and excludes local smoke artifacts, sessions, package tarballs, `.env*`, `.pi/`, `dist/`, and `coverage/`.
 
-## 10. Cleanup
+## 12. Cleanup
 
 ```bash
 tmux list-sessions | grep 'pi-cursor-sdk-smoke' || true

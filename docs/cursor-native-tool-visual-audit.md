@@ -4,6 +4,30 @@ This workflow verifies Cursor SDK tool replay the way a human sees it in pi's in
 
 Use it before accepting replay-card commits or PRs. Text logs and JSONL are necessary, but they are not enough when the claim is visual parity: always keep before/after PNGs for the exact prompt.
 
+Current cutover baseline: pi 0.76.0+, exact `@cursor/sdk@1.0.14`, local validation packages `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` at 0.76.0.
+
+## Cursor SDK 1.0.14 / pi 0.76.0 cutover visual record
+
+Record the required cutover validation here or in the final release handoff. Do not commit raw ANSI logs, screenshots, terminal recordings, debug artifacts, or `.debug/visual-smoke` scratch files.
+
+| Field | Required value / evidence |
+| --- | --- |
+| Command/session used | `pi -e . --cursor-no-fast --cursor-mode plan --session-id cursor-sdk-1014-visual --model cursor/composer-2.5` with a fresh temp `--session-dir` |
+| Baseline versions | `pi --version` = 0.76.0; `npm ls` = `@cursor/sdk@1.0.14` and local `@earendil-works/*@0.76.0` |
+| Card categories checked | read/find/grep/list, shell success, write/edit/diff, neutral plan/todo/task/mode activity, true read failure |
+| Observed status/card colors | Confirm native-looking cards use native pi styling; neutral Cursor activity is not red; true errors are distinct; diff previews show red/green; plan status is readable |
+| Screenshot/ANSI evidence location | External path only, for example `/tmp/pi-cursor-sdk-1014-visual.*/visual.ansi` and optional screenshots/recordings |
+| Debug artifact location | External `.debug/cursor-sdk-events/...` or temp artifact directory path only; do not commit raw artifacts |
+| Pass/fail notes | Summarize any mismatch, blocker, or auth/environment limitation |
+
+Required prompts for this cutover:
+
+1. `Use your file tools to inspect package.json and src/cursor-provider.ts, then summarize only the Cursor SDK and Pi package versions you saw.`
+2. `Run a safe shell command that prints "cursor visual smoke" and report the output.`
+3. `Create .debug/visual-smoke/cursor-mode.txt with two short lines, then change one line. Use your normal file editing tools.`
+4. `Stay in Cursor plan mode. Create a concise numbered plan for adding a tiny unit test, but do not edit files.`
+5. `Try to read .debug/visual-smoke/does-not-exist.txt and explain the result.`
+
 ## When to use this
 
 Use this workflow when changing or reviewing:

@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createHash } from "node:crypto";
 import { Agent } from "@cursor/sdk";
-import type { ModelSelection, SDKAgent, SettingSource } from "@cursor/sdk";
+import type { AgentModeOption, ModelSelection, SDKAgent, SettingSource } from "@cursor/sdk";
 import type { Context } from "@earendil-works/pi-ai";
 import {
 	getRegisteredCursorPiToolBridge,
@@ -22,6 +22,7 @@ export interface SessionCursorAgentSendState {
 	bootstrapped: boolean;
 	contextFingerprint: string;
 	incrementalSendCount: number;
+	agentMode: AgentModeOption;
 }
 
 export interface SessionCursorAgentLease {
@@ -32,7 +33,7 @@ export interface SessionCursorAgentLease {
 	bridgeRun?: CursorPiToolBridgeRun;
 	sendState: SessionCursorAgentSendState;
 	created: boolean;
-	commitSend(context: Context, bootstrapped: boolean): void;
+	commitSend(context: Context, bootstrapped: boolean, agentMode: AgentModeOption): void;
 	trackRunCompletion(completion: Promise<unknown>): void;
 }
 
@@ -103,6 +104,7 @@ function rethrowSupersededWhenReplacedByDifferentPoolKey(scopeKey: string, poolK
 
 interface SessionCursorAgentCreateParams {
 	apiKey: string;
+	agentMode: AgentModeOption;
 	cwd: string;
 	modelSelection: ModelSelection;
 	settingSources?: SettingSource[];
@@ -211,8 +213,8 @@ async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?:
 	await disposePoolEntry(entry);
 }
 
-function createInitialSendState(): SessionCursorAgentSendState {
-	return { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 };
+function createInitialSendState(agentMode: AgentModeOption): SessionCursorAgentSendState {
+	return { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0, agentMode };
 }
 
 function bindBridgeToolRequest(
@@ -228,12 +230,14 @@ function commitSessionAgentSendForLease(
 	instanceId: number,
 	context: Context,
 	bootstrapped: boolean,
+	agentMode: AgentModeOption,
 ): void {
 	const entry = sessionAgentsByScope.get(scopeKey);
 	if (!isActivePoolEntry(entry)) return;
 	if (entry.poolKey !== poolKey || entry.instanceId !== instanceId) return;
 	entry.sendState.bootstrapped = bootstrapped || entry.sendState.bootstrapped;
 	entry.sendState.contextFingerprint = computeCursorContextFingerprint(context);
+	entry.sendState.agentMode = agentMode;
 	if (bootstrapped) {
 		entry.sendState.incrementalSendCount = 0;
 		return;
@@ -320,8 +324,8 @@ function leaseFromEntry(
 		bridgeRun: entry.bridgeRun,
 		sendState: entry.sendState,
 		created,
-		commitSend: (context, bootstrapped) => {
-			commitSessionAgentSendForLease(scopeKey, entry.poolKey, entry.instanceId, context, bootstrapped);
+		commitSend: (context, bootstrapped, agentMode) => {
+			commitSessionAgentSendForLease(scopeKey, entry.poolKey, entry.instanceId, context, bootstrapped, agentMode);
 		},
 		trackRunCompletion: (completion) => {
 			trackSessionAgentRunCompletionForLease(scopeKey, entry.poolKey, entry.instanceId, completion);
@@ -382,6 +386,7 @@ async function createSessionAgentEntry(
 		agent = await createAgent({
 			apiKey: params.apiKey,
 			model: params.modelSelection,
+			mode: params.agentMode,
 			local: params.settingSources ? { cwd: params.cwd, settingSources: params.settingSources } : { cwd: params.cwd },
 			...(bridgeRun?.mcpServers ? { mcpServers: bridgeRun.mcpServers } : {}),
 		});
@@ -469,7 +474,7 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 		assertScopeAcceptsAcquire(scopeKey);
 		const creationGeneration = getScopeCreationGeneration(scopeKey);
 		const instanceId = allocateSessionAgentInstanceId();
-		const sendState = createInitialSendState();
+		const sendState = createInitialSendState(params.agentMode);
 		let placeholder: SessionCursorAgentCreatingEntry;
 		const creating = createSessionAgentEntry(scopeKey, instanceId, sendState, params).then(async (createdEntry) => {
 			const stillCurrent =

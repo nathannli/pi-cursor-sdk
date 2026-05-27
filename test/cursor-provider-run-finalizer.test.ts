@@ -37,6 +37,7 @@ describe("CursorRunFinalizer", () => {
 				useNativeToolReplay: false,
 				bridgeEnabled: false,
 				nativeReplayId: "replay-1",
+				agentMode: "agent",
 			},
 			contextWindowAgentId: "agent-1",
 			textDeltas: [],
@@ -46,7 +47,7 @@ describe("CursorRunFinalizer", () => {
 				poolKey: "pool-1",
 				instanceId: 1,
 				agent: { agentId: "agent-1" } as SDKAgent,
-				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
+				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0, agentMode: "agent" as const },
 				created: true,
 				commitSend: () => {
 					throw new Error("commit failed before terminal event");
@@ -127,6 +128,7 @@ describe("CursorRunFinalizer", () => {
 				useNativeToolReplay: false,
 				bridgeEnabled: false,
 				nativeReplayId: "replay-1",
+				agentMode: "agent",
 			},
 			contextWindowAgentId: "agent-1",
 			textDeltas: [],
@@ -136,7 +138,7 @@ describe("CursorRunFinalizer", () => {
 				poolKey: "pool-1",
 				instanceId: 1,
 				agent: { agentId: "agent-1" } as SDKAgent,
-				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
+				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0, agentMode: "agent" as const },
 				created: true,
 				commitSend: () => {},
 				trackRunCompletion: () => {},

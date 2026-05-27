@@ -537,7 +537,7 @@ describe("cursor session prompt assembly", () => {
 			systemPrompt: "Be helpful.",
 			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
 		};
-		const sendState = { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 };
+		const sendState = { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0, agentMode: "agent" as const };
 		const plan = planCursorSessionSend(sendState, context);
 		const prompt = buildCursorSessionSendPrompt(context, {}, plan);
 
@@ -562,6 +562,7 @@ describe("cursor session prompt assembly", () => {
 			bootstrapped: true,
 			contextFingerprint: computeCursorContextFingerprint(priorContext),
 			incrementalSendCount: 1,
+			agentMode: "agent" as const,
 		};
 		const plan = planCursorSessionSend(sendState, context);
 		const prompt = buildCursorSessionSendPrompt(context, {}, plan);
@@ -586,6 +587,7 @@ describe("cursor session prompt assembly", () => {
 				],
 			}),
 			incrementalSendCount: 0,
+			agentMode: "agent" as const,
 		};
 
 		expect(shouldBootstrapCursorContext(sendState, context)).toBe(true);
@@ -603,6 +605,7 @@ describe("cursor session prompt assembly", () => {
 			bootstrapped: true,
 			contextFingerprint: computeCursorContextFingerprint(priorContext),
 			incrementalSendCount: 0,
+			agentMode: "agent" as const,
 		};
 
 		expect(shouldBootstrapCursorContext(sendState, editedContext)).toBe(true);
@@ -686,6 +689,7 @@ describe("cursor session prompt assembly", () => {
 			bootstrapped: true,
 			contextFingerprint: computeCursorContextFingerprint(priorContext),
 			incrementalSendCount: 0,
+			agentMode: "agent" as const,
 		};
 
 		expect(shouldBootstrapCursorContext(sendState, treeContext)).toBe(true);

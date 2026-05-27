@@ -52,9 +52,17 @@ describe("extension registration and discovery", () => {
 			"cursor-no-fast",
 			expect.objectContaining({ type: "boolean", default: false }),
 		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-mode",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
 		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-fast",
 			expect.objectContaining({ description: expect.stringContaining("Toggle Cursor fast") }),
+		);
+		expect(pi.registerCommand).toHaveBeenCalledWith(
+			"cursor-mode",
+			expect.objectContaining({ description: expect.stringContaining("Set Cursor SDK conversation mode") }),
 		);
 		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-refresh-models",

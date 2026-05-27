@@ -14,7 +14,7 @@ import { getActiveContextToolNames } from "./cursor-context-tools.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import { abandonSessionCursorAgent, cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
 import { createCursorNativeReplayId } from "./cursor-provider-live-run-drain.js";
-import { getEffectiveFastForModelId } from "./cursor-state.js";
+import { getEffectiveCursorAgentMode, getEffectiveFastForModelId } from "./cursor-state.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
 import { isCursorNativeToolDisplayRuntimeEnabled } from "./cursor-native-tool-display.js";
@@ -48,6 +48,7 @@ export async function prepareCursorProviderTurn(
 
 	try {
 		const fastEnabled = getEffectiveFastForModelId(model.id);
+		const agentMode = getEffectiveCursorAgentMode();
 		const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
 		const settingSources = getEffectiveCursorSettingSources();
 
@@ -58,6 +59,7 @@ export async function prepareCursorProviderTurn(
 
 		const sessionAgentAcquireParams = {
 			apiKey: resolvedApiKey,
+			agentMode,
 			cwd,
 			modelSelection: selection,
 			settingSources,
@@ -87,6 +89,7 @@ export async function prepareCursorProviderTurn(
 			prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 		}
 		const bootstrap = sendPlan.mode === "bootstrap";
+		const sendMode = sessionAgentLease.created || sessionAgentLease.sendState.agentMode === agentMode ? undefined : agentMode;
 		const agent = sessionAgentLease.agent;
 		const bridgeRun = sessionAgentLease.bridgeRun;
 		const sendPayload = {
@@ -110,6 +113,8 @@ export async function prepareCursorProviderTurn(
 			sendState: sessionAgentLease.sendState,
 			sendPlan,
 			promptOptions,
+			agentMode,
+			sendMode,
 			activeToolNames: activeToolNames ? [...activeToolNames] : [],
 			sessionAgentScopeKey,
 			bridgeRunId: bridgeRun?.id,
@@ -161,6 +166,8 @@ export async function prepareCursorProviderTurn(
 				useNativeToolReplay,
 				bridgeEnabled: bridgeRun !== undefined,
 				nativeReplayId,
+				agentMode,
+				sendMode,
 			},
 			contextWindowAgentId: agent.agentId,
 			textDeltas,
