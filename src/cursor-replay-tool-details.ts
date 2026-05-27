@@ -200,14 +200,37 @@ function parseCursorReplayActivityDetails(
 	};
 }
 
+function isCursorReplayUnknownSourceToolName(sourceToolName: string): boolean {
+	if (sourceToolName === CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME) return false;
+	return !(CURSOR_KNOWN_NORMALIZED_TOOL_NAMES as readonly string[]).includes(sourceToolName);
+}
+
 function brandCursorReplayUnknownSourceToolName(sourceToolName: string): CursorReplayUnknownSourceToolName {
 	return sourceToolName as CursorReplayUnknownSourceToolName;
+}
+
+function parseKnownMalformedGenericFallbackDetails(
+	record: Record<string, unknown>,
+	sourceToolName: string,
+): CursorReplayToolDetails {
+	if (sourceToolName === "edit") return parseLegacyEditDetails(record);
+	if (sourceToolName === "write") return parseLegacyWriteDetails(record);
+	if (sourceToolName === "generateImage") return parseCursorReplayGenerateImageDetails(record);
+	const title = readOptionalString(record, "title")?.trim() ?? `Cursor ${sourceToolName}`;
+	return parseCursorReplayActivityDetails(
+		record,
+		resolveParseActivitySourceToolName(sourceToolName),
+		title,
+	);
 }
 
 function parseCursorReplayGenericFallbackDetails(
 	record: Record<string, unknown>,
 	sourceToolName: string,
-): CursorReplayGenericFallbackDetails {
+): CursorReplayToolDetails {
+	if (!isCursorReplayUnknownSourceToolName(sourceToolName)) {
+		return parseKnownMalformedGenericFallbackDetails(record, sourceToolName);
+	}
 	return {
 		variant: "genericFallback",
 		sourceToolName: brandCursorReplayUnknownSourceToolName(sourceToolName),
@@ -226,6 +249,14 @@ function resolveParseActivitySourceToolName(sourceToolName: string): CursorRepla
 	return isCursorReplayActivitySourceToolName(sourceToolName)
 		? sourceToolName
 		: CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME;
+}
+
+/** Maps incomplete or non-activity replay source names onto activity-card source tool names. */
+export function resolveIncompleteReplayActivitySourceToolName(
+	sourceToolName: string,
+): CursorReplayActivitySourceToolName {
+	if (sourceToolName === "generateImage") return CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME;
+	return resolveParseActivitySourceToolName(sourceToolName);
 }
 
 function hasNativeEditChanges(record: Record<string, unknown>): boolean {
@@ -256,9 +287,11 @@ function parseLegacyWriteDetails(record: Record<string, unknown>): CursorReplayT
 function parseByVariant(record: Record<string, unknown>, variant: string): CursorReplayToolDetails | undefined {
 	switch (variant) {
 		case "nativeEdit":
+			return parseCursorReplayNativeEditDetails(record);
 		case "edit":
 			return parseLegacyEditDetails(record);
 		case "nativeWrite":
+			return parseCursorReplayNativeWriteDetails(record);
 		case "write":
 			return parseLegacyWriteDetails(record);
 		case "generateImage":

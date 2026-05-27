@@ -99,6 +99,58 @@ describe("cursor replay tool details contract", () => {
 		expect(parsed).not.toHaveProperty("untrusted");
 	});
 
+	it("parses explicit nativeEdit and nativeWrite variants without title reclassification", () => {
+		const edit = parseCursorReplayToolDetails({
+			variant: "nativeEdit",
+			title: "Cursor edit",
+			path: "src/a.ts",
+			diffString: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new",
+			linesAdded: 1,
+		});
+		const write = parseCursorReplayToolDetails({
+			variant: "nativeWrite",
+			title: "Cursor write",
+			path: "out.txt",
+			linesCreated: 3,
+		});
+
+		expect(edit).toMatchObject({ variant: "nativeEdit", path: "src/a.ts" });
+		expect(edit).not.toHaveProperty("title");
+		expect(write).toMatchObject({ variant: "nativeWrite", path: "out.txt" });
+		expect(write).not.toHaveProperty("title");
+	});
+
+	it("routes known source names on genericFallback away from unknown branding", () => {
+		const edit = parseCursorReplayToolDetails({
+			variant: "genericFallback",
+			sourceToolName: "edit",
+			path: "src/a.ts",
+			diffString: "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new",
+			linesAdded: 1,
+		});
+		const write = parseCursorReplayToolDetails({
+			variant: "genericFallback",
+			sourceToolName: "write",
+			path: "out.txt",
+			linesCreated: 2,
+		});
+		const image = parseCursorReplayToolDetails({
+			variant: "genericFallback",
+			sourceToolName: "generateImage",
+			imagePath: "/tmp/out.png",
+		});
+		const read = parseCursorReplayToolDetails({
+			variant: "genericFallback",
+			sourceToolName: "read",
+			summary: "done",
+		});
+
+		expect(edit).toMatchObject({ variant: "nativeEdit" });
+		expect(write).toMatchObject({ variant: "nativeWrite" });
+		expect(image).toMatchObject({ variant: "generateImage" });
+		expect(read).toMatchObject({ variant: "activity", sourceToolName: "read", title: "Cursor read" });
+	});
+
 	it("parses generic fallback details without a title", () => {
 		const parsed = parseCursorReplayToolDetails({
 			sourceToolName: "futureTool",
