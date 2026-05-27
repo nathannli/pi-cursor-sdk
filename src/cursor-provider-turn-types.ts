@@ -7,7 +7,6 @@ import type {
 	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import type { SDKAgent, SDKImage } from "@cursor/sdk";
-import type { CursorPiToolBridgeRun } from "./cursor-pi-tool-bridge.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import type { SessionCursorAgentLease } from "./cursor-session-agent.js";
 import type { planCursorSessionSend } from "./cursor-session-agent.js";
@@ -29,33 +28,51 @@ export interface CursorProviderTurnSendPayload {
 	images?: SDKImage[];
 }
 
-export interface CursorProviderTurnPrepared {
-	cwd: string;
-	sessionAgentScopeKey: string;
-	restoreCursorSdkOutputFilter: () => void;
-	sessionAgentLease: SessionCursorAgentLease;
-	agent: SDKAgent;
-	bridgeRun: CursorPiToolBridgeRun | undefined;
+export interface CursorProviderTurnSendMeta {
 	sendPlan: ReturnType<typeof planCursorSessionSend>;
 	prompt: CursorPrompt;
-	sendPayload: CursorProviderTurnSendPayload;
 	bootstrap: boolean;
 	promptInputTokens: number;
 	useNativeToolReplay: boolean;
-	activeToolNames: ReadonlySet<string> | undefined;
+	bridgeEnabled: boolean;
 	nativeReplayId: string;
-	textDeltas: string[];
+}
+
+export interface CursorProviderTurnSendRequest {
+	agent: SDKAgent;
+	cwd: string;
+	payload: CursorProviderTurnSendPayload;
+	meta: CursorProviderTurnSendMeta;
 	liveRun: CursorLiveRun | undefined;
 	turnCoordinator: CursorSdkTurnCoordinator;
 }
 
+export interface CursorProviderTurnFinalizeInputs {
+	cwd: string;
+	contextWindowAgentId: string;
+	turnCoordinator: CursorSdkTurnCoordinator;
+	textDeltas: string[];
+	liveRun: CursorLiveRun | undefined;
+}
+
+export interface CursorProviderTurnTerminalResources {
+	sessionAgentScopeKey: string;
+	sessionAgentLease: SessionCursorAgentLease;
+	bootstrap: boolean;
+	promptInputTokens: number;
+	liveRun: CursorLiveRun | undefined;
+	turnCoordinator: CursorSdkTurnCoordinator;
+	restoreCursorSdkOutputFilter: () => void;
+}
+
 export interface CursorProviderTurnPrepareResult {
-	prepared: CursorProviderTurnPrepared;
+	sendRequest: CursorProviderTurnSendRequest;
+	finalizeInputs: CursorProviderTurnFinalizeInputs;
+	terminalResources: CursorProviderTurnTerminalResources;
 }
 
 export interface CursorProviderTurnSend {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
-	prepared: CursorProviderTurnPrepared;
 	cursorAgentMessageOffset: number | undefined;
 }
 

@@ -358,7 +358,7 @@ function buildWritePiToolDisplay(context: ToolDisplayContext): CursorPiToolDispl
 	};
 }
 
-const TOOL_DISPLAY_SPECS: Record<CursorNormalizedToolName, ToolDisplaySpec> = {
+const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplaySpec> = {
 	read: {
 		formatTranscript: ({ args, result, options }) => formatRead(args, result, options),
 		buildPiToolDisplay: ({ args, result, options }) => {
@@ -615,17 +615,11 @@ const TOOL_DISPLAY_SPECS: Record<CursorNormalizedToolName, ToolDisplaySpec> = {
 	},
 };
 
-export const CURSOR_TOOL_DISPLAY_SPEC_KEYS = Object.keys(TOOL_DISPLAY_SPECS) as CursorNormalizedToolName[];
+export const CURSOR_TOOL_DISPLAY_SPEC_KEYS = CURSOR_KNOWN_NORMALIZED_TOOL_NAMES;
 
-function assertRegistryDisplaySpecCompleteness(): void {
-	const registryKeys = new Set(CURSOR_KNOWN_NORMALIZED_TOOL_NAMES);
-	const displayKeys = new Set(CURSOR_TOOL_DISPLAY_SPEC_KEYS);
-	if (registryKeys.size !== displayKeys.size || ![...registryKeys].every((key) => displayKeys.has(key))) {
-		throw new Error("TOOL_DISPLAY_SPECS keys must match CURSOR_KNOWN_NORMALIZED_TOOL_NAMES");
-	}
-}
-
-assertRegistryDisplaySpecCompleteness();
+const TOOL_DISPLAY_SPECS = Object.fromEntries(
+	CURSOR_KNOWN_NORMALIZED_TOOL_NAMES.map((name) => [name, TOOL_DISPLAY_IMPLEMENTATIONS[name]]),
+) as Record<CursorNormalizedToolName, ToolDisplaySpec>;
 
 function getToolDisplaySpec(name: string): ToolDisplaySpec | undefined {
 	if (Object.hasOwn(TOOL_DISPLAY_SPECS, name)) return TOOL_DISPLAY_SPECS[name as CursorNormalizedToolName];

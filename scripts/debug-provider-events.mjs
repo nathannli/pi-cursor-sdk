@@ -129,6 +129,25 @@ function readCaptureSummary(artifactDir, stderr) {
 	return undefined;
 }
 
+function assertCompleteCaptureSummary(captureSummary, artifactDir, apiKey) {
+	if (!captureSummary?.artifactDir) {
+		fail(`missing summary.json in ${artifactDir}`, [apiKey]);
+	}
+	if (!captureSummary.artifacts || typeof captureSummary.artifacts !== "object") {
+		fail(`summary.json missing artifacts in ${artifactDir}`, [apiKey]);
+	}
+	if (!captureSummary.counts || typeof captureSummary.counts !== "object") {
+		fail(`summary.json missing counts in ${artifactDir}`, [apiKey]);
+	}
+	if (typeof captureSummary.elapsedMs !== "number") {
+		fail(`summary.json missing elapsedMs in ${artifactDir}`, [apiKey]);
+	}
+	if (typeof captureSummary.waitResultRecorded !== "boolean") {
+		fail(`summary.json missing waitResultRecorded in ${artifactDir}`, [apiKey]);
+	}
+	return captureSummary;
+}
+
 export function backfillPiSessionSnapshot(captureSummary, artifactDir, sessionDir) {
 	const sessionFile = captureSummary?.piSessionSnapshot?.sessionFile ?? captureSummary?.sessionFile;
 	if (!captureSummary || captureSummary.piSessionSnapshot?.copied || !sessionFile || !existsSync(sessionFile)) {
@@ -234,10 +253,11 @@ export async function runDebugProviderEvents(args) {
 			fail(`pi exited ${exitCode}\nstderr=${scrubSensitiveText(stderr.slice(-2000), args.apiKey)}`, [args.apiKey]);
 		}
 
-		const captureSummary = backfillPiSessionSnapshot(readCaptureSummary(artifactDir, stderr), artifactDir, sessionDir);
-		if (!captureSummary?.artifactDir) {
-			fail(`missing summary.json in ${artifactDir}`, [args.apiKey]);
-		}
+		const captureSummary = assertCompleteCaptureSummary(
+			backfillPiSessionSnapshot(readCaptureSummary(artifactDir, stderr), artifactDir, sessionDir),
+			artifactDir,
+			args.apiKey,
+		);
 
 		return {
 			artifactDir: captureSummary.artifactDir,

@@ -1,26 +1,26 @@
 import { CursorLiveRunAbortError } from "./cursor-live-run-coordinator.js";
 import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
-import { getCursorAgentMessageOffset } from "./cursor-provider-turn-finalize.js";
+import { getCursorAgentMessageOffset } from "./cursor-provider-turn-message-offset.js";
 import type { installCursorSdkAbortErrorSuppression } from "./cursor-sdk-abort-error-guard.js";
 import type {
-	CursorProviderTurnPrepared,
 	CursorProviderTurnRunnerParams,
+	CursorProviderTurnSendRequest,
 	CursorProviderTurnSendResult,
 } from "./cursor-provider-turn-types.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 
 export interface SendCursorProviderTurnParams {
 	params: CursorProviderTurnRunnerParams;
-	prepared: CursorProviderTurnPrepared;
+	sendRequest: CursorProviderTurnSendRequest;
 	sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	sdkAbortErrorSuppression: ReturnType<typeof installCursorSdkAbortErrorSuppression>;
 	throwIfAborted: () => void;
 }
 
 export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnParams): Promise<CursorProviderTurnSendResult> {
-	const { params, prepared, sdkEventDebug, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
+	const { params, sendRequest, sdkEventDebug, sdkAbortErrorSuppression, throwIfAborted } = sendParams;
 	const { options } = params;
-	const { agent, turnCoordinator, sendPlan, bootstrap, liveRun, prompt, sendPayload, cwd } = prepared;
+	const { agent, turnCoordinator, liveRun, cwd, payload, meta } = sendRequest;
 
 	let completed = false;
 	let sdkRun: Awaited<ReturnType<typeof agent.send>> | null = null;
@@ -42,20 +42,20 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		const cursorAgentMessageOffset = await getCursorAgentMessageOffset(agent.agentId, cwd, sdkEventDebug);
 		throwIfAborted();
 		sdkEventDebug?.recordSendMeta({
-			mode: sendPlan.mode,
-			reason: sendPlan.reason,
-			resetAgent: sendPlan.resetAgent,
-			bootstrap,
-			promptText: prompt.text,
-			imageCount: prompt.images.length,
-			useNativeToolReplay: prepared.useNativeToolReplay,
-			bridgeEnabled: prepared.bridgeRun !== undefined,
-			nativeReplayId: prepared.nativeReplayId,
-			promptInputTokens: prepared.promptInputTokens,
+			mode: meta.sendPlan.mode,
+			reason: meta.sendPlan.reason,
+			resetAgent: meta.sendPlan.resetAgent,
+			bootstrap: meta.bootstrap,
+			promptText: meta.prompt.text,
+			imageCount: meta.prompt.images.length,
+			useNativeToolReplay: meta.useNativeToolReplay,
+			bridgeEnabled: meta.bridgeEnabled,
+			nativeReplayId: meta.nativeReplayId,
+			promptInputTokens: meta.promptInputTokens,
 		});
-		sdkEventDebug?.recordSendPayload(sendPayload);
-		sdkEventDebug?.recordProviderEvent("agent_send_start", sendPayload);
-		const run = await agent.send(sendPayload, {
+		sdkEventDebug?.recordSendPayload(payload);
+		sdkEventDebug?.recordProviderEvent("agent_send_start", payload);
+		const run = await agent.send(payload, {
 			onDelta: (args) => {
 				sdkEventDebug?.recordOnDelta(args.update);
 				turnCoordinator.handleDelta(args.update);
@@ -87,7 +87,7 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 
 		completed = true;
 		return {
-			send: { run, prepared, cursorAgentMessageOffset },
+			send: { run, cursorAgentMessageOffset },
 			abortRegistration,
 		};
 	} finally {

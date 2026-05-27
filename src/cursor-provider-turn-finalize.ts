@@ -1,9 +1,6 @@
 import { createAgentPlatform } from "@cursor/sdk";
 import type { SDKAgent } from "@cursor/sdk";
-import {
-	countCursorAgentMessages,
-	loadCursorTranscriptWebToolCallsAfterOffset,
-} from "./cursor-agent-message-web-tools.js";
+import { loadCursorTranscriptWebToolCallsAfterOffset } from "./cursor-agent-message-web-tools.js";
 import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-window-cache.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import type { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
@@ -12,7 +9,7 @@ import {
 	resolveCursorRunOutcome,
 	type CursorRunOutcome,
 } from "./cursor-provider-run-outcome.js";
-import type { CursorProviderTurnPrepared } from "./cursor-provider-turn-types.js";
+import type { CursorProviderTurnFinalizeInputs } from "./cursor-provider-turn-types.js";
 
 export async function cacheSdkContextWindow(agentId: string, modelId: string): Promise<void> {
 	try {
@@ -27,7 +24,7 @@ export async function cacheSdkContextWindow(agentId: string, modelId: string): P
 
 export interface BuildCursorRunOutcomeParams {
 	waitResult: Awaited<ReturnType<Awaited<ReturnType<SDKAgent["send"]>>["wait"]>>;
-	prepared: CursorProviderTurnPrepared;
+	finalizeInputs: CursorProviderTurnFinalizeInputs;
 	signal?: AbortSignal;
 	runResultFallback?: string;
 	resolvedApiKey?: string;
@@ -35,8 +32,8 @@ export interface BuildCursorRunOutcomeParams {
 }
 
 export function buildCursorRunOutcomeFromWait(params: BuildCursorRunOutcomeParams): CursorRunOutcome {
-	const { waitResult, prepared } = params;
-	const { turnCoordinator, textDeltas, liveRun } = prepared;
+	const { waitResult, finalizeInputs } = params;
+	const { turnCoordinator, textDeltas, liveRun } = finalizeInputs;
 	return resolveCursorRunOutcome({
 		waitResult,
 		signalAborted: params.signal?.aborted,
@@ -77,7 +74,7 @@ async function replayCursorTranscriptWebToolCalls(
 
 export interface AwaitFinalizeCursorRunOutcomeParams {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
-	prepared: CursorProviderTurnPrepared;
+	finalizeInputs: CursorProviderTurnFinalizeInputs;
 	cursorAgentMessageOffset: number | undefined;
 	modelId: string;
 	signal?: AbortSignal;
@@ -97,7 +94,7 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 	params.sdkEventDebug?.recordWaitResult(waitResult);
 	const outcome = buildCursorRunOutcomeFromWait({
 		waitResult,
-		prepared: params.prepared,
+		finalizeInputs: params.finalizeInputs,
 		signal: params.signal,
 		runResultFallback: params.runResultFallback,
 		resolvedApiKey: params.resolvedApiKey,
@@ -106,29 +103,16 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 	if (isCursorRunFinishedSuccessfully(outcome)) {
 		await replayCursorTranscriptWebToolCalls(
 			params.run.agentId,
-			params.prepared.cwd,
+			params.finalizeInputs.cwd,
 			params.cursorAgentMessageOffset,
-			params.prepared.turnCoordinator,
+			params.finalizeInputs.turnCoordinator,
 			params.sdkEventDebug,
 		);
 	}
-	params.prepared.turnCoordinator.discardIncompleteStartedToolCalls(outcome.incompleteTools);
+	params.finalizeInputs.turnCoordinator.discardIncompleteStartedToolCalls(outcome.incompleteTools);
 	await params.sdkEventDebug?.captureRunArtifacts(params.run);
 	if (params.cacheContextWindow !== false) {
 		await cacheSdkContextWindow(params.contextWindowAgentId ?? params.run.agentId, params.modelId);
 	}
 	return outcome;
-}
-
-export async function getCursorAgentMessageOffset(
-	agentId: string,
-	cwd: string,
-	sdkEventDebug: CursorSdkEventDebugSink | undefined,
-): Promise<number | undefined> {
-	try {
-		return await countCursorAgentMessages(agentId, cwd);
-	} catch (error) {
-		sdkEventDebug?.recordError("cursor_agent_message_count", error);
-		return undefined;
-	}
 }
