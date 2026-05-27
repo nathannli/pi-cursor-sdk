@@ -134,7 +134,7 @@ Use a short written plan before multi-file behavior changes, SDK integration cha
 - `PI_CURSOR_SDK_EVENT_DEBUG=1` and `npm run debug:provider-events` write raw local artifacts that may include prompts, tool args/results, local paths, or secrets; keep them under gitignored `.debug/`, do not print or commit them, and keep run-scoped debug state explicit rather than process-global.
 - Ambient Cursor settings/rules loading is enabled by default through `PI_CURSOR_SETTING_SOURCES=all`; keep SDK startup log filtering intact so settings/skills output does not corrupt pi's TUI.
 - Live `pi`/Cursor smoke tests may call external services and require Cursor auth in `~/.pi/agent/auth.json` and/or `CURSOR_API_KEY`; run them for Cursor provider/runtime changes. If auth is unavailable, report live smoke as release-blocked instead of skipped-ready. See `docs/cursor-testing-lessons.md` for isolated harness auth seeding.
-- For Cursor provider/runtime changes, follow `docs/cursor-live-smoke-checklist.md`. Assume every runtime surface is in scope. Use real `pi -e . --cursor-no-fast --model cursor/composer-2.5` invocations, a temporary `--session-dir`, manual observation, and no secret printing. Do not mark release-ready with optional/deferred/mostly-passing smoke items outstanding.
+- For Cursor provider/runtime changes, follow `docs/cursor-live-smoke-checklist.md`. Assume every runtime surface is in scope. Use real `pi -e . --cursor-no-fast --model cursor/composer-2.5` invocations, a temporary `--session-dir`, manual observation, and no secret printing. For visual/TUI card-color validation, the canonical path is offscreen PTY capture rendered through a browser/xterm view and screenshotted with `agent_browser` when available (or Playwright directly outside the harness), plus JSONL inspection; see `docs/cursor-native-tool-visual-audit.md`. Do not mark release-ready with optional/deferred/mostly-passing smoke items outstanding.
 
 ## PR review workflow (maintainer)
 
@@ -150,7 +150,7 @@ When the user requests a PR review (including thermo-nuclear / deep maintainabil
 Before **every commit** that touches Cursor provider/runtime, prompt/session send policy, agents-context dedup, bridge, replay, or related extension wiring:
 
 - Run real `pi` against the local extension: `pi -e . --cursor-no-fast --model cursor/composer-2.5` with a fresh `--session-dir` under `/tmp` (see `docs/cursor-live-smoke-checklist.md`).
-- Prefer `npm run smoke:live` (`scripts/tmux-live-smoke.sh`) or the relevant checklist subset via tmux when TUI observation matters; use `npm run smoke:isolated` for full pre-release packaging + live preflight when appropriate.
+- Prefer `npm run smoke:live` (`scripts/tmux-live-smoke.sh`) or the relevant checklist subset via tmux when TUI observation matters; for card/color claims, capture ANSI from the offscreen TUI, render it through the canonical browser/xterm path, save PNG evidence, and inspect JSONL. Use `npm run smoke:isolated` for full pre-release packaging + live preflight when appropriate.
 - If Cursor auth (`~/.pi/agent/auth.json` or `CURSOR_API_KEY`) is unavailable, **do not commit**—report blocked, not skipped-ready.
 - Unit tests (`npm test`, `npm run typecheck`) are necessary but not sufficient for these commits.
 

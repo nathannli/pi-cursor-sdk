@@ -119,7 +119,7 @@ Pass criteria:
 
 ## 4. Mandatory visual card/color rendering check
 
-This cutover requires visual TUI inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, a stable `--session-id`, Cursor SDK `plan` mode, and native replay enabled:
+This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, a stable `--session-id`, Cursor SDK `plan` mode, and native replay enabled:
 
 ```bash
 VISUAL_SESSION="pi-cursor-sdk-1014-visual-$(date +%s)"
@@ -136,21 +136,25 @@ Run these prompts interactively:
 4. `Stay in Cursor plan mode. Create a concise numbered plan for adding a tiny unit test, but do not edit files.`
 5. `Try to read .debug/visual-smoke/does-not-exist.txt and explain the result.`
 
-Capture evidence without committing raw artifacts:
+Capture and render evidence without committing raw artifacts:
 
 ```bash
 tmux capture-pane -e -p -S -3000 -t "$VISUAL_SESSION" > "$VISUAL_DIR/visual.ansi"
+tmux capture-pane -p -S -3000 -t "$VISUAL_SESSION" > "$VISUAL_DIR/visual.txt"
 ```
+
+Then render the ANSI/text through the browser-backed terminal renderer described in [Cursor Native Tool Visual Audit Workflow](./cursor-native-tool-visual-audit.md) and save PNG screenshots. When running in the pi agent harness, open the generated HTML with `agent_browser` and save screenshots from the rendered page. Outside the harness, use Playwright directly against the same generated HTML/xterm view.
 
 Pass criteria:
 
+- PNG screenshots exist for the inspected card categories, not only text/JSONL logs.
 - Native-looking read/search/list/shell/write/edit cards use intended pi card styling.
 - Shell success is not red/error-styled; stdout is readable.
 - Edit/diff previews show red/green added/removed colors and readable paths.
 - Neutral Cursor plan/todo/task/mode activity is neutral, not red, and does not mutate pi plan/todo state.
 - True failures are visible, bounded, and distinct from neutral activity.
 - Footer/status is readable in Cursor `plan` mode and combines with fast when applicable.
-- Evidence paths for ANSI capture, screenshots/recordings if used, and debug artifact directories are recorded in [Cursor native tool visual audit](./cursor-native-tool-visual-audit.md) or the release handoff.
+- Evidence paths for ANSI capture, rendered PNG screenshots, JSONL, and debug artifact directories are recorded in [Cursor native tool visual audit](./cursor-native-tool-visual-audit.md) or the release handoff.
 - No secrets, raw debug artifacts, or scratch output are committed.
 
 ## 5. Cursor SDK plan-mode provider check

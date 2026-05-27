@@ -1,8 +1,8 @@
 # Cursor Native Tool Visual Audit Workflow
 
-This workflow verifies Cursor SDK tool replay the way a human sees it in pi's interactive TUI, without stealing macOS focus.
+This workflow is the canonical repo path for verifying Cursor SDK tool replay the way a human sees it in pi's interactive TUI, without stealing macOS focus.
 
-Use it before accepting replay-card commits or PRs. Text logs and JSONL are necessary, but they are not enough when the claim is visual parity: always keep before/after PNGs for the exact prompt.
+Use it before accepting replay-card commits or PRs, and for every Cursor provider/runtime release where TUI card/color behavior could regress. Text logs and JSONL are necessary, but they are not enough when the claim is visual parity: always keep PNGs for the exact prompt, and keep before/after PNGs when reviewing a rendering change.
 
 Current cutover baseline: pi 0.76.0+, exact `@cursor/sdk@1.0.14`, local validation packages `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` at 0.76.0.
 
@@ -40,24 +40,24 @@ Use this workflow when changing or reviewing:
 
 Do not use this for ordinary unit-only logic changes.
 
-## Why this workflow exists
+## Canonical visual inspection path
 
 Earlier manual verification used a visible Terminal window plus `screencapture`. That worked, but it stole system focus and made it easy for the user to type into the audit window by accident.
 
-The preferred workflow is now offscreen:
+The canonical workflow is now offscreen and browser-rendered:
 
 1. Spawn `pi` in a pseudo-terminal at a fixed size.
 2. Feed the prompt programmatically.
-3. Save raw ANSI output and plain text output.
-4. Render the terminal buffer through xterm.js in headless Playwright.
-5. Save a PNG screenshot.
+3. Save raw ANSI output and stripped plain text output.
+4. Render the terminal buffer through a browser-backed terminal renderer, preferably xterm.js.
+5. Save PNG screenshots with `agent_browser` when the harness is available, or Playwright directly when running outside that harness.
 6. Inspect the session JSONL for exact persisted `toolCall` / `toolResult` data.
 
-This gives human-like visual evidence without activating Terminal, iTerm, or a browser window.
+This is the best default release path because it exercises the real pi TUI, captures card class/color/label/order/truncation issues before users see them, avoids desktop focus stealing, and leaves reviewable artifacts. Use visible Terminal/Ghostty screenshots only for terminal-specific or pixel-level bugs that cannot be judged through browser-rendered ANSI.
 
 ## Tool stack
 
-Install the harness outside this repo so generated assets and temporary dependencies do not pollute commits:
+Install the renderer harness outside this repo so generated assets and temporary dependencies do not pollute commits:
 
 ```bash
 HARNESS=/tmp/pi-visual-harness
@@ -70,6 +70,8 @@ npm rebuild node-pty
 ```
 
 `npm rebuild node-pty` is useful after Node upgrades; without it, `node-pty` may fail with `posix_spawnp failed`.
+
+When running inside the pi agent harness, `agent_browser` is the preferred screenshot tool for rendered HTML/ANSI output because it can open local files, verify saved artifacts, and capture exact evidence paths. Outside the harness, use Playwright directly against the same generated HTML/xterm view.
 
 ## Runner contract
 
@@ -86,7 +88,8 @@ A runner script should:
 - Save:
   - `<label>.ansi` raw terminal bytes.
   - `<label>.txt` stripped text for quick search.
-  - `<label>.png` rendered xterm screenshot.
+  - `<label>.html` browser-renderable terminal output.
+  - `<label>.png` rendered browser/xterm screenshot captured with `agent_browser` or Playwright.
   - `<label>.jsonl.path` pointing to the latest pi session JSONL.
 - Kill the PTY child after capture.
 - Check for leftover commands when prompts can background work, especially shell timeout tests.
@@ -144,7 +147,7 @@ node /tmp/pi-visual-harness/run-pi-visual.mjs \
   --out-dir /tmp/pi-visual-harness/review-current
 ```
 
-For review, create a simple HTML/PNG gallery that places `before-*.png` and `after-*.png` side by side. Keep the generated gallery in `/tmp` unless explicitly asked to commit visual artifacts.
+For review, create a simple HTML/PNG gallery that places `before-*.png` and `after-*.png` side by side. Keep the generated gallery in `/tmp` unless explicitly asked to commit visual artifacts. In agent-harness runs, use `agent_browser` to open that gallery or the generated single-run HTML and save verified screenshots.
 
 ## JSONL inspection
 
@@ -183,7 +186,7 @@ PY
 
 ## Safety rules
 
-- Prefer the offscreen PTY renderer. Do not use `osascript`, visible Terminal windows, or `screencapture` unless a user explicitly asks for a real desktop screenshot.
+- Prefer the canonical offscreen PTY plus browser-rendered screenshot path. Do not use `osascript`, visible Terminal windows, or `screencapture` unless a user explicitly asks for a real desktop screenshot or the bug is terminal-specific.
 - Keep generated screenshots, HTML galleries, ANSI logs, and temporary harness dependencies out of the repo by default.
 - Use short, deterministic prompts with bounded wait times.
 - For timeout/background prompts, always check for leftovers:
@@ -193,14 +196,16 @@ ps -axo pid,etime,command | rg "sleep 2|should-not-print|<audit-session-label>" 
 ```
 
 - If the model uses a different tool than requested, record it as model/provider behavior unless JSONL shows replay lost or misrendered a completed Cursor tool event.
-- Visual output can differ slightly from macOS Terminal fonts because xterm.js renders offscreen. Treat this workflow as evidence for card class, color state, labels, ordering, truncation, and content. Use a real terminal screenshot only for pixel-level terminal-specific bugs.
+- Visual output can differ slightly from macOS Terminal fonts because browser/xterm renderers run offscreen. Treat this workflow as authoritative release evidence for card class, color state, labels, ordering, truncation, footer/status readability, and content. Use a real terminal screenshot only for pixel-level terminal-specific bugs.
 
 ## Required evidence before commit or merge
 
 Before accepting a replay-card change, provide:
 
-- Before and after PNG paths.
+- Browser-rendered PNG paths captured from offscreen ANSI output.
+- Before and after PNG paths when comparing a rendering change.
 - The prompt used for each pair.
+- ANSI/text/HTML paths when helpful for review.
 - JSONL paths for each run.
 - A short statement of what changed visually.
 - The relevant JSONL `toolCall` / `toolResult` facts.
