@@ -3,6 +3,7 @@ import {
 	CURSOR_REPLAY_ACTIVITY_TOOL_NAME,
 	getCursorReplayActivityLabelKey,
 	getCursorReplayActivityTitle,
+	getCursorReplayCallSummary,
 	getCursorReplayDisplayLabel,
 	type CursorNormalizedToolName,
 	type CursorReplayActivityToolName,
@@ -70,6 +71,7 @@ import {
 	getGlobBody,
 	getGrepBody,
 	getLsBody,
+	getMcpResultPreview,
 	getReadLintDiagnostics,
 	getReadLintPaths,
 	getShellOutput,
@@ -77,12 +79,6 @@ import {
 	getTodoItems,
 	getTodoTotalCount,
 	inferImageMimeType,
-	summarizePlan,
-	summarizeMcp,
-	summarizeRecordScreen,
-	summarizeSemSearch,
-	summarizeTask,
-	summarizeTodos,
 	usesLocalReadPreview,
 } from "./cursor-transcript-tool-formatters.js";
 import { extractWebFetchTarget, extractWebSearchQuery } from "./cursor-web-tool-activity.js";
@@ -99,13 +95,11 @@ type NeutralActivityReplayToolName = Exclude<CursorReplayActivityToolName, "edit
 
 interface ActivityReplaySpec {
 	buildActivityArgs: (context: ToolDisplayContext) => Record<string, unknown>;
-	buildActivitySummary: (context: ToolDisplayContext) => string | undefined;
 	buildDetails: (context: ToolDisplayContext, contentText: string) => CursorReplayActivityDetailFields;
 }
 
 interface GenerateImageReplaySpec {
 	buildActivityArgs: (context: ToolDisplayContext) => Record<string, unknown>;
-	buildActivitySummary: (context: ToolDisplayContext) => string | undefined;
 	buildDetails: (context: ToolDisplayContext, contentText: string) => CursorReplayGenerateImageDetailFields;
 }
 
@@ -139,6 +133,32 @@ function buildCursorActivityDisplayArgs(
 	};
 }
 
+function buildRegistryReplaySummary(
+	labelKey: CursorReplayLegacyToolName,
+	args: Record<string, unknown>,
+): string | undefined {
+	return getCursorReplayCallSummary(labelKey, args);
+}
+
+function getStringArray(args: Record<string, unknown>, key: string): string[] {
+	const value = args[key];
+	return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function buildTodoReplayArgs(
+	args: Record<string, unknown>,
+	result: NormalizedResult,
+): Record<string, unknown> {
+	const todos = getTodoItems(args, result);
+	const totalCount = getTodoTotalCount(args, result, todos);
+	const completedCount = todos.filter((todo) => todo.status === "completed").length;
+	const inProgressCount = todos.filter((todo) => todo.status === "inProgress").length;
+	const pendingCount = todos.filter((todo) => todo.status === "pending").length;
+	return todos.length > 0
+		? { totalCount, completedCount, inProgressCount, pendingCount }
+		: { totalCount };
+}
+
 function buildReplaySummaryDisplay(
 	toolName: string,
 	args: Record<string, unknown>,
@@ -148,9 +168,7 @@ function buildReplaySummaryDisplay(
 ): CursorPiToolDisplay {
 	const isError = result.status === "error";
 	const expandedText = details.expandedText ?? contentText;
-	const summary = isError
-		? details.summary
-		: (details.summary ?? firstNonEmptyLine(contentText));
+	const summary = details.summary;
 	return {
 		toolName,
 		args,
@@ -174,13 +192,11 @@ function buildActivityReplayDisplay(
 	const spec = TOOL_DISPLAY_SPECS[sourceToolName];
 	const activity = spec.activityReplay;
 	if (!activity) throw new Error(`Missing activity replay spec for ${sourceToolName}`);
-	const activityTitle = getCursorReplayDisplayLabel(requireReplayActivityLabelKey(sourceToolName));
-	const activitySummary = activity.buildActivitySummary(context);
-	const activityArgs = buildCursorActivityDisplayArgs(
-		activity.buildActivityArgs(context),
-		activityTitle,
-		activitySummary,
-	);
+	const labelKey = requireReplayActivityLabelKey(sourceToolName);
+	const activityTitle = getCursorReplayDisplayLabel(labelKey);
+	const replayArgs = activity.buildActivityArgs(context);
+	const activitySummary = buildRegistryReplaySummary(labelKey, replayArgs);
+	const activityArgs = buildCursorActivityDisplayArgs(replayArgs, activityTitle, activitySummary);
 	const contentText = spec.formatTranscript(context).trimEnd();
 	const activityFields = activity.buildDetails(context, contentText);
 	const details = assembleCursorReplayActivityDetails(
@@ -198,13 +214,11 @@ function buildGenerateImageReplayDisplay(context: ToolDisplayContext): CursorPiT
 	const spec = TOOL_DISPLAY_SPECS.generateImage;
 	const replay = spec.generateImageReplay;
 	if (!replay) throw new Error("Missing generate image replay spec");
-	const activityTitle = getCursorReplayDisplayLabel(requireReplayActivityLabelKey("generateImage"));
-	const activitySummary = replay.buildActivitySummary(context);
-	const activityArgs = buildCursorActivityDisplayArgs(
-		replay.buildActivityArgs(context),
-		activityTitle,
-		activitySummary,
-	);
+	const labelKey = requireReplayActivityLabelKey("generateImage");
+	const activityTitle = getCursorReplayDisplayLabel(labelKey);
+	const replayArgs = replay.buildActivityArgs(context);
+	const activitySummary = buildRegistryReplaySummary(labelKey, replayArgs);
+	const activityArgs = buildCursorActivityDisplayArgs(replayArgs, activityTitle, activitySummary);
 	const contentText = spec.formatTranscript(context).trimEnd();
 	const details = assembleCursorReplayGenerateImageDetails(
 		replay.buildDetails(context, contentText),
@@ -437,17 +451,12 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 				const displayPath = typeof args.path === "string" ? formatDisplayPath(args.path, options.cwd) : undefined;
 				return displayPath ? { path: displayPath } : {};
 			},
-			buildActivitySummary: ({ args, options }) => {
-				const displayPath = typeof args.path === "string" ? formatDisplayPath(args.path, options.cwd) : undefined;
-				return displayPath ?? "file";
-			},
 			buildDetails: ({ args, result, options }) => {
 				const displayPath = typeof args.path === "string" ? formatDisplayPath(args.path, options.cwd) : undefined;
 				const value = asRecord(result.value);
 				return {
 					path: displayPath,
 					fileSize: getNumber(value, "fileSize"),
-					summary: result.status === "error" ? undefined : displayPath ? `deleted ${displayPath}` : "deleted file",
 				};
 			},
 		},
@@ -461,11 +470,6 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 				const diagnosticCount = getReadLintDiagnostics(result, options).length;
 				return { paths, diagnosticCount };
 			},
-			buildActivitySummary: ({ args, result, options }) => {
-				const paths = getReadLintPaths(args, result, options);
-				const diagnosticCount = getReadLintDiagnostics(result, options).length;
-				return `${diagnosticCount} diagnostic${diagnosticCount === 1 ? "" : "s"}${paths.length > 0 ? ` in ${paths.join(", ")}` : ""}`;
-			},
 			buildDetails: () => ({}),
 		},
 	},
@@ -473,11 +477,7 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 		formatTranscript: ({ args, result, options }) => formatTodos(args, result, options, "updateTodos"),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("updateTodos", context),
 		activityReplay: {
-			buildActivityArgs: ({ args, result }) => {
-				const todos = getTodoItems(args, result);
-				return { totalCount: getTodoTotalCount(args, result, todos) };
-			},
-			buildActivitySummary: ({ args, result }) => summarizeTodos(args, result),
+			buildActivityArgs: ({ args, result }) => buildTodoReplayArgs(args, result),
 			buildDetails: () => ({}),
 		},
 	},
@@ -486,10 +486,13 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("createPlan", context),
 		activityReplay: {
 			buildActivityArgs: ({ args, result }) => {
-				const todos = getTodoItems(args, result);
-				return { totalCount: getTodoTotalCount(args, result, todos) };
+				const plan = getString(args, "plan") ?? getString(asRecord(result.value), "plan");
+				const planTitle = plan ? firstNonEmptyLine(plan) : undefined;
+				return {
+					...buildTodoReplayArgs(args, result),
+					...(planTitle ? { planTitle: truncateArg(planTitle) } : {}),
+				};
 			},
-			buildActivitySummary: ({ args, result }) => summarizePlan(args, result),
 			buildDetails: () => ({}),
 		},
 	},
@@ -499,11 +502,11 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 		activityReplay: {
 			buildActivityArgs: ({ args, result }) => {
 				const description = getTaskDescription(args, result);
-				return { description: truncateArg(description) };
-			},
-			buildActivitySummary: ({ args, result }) => {
-				const description = getTaskDescription(args, result);
-				return summarizeTask(description, collectTaskText(result));
+				const preview = firstNonEmptyLine(collectTaskText(result));
+				return {
+					description: truncateArg(description),
+					...(preview ? { preview: truncateArg(preview) } : {}),
+				};
 			},
 			buildDetails: () => ({}),
 		},
@@ -512,14 +515,13 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 		formatTranscript: ({ args, result, options }) => formatGenerateImage(args, result, options),
 		buildPiToolDisplay: (context) => buildGenerateImageReplayDisplay(context),
 		generateImageReplay: {
-			buildActivityArgs: ({ args }) => {
-				const prompt = getString(args, "prompt") ?? getString(args, "description") ?? "image";
-				return { prompt: truncateArg(prompt) };
-			},
-			buildActivitySummary: ({ args, result, options }) => {
+			buildActivityArgs: ({ args, result, options }) => {
 				const prompt = getString(args, "prompt") ?? getString(args, "description") ?? "image";
 				const imageDisplayPath = getGenerateImageDisplayPath(args, result, options);
-				return imageDisplayPath ?? truncateArg(prompt);
+				return {
+					prompt: truncateArg(prompt),
+					...(imageDisplayPath ? { path: imageDisplayPath } : {}),
+				};
 			},
 			buildDetails: ({ args, result, options }, contentText) => {
 				const imagePath = getGenerateImagePath(args, result);
@@ -528,7 +530,6 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 					imagePath,
 					imageDisplayPath,
 					imageMimeType: inferImageMimeType(imagePath),
-					summary: result.status === "error" ? undefined : imageDisplayPath ? `saved ${imageDisplayPath}` : "image generated",
 					expandedText: contentText,
 				};
 			},
@@ -538,14 +539,15 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 		formatTranscript: ({ args, result, options }) => formatMcp(args, result, options),
 		buildPiToolDisplay: (context) => buildActivityReplayDisplay("mcp", context),
 		activityReplay: {
-			buildActivityArgs: ({ args }) => {
+			buildActivityArgs: ({ args, result }) => {
 				const toolName = getString(args, "toolName") ?? "mcp";
-				return { toolName: truncateArg(toolName) };
+				const preview = getMcpResultPreview(result);
+				return {
+					toolName: truncateArg(toolName),
+					...(preview ? { preview } : {}),
+				};
 			},
-			buildActivitySummary: ({ args, result }) => summarizeMcp(args, result),
-			buildDetails: ({ args, result }) => ({
-				summary: result.status === "error" ? undefined : summarizeMcp(args, result),
-			}),
+			buildDetails: () => ({}),
 		},
 	},
 	semSearch: {
@@ -554,12 +556,13 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 		activityReplay: {
 			buildActivityArgs: ({ args }) => {
 				const query = getString(args, "query") ?? "semantic search";
-				return { query: truncateArg(query) };
+				const targetDirectories = getStringArray(args, "targetDirectories");
+				return {
+					query: truncateArg(query),
+					...(targetDirectories.length > 0 ? { targetDirectories } : {}),
+				};
 			},
-			buildActivitySummary: ({ args }) => summarizeSemSearch(args),
-			buildDetails: ({ result }, contentText) => ({
-				summary: result.status === "error" ? undefined : firstNonEmptyLine(contentText) ?? "semantic search results captured",
-			}),
+			buildDetails: () => ({}),
 		},
 	},
 	recordScreen: {
@@ -568,19 +571,16 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 		activityReplay: {
 			buildActivityArgs: ({ args, result, options }) => {
 				const mode = getString(args, "mode");
-				const path = getString(asRecord(result.value), "path");
+				const value = asRecord(result.value);
+				const path = getString(value, "path");
+				const recordingDurationMs = getNumber(value, "recordingDurationMs");
 				return {
 					...(mode ? { mode } : {}),
 					...(path ? { path: formatDisplayPath(path, options.cwd) } : {}),
+					...(recordingDurationMs !== undefined ? { recordingDurationMs } : {}),
 				};
 			},
-			buildActivitySummary: ({ args, result, options }) => summarizeRecordScreen(args, result, options),
-			buildDetails: ({ args, result, options }, contentText) => ({
-				summary:
-					result.status === "error"
-						? undefined
-						: summarizeRecordScreen(args, result, options) ?? firstNonEmptyLine(contentText) ?? "screen recording updated",
-			}),
+			buildDetails: () => ({}),
 		},
 	},
 	webSearch: {
@@ -591,11 +591,7 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 				const query = extractWebSearchQuery(args);
 				return query ? { query: truncateArg(query) } : {};
 			},
-			buildActivitySummary: ({ args }) => truncateArg(extractWebSearchQuery(args) ?? "web search"),
-			buildDetails: ({ result }, contentText) => ({
-				summary: result.status === "error" ? undefined : firstNonEmptyLine(contentText) ?? "web search result captured",
-				collapseDetailsByDefault: true,
-			}),
+			buildDetails: () => ({ collapseDetailsByDefault: true }),
 		},
 	},
 	webFetch: {
@@ -606,11 +602,7 @@ const TOOL_DISPLAY_IMPLEMENTATIONS: Record<CursorNormalizedToolName, ToolDisplay
 				const target = extractWebFetchTarget(args);
 				return target ? { url: truncateArg(target) } : {};
 			},
-			buildActivitySummary: ({ args }) => truncateArg(extractWebFetchTarget(args) ?? "web fetch"),
-			buildDetails: ({ result }, contentText) => ({
-				summary: result.status === "error" ? undefined : firstNonEmptyLine(contentText) ?? "web fetch result captured",
-				collapseDetailsByDefault: true,
-			}),
+			buildDetails: () => ({ collapseDetailsByDefault: true }),
 		},
 	},
 };

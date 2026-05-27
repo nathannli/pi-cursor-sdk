@@ -23,17 +23,12 @@ export interface EmitCursorLiveTurnParams {
 	discardIncompleteTools: (outcome: IncompleteCursorToolRunOutcomeInput) => void;
 }
 
-export interface EmitCursorLiveTurnResult {
-	error: unknown | undefined;
-}
-
-export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): Promise<EmitCursorLiveTurnResult> {
+export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): Promise<void> {
 	const { params, terminalResources, sdkEventDebug, discardIncompleteTools } = emitParams;
 	const { liveRun, turnCoordinator } = terminalResources;
 	if (!liveRun) throw new Error("emitCursorLiveTurn requires a live run");
 
 	const { options, model } = params;
-	let error: unknown;
 	try {
 		await cursorLiveRuns.withRunLease(liveRun, options?.signal, async () => {
 			await cursorLiveRuns.waitForProgress(liveRun, options?.signal);
@@ -46,7 +41,6 @@ export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): 
 			});
 		});
 	} catch (caught) {
-		error = caught;
 		if (caught instanceof CursorLiveRunAbortError) {
 			discardIncompleteTools({ status: "cancelled", signalAborted: true });
 			turnCoordinator.closeTraceBlock();
@@ -54,9 +48,8 @@ export async function emitCursorLiveTurn(emitParams: EmitCursorLiveTurnParams): 
 				includeTracesBehindQueuedTools: true,
 			});
 		}
+		throw caught;
 	}
-
-	return { error };
 }
 
 export function discardIncompleteToolsFromPrepared(

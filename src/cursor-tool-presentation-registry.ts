@@ -100,7 +100,33 @@ function summarizeReplayReadLints(args: Record<string, unknown> | undefined): st
 
 function summarizeReplayTodoCount(args: Record<string, unknown> | undefined): string | undefined {
 	const totalCount = readReplayNumber(args, "totalCount");
+	const completedCount = readReplayNumber(args, "completedCount");
+	const inProgressCount = readReplayNumber(args, "inProgressCount");
+	const pendingCount = readReplayNumber(args, "pendingCount");
+	if (totalCount !== undefined && completedCount !== undefined) {
+		const parts = [`${completedCount}/${totalCount} completed`];
+		if (inProgressCount && inProgressCount > 0) parts.push(`${inProgressCount} in progress`);
+		if (pendingCount && pendingCount > 0) parts.push(`${pendingCount} pending`);
+		return parts.join(", ");
+	}
 	return totalCount !== undefined ? `${totalCount} item${totalCount === 1 ? "" : "s"}` : undefined;
+}
+
+function summarizeReplayPlan(args: Record<string, unknown> | undefined): string | undefined {
+	return readReplayString(args, "planTitle") ?? summarizeReplayTodoCount(args);
+}
+
+function summarizeReplayTask(args: Record<string, unknown> | undefined): string | undefined {
+	const description = readReplayString(args, "description");
+	const preview = readReplayString(args, "preview");
+	if (description && preview && preview !== description) return `${description}: ${preview}`;
+	return description ?? preview;
+}
+
+function summarizeReplayMcp(args: Record<string, unknown> | undefined): string | undefined {
+	const toolName = readReplayString(args, "toolName") ?? "mcp";
+	const preview = readReplayString(args, "preview");
+	return preview && preview !== toolName ? `${toolName} · ${preview}` : toolName;
 }
 
 function summarizeReplayRecordScreen(args: Record<string, unknown> | undefined): string | undefined {
@@ -236,7 +262,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		displayLabel: "Cursor plan",
 		visibility: { lifecycleEligible: true },
 		lifecycleLabelKind: "createPlan",
-		replayCallSummary: withActivitySummaryFallback(summarizeReplayTodoCount),
+		replayCallSummary: withActivitySummaryFallback(summarizeReplayPlan),
 	},
 	{
 		normalizedName: "task",
@@ -246,7 +272,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		displayLabel: "Cursor task",
 		visibility: { lifecycleEligible: true },
 		lifecycleLabelKind: "task",
-		replayCallSummary: withActivitySummaryFallback((args) => readReplayString(args, "description")),
+		replayCallSummary: withActivitySummaryFallback(summarizeReplayTask),
 	},
 	{
 		normalizedName: "generateImage",
@@ -266,7 +292,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		displayLabel: "Cursor MCP",
 		visibility: { lifecycleEligible: true },
 		lifecycleLabelKind: "mcp",
-		replayCallSummary: withActivitySummaryFallback((args) => readReplayString(args, "toolName")),
+		replayCallSummary: withActivitySummaryFallback(summarizeReplayMcp),
 	},
 	{
 		normalizedName: "semSearch",

@@ -97,13 +97,12 @@ export class CursorProviderTurnRunner {
 					modelId: model.id,
 					discardIncompleteTools: (outcome) => this.discardIncompleteTools(prepared, outcome),
 				});
-				const liveResult = await emitCursorLiveTurn({
+				await emitCursorLiveTurn({
 					params: this.params,
 					terminalResources: prepared.terminalResources,
 					sdkEventDebug: this.sdkEventDebug,
 					discardIncompleteTools: (outcome) => this.discardIncompleteTools(prepared, outcome),
 				});
-				if (liveResult.error) throw liveResult.error;
 				return;
 			}
 

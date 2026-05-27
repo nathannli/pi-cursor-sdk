@@ -213,7 +213,7 @@ describe("cursor replay tool details contract", () => {
 			options: { cwd: "/tmp", maxChars: 4000 },
 		});
 		const rendered = renderReplayResult(display.result.details, display.result.content[0]?.text ?? "");
-		expect(rendered).toContain(`${CURSOR_REPLAY_GENERATE_IMAGE_RESULT_TITLE} saved generated.png`);
+		expect(rendered).toContain(`${CURSOR_REPLAY_GENERATE_IMAGE_RESULT_TITLE} generated.png`);
 		expect(rendered).not.toContain("Cursor image generation");
 	});
 
