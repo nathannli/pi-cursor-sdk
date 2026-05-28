@@ -81,24 +81,9 @@ log() { smoke_log "$@"; }
 fail() { smoke_fail "$@"; }
 run_with_timeout() { smoke_run_with_timeout "$@"; }
 
-resolve_cmd() {
-	local name="$1"
-	local path
-	if ! path="$(command -v -- "$name" 2>/dev/null)" || [[ -z "$path" ]]; then
-		fail "missing required command: $name"
-	fi
-	if [[ "$path" != /* ]]; then
-		fail "required command $name did not resolve to an absolute path: $path"
-	fi
-	printf '%s\n' "$path"
-}
-
 build_smoke_env_arrays() {
-	local name
-	DEBUG_ENV_UNSETS=()
-	for name in "${SMOKE_CURSOR_SDK_EVENT_DEBUG_ENV_NAMES[@]}"; do
-		DEBUG_ENV_UNSETS+=( -u "$name" )
-	done
+	smoke_build_cursor_sdk_event_debug_unsets
+	DEBUG_ENV_UNSETS=( "${SMOKE_CURSOR_SDK_EVENT_DEBUG_ENV_UNSETS[@]}" )
 	BASE_ENV=( "$ENV_BIN" "${DEBUG_ENV_UNSETS[@]}" "PATH=$SEALED_PATH" )
 	NONE_ENV=( "$ENV_BIN" "${DEBUG_ENV_UNSETS[@]}" "PATH=$SEALED_PATH" PI_CURSOR_SETTING_SOURCES=none )
 	DEFAULT_ENV=( "$ENV_BIN" "${DEBUG_ENV_UNSETS[@]}" -u PI_CURSOR_SETTING_SOURCES "PATH=$SEALED_PATH" )
@@ -352,8 +337,8 @@ exit 99
 EOF_SELFTEST_NODE
 	chmod +x "$fake_pi" "$fake_node"
 
-	ENV_BIN="$(resolve_cmd env)"
-	NODE_BIN="$(resolve_cmd node)"
+	ENV_BIN="$(smoke_resolve_cmd env)"
+	NODE_BIN="$(smoke_resolve_cmd node)"
 	smoke_load_cursor_sdk_event_debug_env_names "$NODE_BIN" "$ROOT/shared/cursor-sdk-event-debug-env.mjs"
 	hostile_path="$bin_dir:$PATH"
 	[[ "$(smoke_build_sealed_node_path "$NODE_BIN" "")" != *: ]] || fail "self-test failed: empty inherited PATH left a trailing PATH separator"
@@ -394,17 +379,17 @@ if [[ "${1:-}" == "--self-test" ]]; then
 	exit 0
 fi
 
-PI_BIN="$(resolve_cmd pi)"
-NODE_BIN="$(resolve_cmd node)"
-NPM_BIN="$(resolve_cmd npm)"
-RG_BIN="$(resolve_cmd rg)"
-TMUX_BIN="$(resolve_cmd tmux)"
-ENV_BIN="$(resolve_cmd env)"
+PI_BIN="$(smoke_resolve_cmd pi)"
+NODE_BIN="$(smoke_resolve_cmd node)"
+NPM_BIN="$(smoke_resolve_cmd npm)"
+RG_BIN="$(smoke_resolve_cmd rg)"
+TMUX_BIN="$(smoke_resolve_cmd tmux)"
+ENV_BIN="$(smoke_resolve_cmd env)"
 smoke_load_cursor_sdk_event_debug_env_names "$NODE_BIN" "$ROOT/shared/cursor-sdk-event-debug-env.mjs"
 SEALED_PATH="$(smoke_build_sealed_node_path "$NODE_BIN" "$PATH")"
 build_smoke_env_arrays
 if [[ "$SHELL_BIN" != /* ]]; then
-	SHELL_BIN="$(resolve_cmd "$SHELL_BIN")"
+	SHELL_BIN="$(smoke_resolve_cmd "$SHELL_BIN")"
 fi
 PI_BASE=(
 	"$PI_BIN" -e "$ROOT"

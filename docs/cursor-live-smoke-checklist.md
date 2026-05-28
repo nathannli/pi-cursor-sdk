@@ -46,7 +46,11 @@ For native replay regression checks (packed install, plan-strip resync, JSONL re
 npm run smoke:isolated
 # unit tests + pack only (no live Cursor):
 SKIP_LIVE=1 npm run smoke:isolated
+# sealed PATH/debug-env guard for the isolated helper:
+npm run smoke:isolated -- --self-test
 ```
+
+`npm run smoke:isolated` follows the same smoke-runner env contract as live/visual/steering helpers: pack-only work resolves only `node`, `npm`, and `env` from the parent shell and does not require `pi`; live checks then resolve `pi` and `rg`. It runs pi/npm shims with the resolved Node directory first on `PATH`, clears Cursor SDK event-debug env, forces `PI_CURSOR_SETTING_SOURCES=none` for provider checks, and explicitly unsets `PI_CURSOR_SETTING_SOURCES` for install/list checks.
 
 Scan persisted sessions for native replay tool failures:
 
@@ -57,7 +61,7 @@ node scripts/validate-smoke-jsonl.mjs --replay-errors-only "$SMOKE_DIR/session-s
 
 The replay scan flags only error `toolResult` / error assistant messages with `Tool grep/cursor/find/ls not found`, not successful reads of docs that mention those strings. See [Cursor testing lessons](./cursor-testing-lessons.md#what-counts-as-a-replay-failure).
 
-`npm run smoke:live` is a helper only; it polls the section 3 TUI for answer/footer evidence and then cleans up the tmux session, but it does not replace the canonical rendered-PNG visual review in section 4. Run `npm run smoke:live -- --self-test` when changing the helper's sealed PATH or env wrappers. Release readiness still requires the manual checks below for detailed visual TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
+`npm run smoke:live` is a helper only; it polls the section 3 TUI for answer/footer evidence and then cleans up the tmux session, but it does not replace the canonical rendered-PNG visual review in section 4. Run the relevant helper `--self-test` (`smoke:live`, `smoke:visual`, `smoke:steering`, or `smoke:isolated`) when changing sealed PATH or env wrappers. Release readiness still requires the manual checks below for detailed visual TUI behavior, bridge, standalone native replay, abort/cancel, packaging, cleanup, and any touched runtime surface not covered by the helper.
 
 Pass criteria:
 
