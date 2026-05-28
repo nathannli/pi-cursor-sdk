@@ -6,6 +6,7 @@ import {
 	registerCursorRuntimeControls,
 	getEffectiveFastForModelId,
 	getEffectiveCursorAgentMode,
+	formatCursorToolsDebugReport,
 	__testUtils,
 } from "../src/cursor-state.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
@@ -18,6 +19,7 @@ import {
 	makeHarnessModel,
 	makeModel,
 } from "./helpers/pi-harness.js";
+import { createTestToolInfo } from "./helpers/tool-fixtures.js";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 const modelItems: ModelListItem[] = [
@@ -517,5 +519,44 @@ describe("Cursor runtime state", () => {
 		await pi.invokeEventWithContext("turn_start", { type: "turn_start", turnIndex: 1, timestamp: Date.now() }, ctx);
 
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor fast");
+	});
+
+	it("registers /cursor-tools and reports bridge and setting sources", async () => {
+		const originalBridgeEnv = process.env.PI_CURSOR_PI_TOOL_BRIDGE;
+		const originalSettingSourcesEnv = process.env.PI_CURSOR_SETTING_SOURCES;
+		process.env.PI_CURSOR_PI_TOOL_BRIDGE = "1";
+		process.env.PI_CURSOR_SETTING_SOURCES = "none";
+		try {
+			const pi = createPiHarness({
+				activeTools: ["custom_bridge_tool"],
+				initialTools: [createTestToolInfo("custom_bridge_tool", undefined, "Custom bridge tool")],
+			});
+			registerCursorRuntimeControls(pi);
+			const ctx = createExtensionTestContext();
+			await pi.runCommand("cursor-tools", "", { ui: ctx.ui, hasUI: true });
+
+			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("PI_CURSOR_PI_TOOL_BRIDGE: enabled"), "info");
+			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("PI_CURSOR_SETTING_SOURCES: none (effective: none)"), "info");
+			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Callable tool surfaces this run:"), "info");
+			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("pi__custom_bridge_tool"), "info");
+			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("not listed in MCP listTools"), "info");
+		} finally {
+			if (originalBridgeEnv === undefined) delete process.env.PI_CURSOR_PI_TOOL_BRIDGE;
+			else process.env.PI_CURSOR_PI_TOOL_BRIDGE = originalBridgeEnv;
+			if (originalSettingSourcesEnv === undefined) delete process.env.PI_CURSOR_SETTING_SOURCES;
+			else process.env.PI_CURSOR_SETTING_SOURCES = originalSettingSourcesEnv;
+		}
+	});
+
+	it("formatCursorToolsDebugReport notes disabled bridge", () => {
+		const pi = createPiHarness();
+		const report = formatCursorToolsDebugReport(pi, {
+			PI_CURSOR_PI_TOOL_BRIDGE: "0",
+			PI_CURSOR_SETTING_SOURCES: "project",
+		});
+		expect(report).toContain("PI_CURSOR_PI_TOOL_BRIDGE: disabled");
+		expect(report).toContain("Pi bridge: disabled (PI_CURSOR_PI_TOOL_BRIDGE=0).");
+		expect(report).toContain("PI_CURSOR_SETTING_SOURCES: project (effective: project)");
+		expect(report).toContain("Callable tool surfaces this run:");
 	});
 });

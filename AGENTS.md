@@ -66,14 +66,16 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-native-tool-display-state.ts` owns native replay display state, env gating, and record/consume helpers.
 - `src/cursor-tool-transcript.ts`, `src/cursor-transcript-utils.ts`, `src/cursor-transcript-tool-formatters.ts`, and `src/cursor-tool-names.ts` handle display-only Cursor native tool replay and transcript labels.
 - `src/cursor-mcp-timeout-override.ts` owns Cursor SDK MCP timeout overrides: 3600s default for `callTool`, 10s default for verified initialize/listTools paths on first send, and SDK-default behavior for unknown MCP protocol stacks.
-- `src/cursor-state.ts` owns Cursor runtime controls: `/cursor-fast`, `--cursor-fast`, `--cursor-no-fast`, `/cursor-mode`, `--cursor-mode`, session state, and global fast defaults.
+- `src/cursor-state.ts` owns Cursor runtime controls: `/cursor-fast`, `--cursor-fast`, `--cursor-no-fast`, `/cursor-mode`, `--cursor-mode`, `/cursor-tools`, session state, and global fast defaults.
 - `src/context.ts`, `src/context-window-cache.ts`, and `src/bundled-context-windows.ts` handle prompt conversion and context-window caches.
+- `src/cursor-bridge-contract.ts` owns pi bridge MCP description helpers and the exported full bridge contract text (bootstrap/manifest carry the user-facing contract; MCP descriptions use a one-line pointer).
 - `src/cursor-tool-manifest.ts` owns bootstrap callable-surface manifest text (`PI_CURSOR_TOOL_MANIFEST`, default on).
 - `test/**/*.test.ts` contains Vitest coverage for provider registration, discovery, state, context, bridge, replay, and streaming behavior.
 - `test/helpers/pi-harness.ts` is the canonical fake pi/extension harness (`createPiHarness`, shared model/context/event runners, tool factories).
 - `test/helpers/cursor-provider-harness.ts` owns Cursor SDK provider mocks/stream helpers and re-exports pi-harness fixtures for provider tests.
 - `docs/cursor-model-ux-spec.md` is the maintainer design source of truth for Cursor model UX. Keep it aligned with behavior changes.
 - `docs/cursor-testing-lessons.md` is the maintainer source of truth for regression testing lessons (auth.json, isolated smoke harnesses, JSONL replay scans, plan-mode replay traps).
+- `docs/cursor-dogfood-checklist.md` is the minimal one-session dogfood checklist (baseline env, JSONL ID patterns, bootstrap manifest, edit diff card).
 
 ## Operating rules
 

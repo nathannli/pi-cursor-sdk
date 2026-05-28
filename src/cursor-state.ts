@@ -3,6 +3,20 @@ import { dirname, join } from "node:path";
 import type { AgentModeOption } from "@cursor/sdk";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+	buildCursorToolManifestText,
+	CURSOR_TOOL_MANIFEST_ENV,
+	resolveCursorToolManifestEnabled,
+} from "./cursor-tool-manifest.js";
+import {
+	buildCursorPiToolBridgeSnapshot,
+	CURSOR_PI_TOOL_BRIDGE_ENV,
+	resolveCursorPiToolBridgeEnabled,
+} from "./cursor-pi-tool-bridge-snapshot.js";
+import {
+	CURSOR_SETTING_SOURCES_ENV,
+	getEffectiveCursorSettingSources,
+} from "./cursor-setting-sources.js";
 import { isCursorModel } from "./cursor-model.js";
 import { getCursorModelMetadata } from "./model-discovery.js";
 
@@ -29,7 +43,7 @@ interface CursorGlobalConfig {
 
 type CursorRuntimeControlsExtensionApi = Pick<
 	ExtensionAPI,
-	"appendEntry" | "getFlag" | "registerFlag" | "registerCommand" | "on"
+	"appendEntry" | "getFlag" | "registerFlag" | "registerCommand" | "on" | "getActiveTools" | "getAllTools"
 >;
 
 type CursorCliModeState =
@@ -225,6 +239,51 @@ function restoreCliCursorMode(raw: boolean | string | undefined, hasUI: boolean,
 	throw new Error(message);
 }
 
+function formatEffectiveCursorSettingSourcesLabel(raw: string | undefined = process.env[CURSOR_SETTING_SOURCES_ENV]): string {
+	const effective = getEffectiveCursorSettingSources(raw);
+	const effectiveLabel = effective === undefined ? "none" : effective.join(",");
+	const rawLabel = raw?.trim() ? raw.trim() : "(unset → all)";
+	return `${rawLabel} (effective: ${effectiveLabel})`;
+}
+
+export function formatCursorToolsDebugReport(
+	pi: Pick<ExtensionAPI, "getActiveTools" | "getAllTools">,
+	env: Record<string, string | undefined> = process.env,
+): string {
+	const bridgeEnabled = resolveCursorPiToolBridgeEnabled(env);
+	const manifestEnabled = resolveCursorToolManifestEnabled(env);
+	const lines = [
+		"Cursor tool surfaces (current session):",
+		`${CURSOR_PI_TOOL_BRIDGE_ENV}: ${bridgeEnabled ? "enabled" : "disabled"}`,
+		`${CURSOR_TOOL_MANIFEST_ENV}: ${manifestEnabled ? "enabled" : "disabled"}`,
+		`${CURSOR_SETTING_SOURCES_ENV}: ${formatEffectiveCursorSettingSourcesLabel(env[CURSOR_SETTING_SOURCES_ENV])}`,
+	];
+
+	let bridgeSnapshot;
+	if (bridgeEnabled) {
+		try {
+			bridgeSnapshot = buildCursorPiToolBridgeSnapshot(pi);
+		} catch {
+			lines.push("Pi bridge snapshot: unavailable (extension tool APIs required).");
+		}
+	}
+
+	lines.push(buildCursorToolManifestText({ bridgeSnapshot, piBridgeEnabled: bridgeEnabled }));
+	return lines.join("\n");
+}
+
+function emitCursorToolsDebugReport(
+	pi: Pick<ExtensionAPI, "getActiveTools" | "getAllTools">,
+	ctx: Pick<ExtensionContext, "hasUI" | "ui">,
+): void {
+	const report = formatCursorToolsDebugReport(pi);
+	if (ctx.hasUI) {
+		ctx.ui.notify(report, "info");
+		return;
+	}
+	console.log(report);
+}
+
 export function getEffectiveFastForModelId(modelId: string): boolean | undefined {
 	const metadata = getCursorModelMetadata(modelId);
 	if (!metadata) return undefined;
@@ -279,6 +338,13 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			}
 			updateCursorStatus(ctx);
 			ctx.ui.notify(`Cursor fast ${next ? "enabled" : "disabled"}`, "info");
+		},
+	});
+
+	pi.registerCommand("cursor-tools", {
+		description: "Show live Cursor tool surfaces for this session (maintainer debug)",
+		handler: async (_args, ctx) => {
+			emitCursorToolsDebugReport(pi, ctx);
 		},
 	});
 
