@@ -2,9 +2,10 @@
 /**
  * RPC steering smoke: queue steer after a native-replay tool-use turn completes execution.
  */
-import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJsonLines, terminateChild, waitForChildClose } from "./lib/cursor-child-process.mjs";
 import { apiKeySecretsFromProcess } from "./lib/cursor-cli-args.mjs";
@@ -25,6 +26,7 @@ Environment:
 
 Options:
   -h, --help                   Show this help.
+  --self-test                  Run the fake-PATH resolver probe without launching pi.
 
 Exit codes:
   0  steering scenario completed without AgentBusyError; STEER_OK and STEER_CHAIN present
@@ -40,12 +42,28 @@ function fail(message) {
 	throw new Error(message);
 }
 
-function resolveCommand(command) {
-	const result = spawnSync("/bin/sh", ["-lc", `command -v -- ${JSON.stringify(command)}`], { encoding: "utf8" });
-	if (result.status !== 0) fail(`${command} is required on PATH`);
-	const path = result.stdout.trim().split("\n")[0];
-	if (!path || !path.startsWith("/")) fail(`${command} did not resolve to an absolute executable path: ${path || "<empty>"}`);
-	return path;
+function isExecutable(path) {
+	try {
+		accessSync(path, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function resolveCommand(command, envPath = process.env.PATH ?? "") {
+	if (!command.trim()) fail("empty command name");
+	if (command.includes("/")) {
+		const path = resolve(command);
+		if (!isExecutable(path)) fail(`${command} is not executable`);
+		return path;
+	}
+	for (const entry of envPath.split(delimiter)) {
+		if (!entry) continue;
+		const candidate = resolve(entry, command);
+		if (isExecutable(candidate)) return candidate;
+	}
+	fail(`${command} is required on PATH`);
 }
 
 function resolvePiBin() {
@@ -189,9 +207,43 @@ async function runPiRpcSmoke(sessionDir, piBin) {
 	}
 }
 
+function runSelfTest() {
+	const tempDir = mkdtempSync(join(tmpdir(), "pi-cursor-sdk-steering-self-test-"));
+	try {
+		const binDir = join(tempDir, "bin");
+		mkdirSync(binDir, { recursive: true });
+		const fakePi = join(binDir, "pi");
+		writeFileSync(fakePi, "#!/bin/sh\necho fake-pi\n", "utf8");
+		chmodSync(fakePi, 0o755);
+		const hostilePath = `${binDir}${delimiter}${process.env.PATH ?? ""}`;
+		if (resolveCommand("pi", hostilePath) !== fakePi) fail("self-test failed: direct PATH resolver did not prefer fake PATH head");
+		const originalPiBin = process.env.PI_BIN;
+		const originalPath = process.env.PATH;
+		try {
+			delete process.env.PI_BIN;
+			process.env.PATH = hostilePath;
+			if (resolvePiBin() !== fakePi) fail("self-test failed: resolvePiBin should use PATH when PI_BIN is absent");
+			process.env.PI_BIN = fakePi;
+			if (resolvePiBin() !== fakePi) fail("self-test failed: resolvePiBin should honor absolute PI_BIN");
+		} finally {
+			if (originalPiBin === undefined) delete process.env.PI_BIN;
+			else process.env.PI_BIN = originalPiBin;
+			if (originalPath === undefined) delete process.env.PATH;
+			else process.env.PATH = originalPath;
+		}
+		console.log("[steering-rpc-smoke] self-test PASS");
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true });
+	}
+}
+
 async function main() {
 	if (process.argv.includes("-h") || process.argv.includes("--help")) {
 		printHelp();
+		return;
+	}
+	if (process.argv.includes("--self-test")) {
+		runSelfTest();
 		return;
 	}
 

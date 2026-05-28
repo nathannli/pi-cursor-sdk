@@ -125,7 +125,7 @@ Pass criteria:
 
 ## 4. Mandatory visual card/color rendering check
 
-This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, Cursor SDK `plan` mode, native replay enabled, and the checked-in visual runner. The runner resolves `pi`, `node`, and `tmux` from the parent shell and reuses those paths inside tmux-launched runs. The default matrix is native replay only: settings sources are `none`, the pi bridge is off, and overlapping built-in pi tools are not exposed.
+This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, Cursor SDK `plan` mode, native replay enabled, and the checked-in visual runner. The runner resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, and reuses those paths inside tmux-launched runs. The default matrix is native replay only: native replay registration is forced on, settings sources are `none`, the pi bridge is off, overlapping built-in pi tools are not exposed, and Cursor SDK event-debug artifact env is cleared unless `--event-debug` is passed.
 
 ```bash
 VISUAL_DIR="$(mktemp -d /tmp/pi-cursor-sdk-1014-visual.XXXXXX)"
@@ -174,7 +174,7 @@ npm run smoke:visual -- "${VISUAL_ARGS[@]}" \
   --prompt 'Stay in Cursor plan mode. If Cursor exposes plan, todo, task, or mode activity for this request, use that capability to outline a tiny unit test without editing files. Otherwise answer with a concise numbered plan. Do not use shell or file mutation tools.'
 ```
 
-By default, `npm run smoke:visual` writes `.ansi`, `.txt`, `.html`, `.png`, and `.jsonl.path` artifacts. If Playwright Chromium is unavailable in an agent-harness run, rerun with `--no-screenshot`, open the generated `.html` with `agent_browser`, save a PNG screenshot, and record that PNG path beside the runner artifacts. To visually audit bridge behavior or ambient Cursor settings, opt in with `--bridge`, `--expose-builtin-tools`, or `--setting-sources <value>` and label that evidence separately; do not count those opt-in runs as default native replay matrix proof.
+By default, `npm run smoke:visual` writes `.ansi`, `.txt`, `.html`, `.png`, and `.jsonl.path` artifacts. If Playwright Chromium is unavailable in an agent-harness run, rerun with `--no-screenshot`, open the generated `.html` with `agent_browser`, save a PNG screenshot, and record that PNG path beside the runner artifacts. To visually audit bridge behavior or ambient Cursor settings, opt in with `--bridge`, `--bridge --expose-builtin-tools`, or `--setting-sources <value>` and label that evidence separately; do not count those opt-in runs as default native replay matrix proof.
 
 Expected proof for each category is defined in [Cursor Native Tool Visual Audit Workflow](./cursor-native-tool-visual-audit.md). Do not mark a category passed because the prompt was sent. A category passes only when the PNG shows the expected card and the JSONL shows the expected completed `toolCall` / `toolResult` pair with the expected `isError` state.
 

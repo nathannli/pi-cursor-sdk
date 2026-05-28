@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
@@ -14,6 +15,13 @@ const DEFAULT_HISTORY_LINES = 3_000;
 const DEFAULT_MODEL = "cursor/composer-2.5";
 const DEFAULT_MODE = "plan";
 const DEFAULT_SETTING_SOURCES = "none";
+const DEBUG_ENV_NAMES = [
+	"PI_CURSOR_SDK_EVENT_DEBUG",
+	"PI_CURSOR_SDK_EVENT_DEBUG_DIR",
+	"PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR",
+	"PI_CURSOR_SDK_EVENT_DEBUG_SESSION_DIR",
+	"PI_CURSOR_SDK_EVENT_DEBUG_STDERR",
+];
 
 const EXIT_FAILURE = 1;
 const EXIT_USAGE = 2;
@@ -45,18 +53,21 @@ Common options:
   --history-lines N             tmux capture history lines. Default: ${DEFAULT_HISTORY_LINES}.
   --setting-sources VALUE       Cursor setting sources. Default: ${DEFAULT_SETTING_SOURCES}.
   --bridge                      Opt in to the pi tool bridge for bridge-specific visual audits.
-  --expose-builtin-tools        Opt in to exposing overlapping built-in pi tools to Cursor.
+  --expose-builtin-tools        Opt in to exposing overlapping built-in pi tools to Cursor. Requires --bridge.
   --event-debug                 Set PI_CURSOR_SDK_EVENT_DEBUG=1 for the run.
   --leftover-pattern REGEX      After capture, fail if a process command still matches REGEX. Repeatable.
   --no-screenshot               Write .ansi/.txt/.html/.jsonl.path only; use agent_browser manually.
+  --self-test                   Run the fake-PATH/env isolation probe without launching pi.
   -h, --help                    Show this help.
 
 Native replay isolation defaults:
   PI_CURSOR_NATIVE_TOOL_DISPLAY=1
+  PI_CURSOR_REGISTER_NATIVE_TOOLS=1
   PI_CURSOR_SETTING_SOURCES=none
   PI_CURSOR_PI_TOOL_BRIDGE=0
   PI_CURSOR_EXPOSE_BUILTIN_TOOLS=0
   TERM=xterm-256color
+  Debug artifact env is cleared unless --event-debug is passed.
 
 Artifacts written:
   <label>.ansi                  Raw tmux ANSI capture.
@@ -218,13 +229,18 @@ function parseArgs(argv) {
 			case "--no-screenshot":
 				options.screenshot = false;
 				break;
+			case "--self-test":
+				options.selfTest = true;
+				break;
 			default:
 				fail(`unknown option: ${arg}`, EXIT_USAGE);
 		}
 	}
 
+	if (options.selfTest) return options;
 	if (!options.label?.trim()) fail("--label is required", EXIT_USAGE);
 	if (!options.prompt?.trim()) fail("--prompt or --prompt-file is required", EXIT_USAGE);
+	if (options.exposeBuiltinTools && !options.bridge) fail("--expose-builtin-tools requires --bridge", EXIT_USAGE);
 
 	options.safeLabel = sanitizeLabel(options.label);
 	options.outDir ??= resolve(`/tmp/pi-cursor-sdk-visual-smoke-${timestamp()}`);
@@ -245,6 +261,7 @@ function shellQuote(value) {
 function run(command, args, options = {}) {
 	const result = spawnSync(command, args, {
 		encoding: options.input === undefined ? "utf8" : undefined,
+		env: options.env,
 		input: options.input,
 		stdio: options.stdio ?? (options.input === undefined ? "pipe" : ["pipe", "pipe", "pipe"]),
 	});
@@ -254,12 +271,28 @@ function run(command, args, options = {}) {
 	return result;
 }
 
-function resolveCommand(command) {
-	const result = run("/bin/sh", ["-lc", `command -v -- ${shellQuote(command)}`]);
-	if (result.status !== 0) fail(`${command} is required on PATH`, EXIT_USAGE);
-	const path = result.stdout.toString().trim().split("\n")[0];
-	if (!path || !path.startsWith("/")) fail(`${command} did not resolve to an absolute executable path: ${path || "<empty>"}`, EXIT_USAGE);
-	return path;
+function isExecutable(path) {
+	try {
+		accessSync(path, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function resolveCommand(command, envPath = process.env.PATH ?? "") {
+	if (!command.trim()) fail("empty command name", EXIT_USAGE);
+	if (command.includes("/")) {
+		const path = resolve(command);
+		if (!isExecutable(path)) fail(`${command} is not executable`, EXIT_USAGE);
+		return path;
+	}
+	for (const entry of envPath.split(delimiter)) {
+		if (!entry) continue;
+		const candidate = resolve(entry, command);
+		if (isExecutable(candidate)) return candidate;
+	}
+	fail(`${command} is required on PATH`, EXIT_USAGE);
 }
 
 function requireCommand(command) {
@@ -270,8 +303,17 @@ function requireCommand(command) {
 	return path;
 }
 
+function requireNode() {
+	const path = process.execPath;
+	if (!path || !isExecutable(path)) fail(`current Node executable is not executable: ${path || "<empty>"}`, EXIT_USAGE);
+	return path;
+}
+
 function resolveShell(shell) {
-	if (shell.startsWith("/")) return shell;
+	if (shell.startsWith("/")) {
+		if (!isExecutable(shell)) fail(`shell is not executable: ${shell}`, EXIT_USAGE);
+		return shell;
+	}
 	return resolveCommand(shell);
 }
 
@@ -447,6 +489,40 @@ function checkLeftovers(patterns) {
 	}
 }
 
+function buildLaunchPlan(options, commands, shell) {
+	const envAssignments = [
+		["PI_CURSOR_NATIVE_TOOL_DISPLAY", "1"],
+		["PI_CURSOR_REGISTER_NATIVE_TOOLS", "1"],
+		["PI_CURSOR_SETTING_SOURCES", options.settingSources],
+		["PI_CURSOR_PI_TOOL_BRIDGE", options.bridge ? "1" : "0"],
+		["PI_CURSOR_EXPOSE_BUILTIN_TOOLS", options.exposeBuiltinTools ? "1" : "0"],
+		["TERM", "xterm-256color"],
+	];
+	const clearEnvNames = options.eventDebug ? [] : DEBUG_ENV_NAMES;
+	if (options.eventDebug) envAssignments.push(["PI_CURSOR_SDK_EVENT_DEBUG", "1"]);
+	const command = [
+		...envAssignments.map(([name, value]) => `${name}=${shellQuote(value)}`),
+		"exec",
+		shellQuote(commands.pi),
+		"-e", shellQuote(options.ext),
+		"--cursor-no-fast",
+		"--cursor-mode", shellQuote(options.mode),
+		"--session-dir", shellQuote(options.sessionDir),
+		"--session-id", shellQuote(options.sessionId),
+		"--model", shellQuote(options.model),
+	].join(" ");
+	const clearLines = clearEnvNames.map((name) => `unset ${name}`).join("\n");
+	const script = [
+		`export PATH=${shellQuote(process.env.PATH ?? "")}`,
+		clearLines,
+		`cd ${shellQuote(options.cwd)} || exit 97`,
+		command,
+	]
+		.filter(Boolean)
+		.join("\n");
+	return { command, clearEnvNames, envAssignments, script, shell };
+}
+
 async function writeScreenshot(htmlPath, pngPath, width, height) {
 	let browser;
 	try {
@@ -473,7 +549,7 @@ async function writeScreenshot(htmlPath, pngPath, width, height) {
 function runVisualSmoke(options) {
 	const commands = {
 		pi: requireCommand("pi"),
-		node: requireCommand("node"),
+		node: requireNode(),
 		tmux: requireCommand("tmux"),
 	};
 
@@ -483,26 +559,7 @@ function runVisualSmoke(options) {
 	const sessionName = `pi-visual-${options.safeLabel}-${process.pid}`;
 	const bufferName = `pi-visual-prompt-${process.pid}`;
 	const shell = resolveShell(process.env.SHELL || "/bin/bash");
-	const envAssignments = [
-		["PI_CURSOR_NATIVE_TOOL_DISPLAY", "1"],
-		["PI_CURSOR_SETTING_SOURCES", options.settingSources],
-		["PI_CURSOR_PI_TOOL_BRIDGE", options.bridge ? "1" : "0"],
-		["PI_CURSOR_EXPOSE_BUILTIN_TOOLS", options.exposeBuiltinTools ? "1" : "0"],
-		["TERM", "xterm-256color"],
-	];
-	if (options.eventDebug) envAssignments.push(["PI_CURSOR_SDK_EVENT_DEBUG", "1"]);
-	const command = [
-		...envAssignments.map(([name, value]) => `${name}=${shellQuote(value)}`),
-		"exec",
-		shellQuote(commands.pi),
-		"-e", shellQuote(options.ext),
-		"--cursor-no-fast",
-		"--cursor-mode", shellQuote(options.mode),
-		"--session-dir", shellQuote(options.sessionDir),
-		"--session-id", shellQuote(options.sessionId),
-		"--model", shellQuote(options.model),
-	].join(" ");
-	const script = `export PATH=${shellQuote(process.env.PATH ?? "")}\ncd ${shellQuote(options.cwd)} || exit 97\n${command}\n`;
+	const { script } = buildLaunchPlan(options, commands, shell);
 
 	console.log(`[visual-smoke] out-dir=${options.outDir}`);
 	console.log(`[visual-smoke] session-dir=${options.sessionDir}`);
@@ -558,8 +615,112 @@ function runVisualSmoke(options) {
 	}
 }
 
+function assertSelfTest(condition, message) {
+	if (!condition) throw new Error(`self-test failed: ${message}`);
+}
+
+function envMap(assignments) {
+	return new Map(assignments.map(([name, value]) => [name, value]));
+}
+
+function parseEnvCapture(path) {
+	return new Map(
+		readFileSync(path, "utf8")
+			.split("\n")
+			.filter(Boolean)
+			.map((line) => {
+				const index = line.indexOf("=");
+				return index === -1 ? [line, ""] : [line.slice(0, index), line.slice(index + 1)];
+			}),
+	);
+}
+
+function runSelfTest() {
+	const tempDir = mkdtempSync(join(tmpdir(), "pi-cursor-sdk-visual-self-test-"));
+	try {
+		const binDir = join(tempDir, "bin");
+		mkdirSync(binDir, { recursive: true });
+		const fakePi = join(binDir, "pi");
+		const envCapture = join(tempDir, "fake-pi.env");
+		writeFileSync(fakePi, `#!/bin/sh\nenv > ${shellQuote(envCapture)}\n`, "utf8");
+		chmodSync(fakePi, 0o755);
+
+		const hostilePath = `${binDir}${delimiter}${process.env.PATH ?? ""}`;
+		assertSelfTest(resolveCommand("pi", hostilePath) === fakePi, "direct PATH resolver did not prefer fake PATH head");
+		assertSelfTest(requireNode() === process.execPath, "node resolver must use process.execPath");
+
+		const baseOptions = {
+			ext: ROOT,
+			cwd: ROOT,
+			mode: DEFAULT_MODE,
+			model: DEFAULT_MODEL,
+			sessionDir: join(tempDir, "session"),
+			sessionId: "self-test",
+			settingSources: DEFAULT_SETTING_SOURCES,
+			bridge: false,
+			exposeBuiltinTools: false,
+			eventDebug: false,
+		};
+		const plan = buildLaunchPlan(baseOptions, { pi: fakePi }, "/bin/sh");
+		const defaults = envMap(plan.envAssignments);
+		assertSelfTest(defaults.get("PI_CURSOR_NATIVE_TOOL_DISPLAY") === "1", "native display must be forced on");
+		assertSelfTest(defaults.get("PI_CURSOR_REGISTER_NATIVE_TOOLS") === "1", "native tool registration must be forced on");
+		assertSelfTest(defaults.get("PI_CURSOR_SETTING_SOURCES") === "none", "setting sources must default to none");
+		assertSelfTest(defaults.get("PI_CURSOR_PI_TOOL_BRIDGE") === "0", "bridge must default off");
+		assertSelfTest(defaults.get("PI_CURSOR_EXPOSE_BUILTIN_TOOLS") === "0", "built-in exposure must default off");
+		for (const name of DEBUG_ENV_NAMES) {
+			assertSelfTest(plan.clearEnvNames.includes(name), `${name} must be cleared by default`);
+		}
+		assertSelfTest(plan.script.includes(shellQuote(fakePi)), "launch script must use resolved pi path");
+		assertSelfTest(!plan.script.includes(" exec pi "), "launch script must not use bare pi");
+		const hostileEnv = {
+			...process.env,
+			PATH: hostilePath,
+			PI_CURSOR_REGISTER_NATIVE_TOOLS: "0",
+			PI_CURSOR_SETTING_SOURCES: "all",
+			PI_CURSOR_PI_TOOL_BRIDGE: "1",
+			PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1",
+			PI_CURSOR_SDK_EVENT_DEBUG: "1",
+			PI_CURSOR_SDK_EVENT_DEBUG_DIR: join(tempDir, "debug-dir"),
+			PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR: join(tempDir, "debug-run-dir"),
+			PI_CURSOR_SDK_EVENT_DEBUG_SESSION_DIR: join(tempDir, "debug-session-dir"),
+			PI_CURSOR_SDK_EVENT_DEBUG_STDERR: "1",
+		};
+		const probe = run("/bin/sh", ["-lc", plan.script], { env: hostileEnv });
+		assertSelfTest(probe.status === 0, `fake-pi env capture exited ${probe.status}: ${probe.stderr?.toString() ?? ""}`);
+		const capturedEnv = parseEnvCapture(envCapture);
+		assertSelfTest(capturedEnv.get("PI_CURSOR_NATIVE_TOOL_DISPLAY") === "1", "captured env should force native display on");
+		assertSelfTest(capturedEnv.get("PI_CURSOR_REGISTER_NATIVE_TOOLS") === "1", "captured env should force native registration on");
+		assertSelfTest(capturedEnv.get("PI_CURSOR_SETTING_SOURCES") === "none", "captured env should force settings off");
+		assertSelfTest(capturedEnv.get("PI_CURSOR_PI_TOOL_BRIDGE") === "0", "captured env should force bridge off");
+		assertSelfTest(capturedEnv.get("PI_CURSOR_EXPOSE_BUILTIN_TOOLS") === "0", "captured env should force built-in exposure off");
+		for (const name of DEBUG_ENV_NAMES) {
+			assertSelfTest(!capturedEnv.has(name), `${name} should be absent from captured env by default`);
+		}
+
+		const optInPlan = buildLaunchPlan(
+			{ ...baseOptions, settingSources: "all", bridge: true, exposeBuiltinTools: true, eventDebug: true },
+			{ pi: fakePi },
+			"/bin/sh",
+		);
+		const optIns = envMap(optInPlan.envAssignments);
+		assertSelfTest(optIns.get("PI_CURSOR_SETTING_SOURCES") === "all", "setting source opt-in must be reflected");
+		assertSelfTest(optIns.get("PI_CURSOR_PI_TOOL_BRIDGE") === "1", "bridge opt-in must be reflected");
+		assertSelfTest(optIns.get("PI_CURSOR_EXPOSE_BUILTIN_TOOLS") === "1", "built-in exposure opt-in must be reflected");
+		assertSelfTest(optIns.get("PI_CURSOR_SDK_EVENT_DEBUG") === "1", "event debug opt-in must be reflected");
+		assertSelfTest(optInPlan.clearEnvNames.length === 0, "debug env should not be cleared when event debug is explicit");
+		console.log("[visual-smoke] self-test PASS");
+	} finally {
+		rmSync(tempDir, { recursive: true, force: true });
+	}
+}
+
 const options = parseArgs(process.argv.slice(2));
 try {
+	if (options.selfTest) {
+		runSelfTest();
+		process.exit(0);
+	}
 	const artifacts = runVisualSmoke(options);
 	checkLeftovers(options.leftoverPatterns);
 	if (options.screenshot) {

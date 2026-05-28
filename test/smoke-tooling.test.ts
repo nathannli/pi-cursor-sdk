@@ -16,6 +16,7 @@ describe("smoke tooling package checks", () => {
 		expect(run("bash", ["-n", "scripts/tmux-live-smoke.sh"]).status).toBe(0);
 		expect(run("bash", ["-n", "scripts/isolated-cursor-smoke.sh"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/steering-rpc-smoke.mjs"]).status).toBe(0);
+		expect(run(process.execPath, ["--check", "scripts/visual-tui-smoke.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/validate-smoke-jsonl.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/debug-sdk-events.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/debug-provider-events.mjs"]).status).toBe(0);
@@ -23,6 +24,7 @@ describe("smoke tooling package checks", () => {
 		const liveHelp = run("scripts/tmux-live-smoke.sh", ["--help"]);
 		const isolatedHelp = run("scripts/isolated-cursor-smoke.sh", ["--help"]);
 		const steeringHelp = run(process.execPath, ["scripts/steering-rpc-smoke.mjs", "--help"]);
+		const visualHelp = run(process.execPath, ["scripts/visual-tui-smoke.mjs", "--help"]);
 		const jsonlHelp = run(process.execPath, ["scripts/validate-smoke-jsonl.mjs", "--help"]);
 		const sdkEventsHelp = run(process.execPath, ["scripts/debug-sdk-events.mjs", "--help"]);
 		const providerEventsHelp = run(process.execPath, ["scripts/debug-provider-events.mjs", "--help"]);
@@ -33,6 +35,10 @@ describe("smoke tooling package checks", () => {
 		expect(isolatedHelp.stdout).toContain("plan-strip");
 		expect(steeringHelp.status).toBe(0);
 		expect(steeringHelp.stdout).toContain("RPC steering smoke");
+		expect(visualHelp.status).toBe(0);
+		expect(visualHelp.stdout).toContain("Canonical offscreen TUI visual smoke runner");
+		expect(visualHelp.stdout).toContain("PI_CURSOR_REGISTER_NATIVE_TOOLS=1");
+		expect(visualHelp.stdout).toContain("--expose-builtin-tools");
 		expect(jsonlHelp.status).toBe(0);
 		expect(jsonlHelp.stdout).toContain("Validate assistant presence");
 		expect(jsonlHelp.stdout).toContain("--replay-errors");
@@ -47,6 +53,16 @@ describe("smoke tooling package checks", () => {
 		]);
 		expect(failedCommand.status).toBe(1);
 		expect(failedCommand.stderr).toContain("repro exited 42");
+
+		const visualSelfTest = run(process.execPath, ["scripts/visual-tui-smoke.mjs", "--self-test"]);
+		expect(visualSelfTest.status).toBe(0);
+		expect(visualSelfTest.stdout).toContain("self-test PASS");
+		const steeringSelfTest = run(process.execPath, ["scripts/steering-rpc-smoke.mjs", "--self-test"]);
+		expect(steeringSelfTest.status).toBe(0);
+		expect(steeringSelfTest.stdout).toContain("self-test PASS");
+		const invalidVisualArgs = run(process.execPath, ["scripts/visual-tui-smoke.mjs", "--label", "bad", "--prompt", "bad", "--expose-builtin-tools"]);
+		expect(invalidVisualArgs.status).toBe(2);
+		expect(invalidVisualArgs.stderr).toContain("--expose-builtin-tools requires --bridge");
 	});
 
 	it("packages smoke scripts and avoids reusing the latest local release tag version", () => {
@@ -68,6 +84,7 @@ describe("smoke tooling package checks", () => {
 		expect(paths.has("scripts/tmux-live-smoke.sh")).toBe(true);
 		expect(paths.has("scripts/isolated-cursor-smoke.sh")).toBe(true);
 		expect(paths.has("scripts/steering-rpc-smoke.mjs")).toBe(true);
+		expect(paths.has("scripts/visual-tui-smoke.mjs")).toBe(true);
 		expect(paths.has("scripts/validate-smoke-jsonl.mjs")).toBe(true);
 		expect(paths.has("scripts/debug-sdk-events.mjs")).toBe(true);
 		expect(paths.has("scripts/debug-provider-events.mjs")).toBe(true);

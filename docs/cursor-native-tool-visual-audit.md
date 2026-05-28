@@ -8,7 +8,7 @@ Current cutover baseline: pi 0.76.0+, exact `@cursor/sdk@1.0.14`, local validati
 
 ## Cursor SDK 1.0.14 / pi 0.76.0 cutover visual record
 
-Record the required cutover validation here or in the final release handoff. The default matrix is native replay only: the runner forces Cursor setting sources off, disables the pi bridge, and disables overlapping built-in pi tool exposure unless an opt-in flag is passed. Do not commit raw ANSI logs, screenshots, terminal recordings, debug artifacts, or `.debug/visual-smoke` scratch files.
+Record the required cutover validation here or in the final release handoff. The default matrix is native replay only: the runner forces native replay registration on, forces Cursor setting sources off, disables the pi bridge, disables overlapping built-in pi tool exposure, and clears Cursor SDK event-debug artifact env unless an opt-in flag is passed. Do not commit raw ANSI logs, screenshots, terminal recordings, debug artifacts, or `.debug/visual-smoke` scratch files.
 
 | Field | Required value / evidence |
 | --- | --- |
@@ -65,7 +65,7 @@ This is the best default release path because it exercises the real pi TUI, capt
 
 ## Tool stack
 
-The canonical runner is checked in at `scripts/visual-tui-smoke.mjs` and exposed as `npm run smoke:visual`. It uses tmux for the fixed-size PTY, `@xterm/xterm` for browser rendering, and Playwright for automatic PNG capture. It resolves `pi`, `node`, and `tmux` from the parent shell and reuses those paths inside tmux-launched runs so a stale tmux server `PATH` cannot silently select a different executable.
+The canonical runner is checked in at `scripts/visual-tui-smoke.mjs` and exposed as `npm run smoke:visual`. It uses tmux for the fixed-size PTY, `@xterm/xterm` for browser rendering, and Playwright for automatic PNG capture. It resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, and reuses those paths inside tmux-launched runs so a login shell or stale tmux server `PATH` cannot silently select a different executable.
 
 One-time setup from a clean checkout:
 
@@ -83,9 +83,11 @@ npx playwright install chromium
 - fixed-size tmux PTY execution of the parent-resolved `pi -e <extension-dir> --model cursor/composer-2.5`
 - parent-resolved `pi`, `node`, and `tmux` command paths reused in tmux-launched runs
 - `PI_CURSOR_NATIVE_TOOL_DISPLAY=1`
+- `PI_CURSOR_REGISTER_NATIVE_TOOLS=1` by default
 - `PI_CURSOR_SETTING_SOURCES=none` by default
 - `PI_CURSOR_PI_TOOL_BRIDGE=0` by default
 - `PI_CURSOR_EXPOSE_BUILTIN_TOOLS=0` by default
+- Cursor SDK event-debug artifact env cleared by default unless `--event-debug` is passed
 - `TERM=xterm-256color`
 - cwd set to the target audit repo
 - prompt paste plus carriage return into the interactive TUI
@@ -93,7 +95,7 @@ npx playwright install chromium
 - artifacts outside the repo by default
 - `<label>.ansi`, `<label>.txt`, `<label>.html`, `<label>.png`, and `<label>.jsonl.path`
 - `--label`, `--ext`, `--cwd`, `--prompt`, `--prompt-file`, `--wait-ms`, and `--out-dir`
-- `--setting-sources`, `--bridge`, and `--expose-builtin-tools` opt-ins for non-default visual audits
+- `--setting-sources` and `--bridge` opt-ins for non-default visual audits; `--expose-builtin-tools` is accepted only with `--bridge`
 - repeatable `--leftover-pattern` checks for prompts that can background work
 - `-h` / `--help` with examples and exit codes
 
@@ -109,7 +111,7 @@ npm run smoke:visual -- \
   --out-dir /tmp/pi-cursor-sdk-visual-review
 ```
 
-The runner writes the `.png` through Playwright by default. In the pi agent harness, pass `--no-screenshot`, open the generated `.html` with `agent_browser`, save a PNG screenshot, and record that path beside the runner artifacts. The default evidence is native replay evidence only. For bridge/default-settings visual audits, pass `--bridge`, `--expose-builtin-tools`, or `--setting-sources <value>` explicitly and label that evidence separately.
+The runner writes the `.png` through Playwright by default. In the pi agent harness, pass `--no-screenshot`, open the generated `.html` with `agent_browser`, save a PNG screenshot, and record that path beside the runner artifacts. The default evidence is native replay evidence only. For bridge/default-settings visual audits, pass `--bridge`, `--bridge --expose-builtin-tools`, or `--setting-sources <value>` explicitly and label that evidence separately.
 
 ## Before/after comparison
 
@@ -209,7 +211,7 @@ ps -axo pid,etime,command | rg "sleep 30|should-not-print|<audit-session-label>"
 ```
 
 - If the model uses a different tool than requested, record it as model/provider behavior unless JSONL shows replay lost or misrendered a completed Cursor tool event.
-- Do not use `--bridge`, `--expose-builtin-tools`, or non-`none` `--setting-sources` for the default native replay matrix. Those opt-ins validate different surfaces and must be labeled separately.
+- Do not use `--bridge`, `--bridge --expose-builtin-tools`, or non-`none` `--setting-sources` for the default native replay matrix. Those opt-ins validate different surfaces and must be labeled separately.
 - Visual output can differ slightly from macOS Terminal fonts because browser/xterm renderers run offscreen. Treat this workflow as authoritative release evidence for card class, color state, labels, ordering, truncation, footer/status readability, and content. Use a real terminal screenshot only for pixel-level terminal-specific bugs.
 
 ## Required evidence before commit or merge
