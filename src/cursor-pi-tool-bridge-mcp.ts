@@ -64,6 +64,7 @@ export function snapshotToolToMcpTool(tool: CursorPiBridgeToolDefinition): Tool 
 			piToolName: tool.piToolName,
 			mcpToolName: tool.mcpToolName,
 			piToolDescription: tool.description,
+			piToolPromptGuidelines: tool.promptGuidelines,
 		}),
 		inputSchema: tool.inputSchema,
 		_meta: { piToolName: tool.piToolName },

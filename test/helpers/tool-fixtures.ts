@@ -9,11 +9,13 @@ export function createBuiltinToolInfo(
 	name: string,
 	parameters: TSchema = Type.Object({}),
 	description = "",
+	promptGuidelines?: string[],
 ): ToolInfo {
 	return {
 		name,
 		description,
 		parameters,
+		...(promptGuidelines ? { promptGuidelines } : {}),
 		sourceInfo: { source: "builtin", path: `<builtin:${name}>`, scope: "temporary", origin: "top-level" },
 	};
 }
@@ -23,11 +25,13 @@ export function createTestToolInfo(
 	name: string,
 	parameters: TSchema = Type.Object({}),
 	description = `${name} tool`,
+	promptGuidelines?: string[],
 ): ToolInfo {
 	return {
 		name,
 		description,
 		parameters,
+		...(promptGuidelines ? { promptGuidelines } : {}),
 		sourceInfo: { source: "test", path: `test:${name}`, scope: "temporary", origin: "top-level" },
 	};
 }

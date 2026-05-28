@@ -30,6 +30,7 @@ export interface CursorPiBridgeToolDefinition {
 	piToolName: string;
 	mcpToolName: string;
 	description: string;
+	promptGuidelines?: ToolInfo["promptGuidelines"];
 	inputSchema: CursorPiMcpInputSchema;
 	sourceInfo: ToolInfo["sourceInfo"];
 }

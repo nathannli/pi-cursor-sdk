@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.23 - 2026-05-28
+
+### Changed
+
+- Upgrade the pinned Cursor SDK runtime dependency to `@cursor/sdk@1.0.15` and validate development/test packages against pi `0.77.0`.
+- Register Cursor provider auth with pi 0.77's `$CURSOR_API_KEY` config-value syntax while keeping legacy `CURSOR_API_KEY` placeholder handling for older stored auth and pi 0.76 compatibility.
+- Keep pi peer dependencies minimum-only with no upper bound so users can try newer pi releases before a matching extension update is published; `0.77.0` is the validation baseline, not a maximum supported version.
+
 ## 0.1.22 - 2026-05-28
 
 ### Fixed

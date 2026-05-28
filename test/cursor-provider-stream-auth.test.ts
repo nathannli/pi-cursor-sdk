@@ -74,58 +74,64 @@ describe("streamCursor auth and abort", () => {
 		expect(error.error.errorMessage).toContain("--api-key");
 	});
 
-	it("treats unresolved CURSOR_API_KEY provider placeholders as a missing API key", async () => {
-		const originalKey = process.env.CURSOR_API_KEY;
-		delete process.env.CURSOR_API_KEY;
-		try {
-			const stream = streamCursor(makeModel(), makeContext(), { apiKey: "CURSOR_API_KEY" });
-			const events = await collectEvents(stream);
+	it.each(["CURSOR_API_KEY", "$CURSOR_API_KEY", "${CURSOR_API_KEY}"])(
+		"treats unresolved %s provider placeholders as a missing API key",
+		async (placeholder) => {
+			const originalKey = process.env.CURSOR_API_KEY;
+			delete process.env.CURSOR_API_KEY;
+			try {
+				const stream = streamCursor(makeModel(), makeContext(), { apiKey: placeholder });
+				const events = await collectEvents(stream);
 
-			const error = getErrorEvent(events);
-			expect(error).toBeDefined();
-			expect(error.error.errorMessage).toBe(
-				"Cursor SDK runs require a Cursor API key. Run /login -> Use an API key -> Cursor, set CURSOR_API_KEY before starting pi, or restart pi with --api-key.",
-			);
-			expect(mockedCreate).not.toHaveBeenCalled();
-		} finally {
-			if (originalKey === undefined) {
-				delete process.env.CURSOR_API_KEY;
-			} else {
-				process.env.CURSOR_API_KEY = originalKey;
+				const error = getErrorEvent(events);
+				expect(error).toBeDefined();
+				expect(error.error.errorMessage).toBe(
+					"Cursor SDK runs require a Cursor API key. Run /login -> Use an API key -> Cursor, set CURSOR_API_KEY before starting pi, or restart pi with --api-key.",
+				);
+				expect(mockedCreate).not.toHaveBeenCalled();
+			} finally {
+				if (originalKey === undefined) {
+					delete process.env.CURSOR_API_KEY;
+				} else {
+					process.env.CURSOR_API_KEY = originalKey;
+				}
 			}
-		}
-	});
+		},
+	);
 
-	it("resolves CURSOR_API_KEY provider placeholders through the env var when present", async () => {
-		const originalKey = process.env.CURSOR_API_KEY;
-		process.env.CURSOR_API_KEY = "env-key-123";
-		try {
-			const mockSend = vi.fn().mockResolvedValue({
-				id: "run-1",
-				agentId: "agent-1",
-				status: "finished",
-				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
-				cancel: vi.fn(),
-				supports: () => true,
-				unsupportedReason: () => undefined,
-			});
-			mockCreatedAgent({
-				send: mockSend,
-				[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-			});
+	it.each(["CURSOR_API_KEY", "$CURSOR_API_KEY", "${CURSOR_API_KEY}"])(
+		"resolves %s provider placeholders through the env var when present",
+		async (placeholder) => {
+			const originalKey = process.env.CURSOR_API_KEY;
+			process.env.CURSOR_API_KEY = "env-key-123";
+			try {
+				const mockSend = vi.fn().mockResolvedValue({
+					id: "run-1",
+					agentId: "agent-1",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				});
+				mockCreatedAgent({
+					send: mockSend,
+					[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+				});
 
-			const stream = streamCursor(makeModel(), makeContext(), { apiKey: "CURSOR_API_KEY" });
-			await collectEvents(stream);
+				const stream = streamCursor(makeModel(), makeContext(), { apiKey: placeholder });
+				await collectEvents(stream);
 
-			expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "env-key-123" }));
-		} finally {
-			if (originalKey === undefined) {
-				delete process.env.CURSOR_API_KEY;
-			} else {
-				process.env.CURSOR_API_KEY = originalKey;
+				expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ apiKey: "env-key-123" }));
+			} finally {
+				if (originalKey === undefined) {
+					delete process.env.CURSOR_API_KEY;
+				} else {
+					process.env.CURSOR_API_KEY = originalKey;
+				}
 			}
-		}
-	});
+		},
+	);
 
 	it("turns generic Cursor SDK failures into actionable setup errors", async () => {
 		mockedCreate.mockRejectedValueOnce(new Error("Error"));

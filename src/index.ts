@@ -9,6 +9,7 @@ import { registerCursorAgentsContextDedup } from "./cursor-agents-context.js";
 import { registerCursorSessionAgent } from "./cursor-session-agent.js";
 import { prepareCursorSessionForCompaction } from "./cursor-session-compaction-prep.js";
 import { streamCursor } from "./cursor-provider.js";
+import { CURSOR_API_KEY_CONFIG_VALUE } from "./cursor-api-key.js";
 
 type CursorExtensionApi =
 	& Pick<ExtensionAPI, "registerProvider" | "registerCommand" | "on">
@@ -24,7 +25,7 @@ function createCursorProviderConfig(models: ProviderModelConfig[]): ProviderConf
 	return {
 		name: "Cursor",
 		baseUrl: "https://cursor.com",
-		apiKey: "CURSOR_API_KEY",
+		apiKey: CURSOR_API_KEY_CONFIG_VALUE,
 		api: "cursor-sdk",
 		models,
 		streamSimple: streamCursor,

@@ -15,10 +15,10 @@ const PI_PACKAGES = [
 ] as const;
 
 describe("package metadata cutover baselines", () => {
-	it("pins Cursor SDK exactly and validates against pi 0.76.0", () => {
-		expect(packageJson.dependencies["@cursor/sdk"]).toBe("1.0.14");
+	it("pins Cursor SDK exactly and validates against pi 0.77.0", () => {
+		expect(packageJson.dependencies["@cursor/sdk"]).toBe("1.0.15");
 		for (const packageName of PI_PACKAGES) {
-			expect(packageJson.devDependencies[packageName]).toBe("0.76.0");
+			expect(packageJson.devDependencies[packageName]).toBe("0.77.0");
 		}
 	});
 
@@ -26,6 +26,8 @@ describe("package metadata cutover baselines", () => {
 		for (const packageName of PI_PACKAGES) {
 			const range = packageJson.peerDependencies[packageName];
 			expect(range).toBe(">=0.76.0");
+			expect(range).toMatch(/^>=\d+\.\d+\.\d+$/);
+			expect(range).not.toMatch(/[<|~^]/);
 		}
 	});
 });

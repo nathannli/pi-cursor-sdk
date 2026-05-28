@@ -8,10 +8,10 @@ import type {
 import { AuthStorage, type ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { ModelThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { loadContextWindowCache } from "./context-window-cache.js";
+import { CURSOR_API_KEY_ENV_VAR, resolveCursorApiKey } from "./cursor-api-key.js";
 import { FALLBACK_MODEL_ITEMS } from "./cursor-fallback-models.generated.js";
 
 const CURSOR_PROVIDER_ID = "cursor";
-const CURSOR_API_KEY_ENV_VAR = "CURSOR_API_KEY";
 const FALLBACK_CONTEXT_WINDOW = 128000;
 const FALLBACK_MAX_TOKENS = 16384;
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -50,29 +50,22 @@ function getCliApiKeyFromArgv(argv: string[] = process.argv): string | undefined
 	return undefined;
 }
 
-function normalizeApiKey(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	if (!trimmed) return undefined;
-	if (trimmed === CURSOR_API_KEY_ENV_VAR) return process.env.CURSOR_API_KEY?.trim() || undefined;
-	return trimmed;
-}
-
 async function getStoredCursorApiKey(): Promise<string | undefined> {
 	try {
-		return normalizeApiKey(await AuthStorage.create().getApiKey(CURSOR_PROVIDER_ID, { includeFallback: false }));
+		return resolveCursorApiKey(await AuthStorage.create().getApiKey(CURSOR_PROVIDER_ID, { includeFallback: false }));
 	} catch {
 		return undefined;
 	}
 }
 
 async function getDiscoveryApiKey(): Promise<string | undefined> {
-	const cliApiKey = normalizeApiKey(getCliApiKeyFromArgv());
+	const cliApiKey = resolveCursorApiKey(getCliApiKeyFromArgv());
 	if (cliApiKey) return cliApiKey;
 
 	const storedApiKey = await getStoredCursorApiKey();
 	if (storedApiKey) return storedApiKey;
 
-	return normalizeApiKey(process.env.CURSOR_API_KEY);
+	return resolveCursorApiKey(process.env.CURSOR_API_KEY);
 }
 
 export interface CursorModelMetadata {
@@ -472,5 +465,5 @@ export const __testUtils = {
 	parseContextWindow,
 	registerModelItems,
 	getCliApiKeyFromArgv,
-	normalizeApiKey,
+	normalizeApiKey: resolveCursorApiKey,
 };

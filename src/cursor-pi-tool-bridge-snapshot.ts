@@ -42,6 +42,7 @@ export function buildCursorPiToolBridgeSurfaceSignature(snapshot: CursorPiToolBr
 				piToolName: tool.piToolName,
 				mcpToolName: tool.mcpToolName,
 				description: tool.description,
+				promptGuidelines: tool.promptGuidelines,
 				inputSchema: tool.inputSchema,
 				source: tool.sourceInfo?.source,
 				path: tool.sourceInfo?.path,
@@ -79,6 +80,7 @@ export function buildCursorPiToolBridgeSnapshot(
 			piToolName: tool.name,
 			mcpToolName,
 			description,
+			promptGuidelines: tool.promptGuidelines,
 			inputSchema: normalizeMcpInputSchema(tool.parameters),
 			sourceInfo: tool.sourceInfo,
 		});

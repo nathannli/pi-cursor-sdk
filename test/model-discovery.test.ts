@@ -163,33 +163,39 @@ describe("discoverModels", () => {
 		expect(mockedList).toHaveBeenCalledWith({ apiKey: "stored-key-123" });
 	});
 
-	it('treats unresolved stored "CURSOR_API_KEY" auth as missing when env is absent', async () => {
-		writeStoredCursorApiKey("CURSOR_API_KEY");
-		const issues: CursorModelFallbackIssue[] = [];
+	it.each(["CURSOR_API_KEY", "$CURSOR_API_KEY", "${CURSOR_API_KEY}"])(
+		"treats unresolved stored %s auth as missing when env is absent",
+		async (placeholder) => {
+			writeStoredCursorApiKey(placeholder);
+			const issues: CursorModelFallbackIssue[] = [];
 
-		const models = await discoverModels({ onFallback: (issue) => issues.push(issue) });
+			const models = await discoverModels({ onFallback: (issue) => issues.push(issue) });
 
-		expect(models.some((model) => model.id === "composer-2")).toBe(true);
-		expect(issues).toEqual([expect.objectContaining({ reason: "missing-api-key" })]);
-		expect(issues[0].message).toContain("/login");
-		expect(mockedList).not.toHaveBeenCalled();
-	});
+			expect(models.some((model) => model.id === "composer-2")).toBe(true);
+			expect(issues).toEqual([expect.objectContaining({ reason: "missing-api-key" })]);
+			expect(issues[0].message).toContain("/login");
+			expect(mockedList).not.toHaveBeenCalled();
+		},
+	);
 
-	it('resolves stored "CURSOR_API_KEY" auth through the env var when present', async () => {
-		writeStoredCursorApiKey("CURSOR_API_KEY");
-		process.env.CURSOR_API_KEY = "env-key-123";
-		mockedList.mockResolvedValueOnce([
-			{
-				id: "composer-2",
-				displayName: "Composer 2",
-				variants: [{ params: [], displayName: "Composer 2", isDefault: true }],
-			},
-		]);
+	it.each(["CURSOR_API_KEY", "$CURSOR_API_KEY", "${CURSOR_API_KEY}"])(
+		"resolves stored %s auth through the env var when present",
+		async (placeholder) => {
+			writeStoredCursorApiKey(placeholder);
+			process.env.CURSOR_API_KEY = "env-key-123";
+			mockedList.mockResolvedValueOnce([
+				{
+					id: "composer-2",
+					displayName: "Composer 2",
+					variants: [{ params: [], displayName: "Composer 2", isDefault: true }],
+				},
+			]);
 
-		await discoverModels();
+			await discoverModels();
 
-		expect(mockedList).toHaveBeenCalledWith({ apiKey: "env-key-123" });
-	});
+			expect(mockedList).toHaveBeenCalledWith({ apiKey: "env-key-123" });
+		},
+	);
 
 	it("parses pi --api-key=value for model discovery", () => {
 		expect(__testUtils.getCliApiKeyFromArgv(["node", "pi", "--api-key=cli-key-123"])).toBe("cli-key-123");

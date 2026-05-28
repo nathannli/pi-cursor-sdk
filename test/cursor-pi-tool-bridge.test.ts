@@ -200,8 +200,8 @@ describe("cursor pi tool bridge flags and snapshots", () => {
 		nativeToolDisplayTestUtils.registerNativeToolNameForTests("write");
 		try {
 			const tools = [
-				createBuiltinToolInfo("edit", "Edit files"),
-				createBuiltinToolInfo("write", "Write files"),
+				createBuiltinToolInfo("edit", Type.Object({}), "Edit files"),
+				createBuiltinToolInfo("write", Type.Object({}), "Write files"),
 				createToolInfo("sem_reindex", "Reindex semantic cache"),
 			];
 			const pi = createBridgePiHarness({
@@ -533,7 +533,15 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 
 	it("binds a tokenized per-run MCP endpoint only on 127.0.0.1 and cleans it up", async () => {
 		const registry = __testUtils.createRegistry(
-			createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read", "Read files")] }),
+			createBridgePiHarness({
+				active: ["read"],
+				tools: [
+					createTestToolInfo("read", Type.Object({}), "Read files", [
+						"Use read when exact file contents are required.",
+						"Do not use read for directory listings.",
+					]),
+				],
+			}),
 			{ PI_CURSOR_EXPOSE_BUILTIN_TOOLS: "1" },
 		);
 		const run = await registry.createRun();
@@ -555,6 +563,9 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 			const listed = await client.listTools();
 			expect(listed.tools.map((tool) => tool.name)).toEqual(["pi__read"]);
 			expect(listed.tools[0].description).toContain("Read files");
+			expect(listed.tools[0].description).toContain("Pi tool prompt guidelines:");
+			expect(listed.tools[0].description).toContain("- Use read when exact file contents are required.");
+			expect(listed.tools[0].description).toContain("- Do not use read for directory listings.");
 			expect(listed.tools[0].description).toContain("Call MCP name pi__read (pi tool: read)");
 			expect(listed.tools[0].description).toContain("Full tool-surface rules are in the session bootstrap prompt.");
 			expect(listed.tools[0].description).not.toContain("Pi bridge contract:");
