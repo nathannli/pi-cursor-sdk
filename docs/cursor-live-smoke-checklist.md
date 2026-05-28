@@ -125,7 +125,7 @@ Pass criteria:
 
 ## 4. Mandatory visual card/color rendering check
 
-This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, Cursor SDK `plan` mode, native replay enabled, and the checked-in visual runner. The runner resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, and reuses those paths inside tmux-launched runs. The default matrix is native replay only: native replay registration is forced on, settings sources are `none`, the pi bridge is off, overlapping built-in pi tools are not exposed, and Cursor SDK event-debug artifact env is cleared unless `--event-debug` is passed.
+This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.76.0, `@cursor/sdk@1.0.14`, a fresh temporary session dir, Cursor SDK `plan` mode, native replay enabled, and the checked-in visual runner. The runner resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, prepends that Node directory inside tmux so `#!/usr/bin/env node` shims use the validated Node, and reuses those paths inside tmux-launched runs. The default matrix is native replay only: native replay registration is forced on, settings sources are `none`, the pi bridge is off, overlapping built-in pi tools are not exposed, and inherited Cursor SDK event-debug artifact env is cleared. With `--event-debug`, debug capture writes to a deterministic directory under `VISUAL_DIR`.
 
 ```bash
 VISUAL_DIR="$(mktemp -d /tmp/pi-cursor-sdk-1014-visual.XXXXXX)"

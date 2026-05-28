@@ -12,6 +12,13 @@ import { apiKeySecretsFromProcess } from "./lib/cursor-cli-args.mjs";
 import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const DEBUG_ENV_NAMES = [
+	"PI_CURSOR_SDK_EVENT_DEBUG",
+	"PI_CURSOR_SDK_EVENT_DEBUG_DIR",
+	"PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR",
+	"PI_CURSOR_SDK_EVENT_DEBUG_SESSION_DIR",
+	"PI_CURSOR_SDK_EVENT_DEBUG_STDERR",
+];
 
 function printHelp() {
 	console.log(`RPC steering smoke for pi-cursor-sdk live runs.
@@ -120,14 +127,21 @@ function waitFor(getStdout, predicate, timeoutMs = 300_000) {
 	});
 }
 
-async function runPiRpcSmoke(sessionDir, piBin) {
-	const args = ["-e", root, "--cursor-no-fast", "--model", "cursor/composer-2.5", "--mode", "rpc", "--session-dir", sessionDir];
+function buildPiRpcEnv(baseEnv = process.env) {
 	const env = {
-		...process.env,
+		...baseEnv,
 		PI_CURSOR_SETTING_SOURCES: "none",
 		PI_CURSOR_NATIVE_TOOL_DISPLAY: "1",
+		PI_CURSOR_REGISTER_NATIVE_TOOLS: "1",
 		PI_CURSOR_PI_TOOL_BRIDGE: "0",
 	};
+	for (const name of DEBUG_ENV_NAMES) delete env[name];
+	return env;
+}
+
+async function runPiRpcSmoke(sessionDir, piBin) {
+	const args = ["-e", root, "--cursor-no-fast", "--model", "cursor/composer-2.5", "--mode", "rpc", "--session-dir", sessionDir];
+	const env = buildPiRpcEnv();
 
 	const child = spawn(piBin, args, { cwd: root, env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });
 	let closed = false;
@@ -225,6 +239,23 @@ function runSelfTest() {
 			if (resolvePiBin() !== fakePi) fail("self-test failed: resolvePiBin should use PATH when PI_BIN is absent");
 			process.env.PI_BIN = fakePi;
 			if (resolvePiBin() !== fakePi) fail("self-test failed: resolvePiBin should honor absolute PI_BIN");
+			const hostileEnv = buildPiRpcEnv({
+				PATH: hostilePath,
+				PI_CURSOR_REGISTER_NATIVE_TOOLS: "0",
+				PI_CURSOR_SETTING_SOURCES: "all",
+				PI_CURSOR_PI_TOOL_BRIDGE: "1",
+				PI_CURSOR_SDK_EVENT_DEBUG: "1",
+				PI_CURSOR_SDK_EVENT_DEBUG_DIR: join(tempDir, "debug-dir"),
+				PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR: join(tempDir, "debug-run-dir"),
+				PI_CURSOR_SDK_EVENT_DEBUG_SESSION_DIR: join(tempDir, "debug-session-dir"),
+				PI_CURSOR_SDK_EVENT_DEBUG_STDERR: "1",
+			});
+			if (hostileEnv.PI_CURSOR_REGISTER_NATIVE_TOOLS !== "1") fail("self-test failed: native registration should be forced on");
+			if (hostileEnv.PI_CURSOR_SETTING_SOURCES !== "none") fail("self-test failed: setting sources should be forced off");
+			if (hostileEnv.PI_CURSOR_PI_TOOL_BRIDGE !== "0") fail("self-test failed: bridge should be forced off");
+			for (const name of DEBUG_ENV_NAMES) {
+				if (name in hostileEnv) fail(`self-test failed: ${name} should be cleared`);
+			}
 		} finally {
 			if (originalPiBin === undefined) delete process.env.PI_BIN;
 			else process.env.PI_BIN = originalPiBin;

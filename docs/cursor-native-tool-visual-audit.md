@@ -8,7 +8,7 @@ Current cutover baseline: pi 0.76.0+, exact `@cursor/sdk@1.0.14`, local validati
 
 ## Cursor SDK 1.0.14 / pi 0.76.0 cutover visual record
 
-Record the required cutover validation here or in the final release handoff. The default matrix is native replay only: the runner forces native replay registration on, forces Cursor setting sources off, disables the pi bridge, disables overlapping built-in pi tool exposure, and clears Cursor SDK event-debug artifact env unless an opt-in flag is passed. Do not commit raw ANSI logs, screenshots, terminal recordings, debug artifacts, or `.debug/visual-smoke` scratch files.
+Record the required cutover validation here or in the final release handoff. The default matrix is native replay only: the runner forces native replay registration on, forces Cursor setting sources off, disables the pi bridge, disables overlapping built-in pi tool exposure, and clears inherited Cursor SDK event-debug artifact env. With `--event-debug`, debug capture writes to a deterministic directory under the visual output directory. Do not commit raw ANSI logs, screenshots, terminal recordings, debug artifacts, or `.debug/visual-smoke` scratch files.
 
 | Field | Required value / evidence |
 | --- | --- |
@@ -65,7 +65,7 @@ This is the best default release path because it exercises the real pi TUI, capt
 
 ## Tool stack
 
-The canonical runner is checked in at `scripts/visual-tui-smoke.mjs` and exposed as `npm run smoke:visual`. It uses tmux for the fixed-size PTY, `@xterm/xterm` for browser rendering, and Playwright for automatic PNG capture. It resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, and reuses those paths inside tmux-launched runs so a login shell or stale tmux server `PATH` cannot silently select a different executable.
+The canonical runner is checked in at `scripts/visual-tui-smoke.mjs` and exposed as `npm run smoke:visual`. It uses tmux for the fixed-size PTY, `@xterm/xterm` for browser rendering, and Playwright for automatic PNG capture. It resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, prepends that Node directory inside tmux so `#!/usr/bin/env node` shims use the validated Node, and reuses those paths inside tmux-launched runs so a login shell or stale tmux server `PATH` cannot silently select a different executable.
 
 One-time setup from a clean checkout:
 
@@ -81,13 +81,13 @@ npx playwright install chromium
 `scripts/visual-tui-smoke.mjs` is the durable source of truth for this workflow. It must keep supporting:
 
 - fixed-size tmux PTY execution of the parent-resolved `pi -e <extension-dir> --model cursor/composer-2.5`
-- parent-resolved `pi`, `node`, and `tmux` command paths reused in tmux-launched runs
+- parent-resolved `pi` and `tmux` command paths reused in tmux-launched runs, with `process.execPath`'s directory prepended so Node shims use the validated Node
 - `PI_CURSOR_NATIVE_TOOL_DISPLAY=1`
 - `PI_CURSOR_REGISTER_NATIVE_TOOLS=1` by default
 - `PI_CURSOR_SETTING_SOURCES=none` by default
 - `PI_CURSOR_PI_TOOL_BRIDGE=0` by default
 - `PI_CURSOR_EXPOSE_BUILTIN_TOOLS=0` by default
-- Cursor SDK event-debug artifact env cleared by default unless `--event-debug` is passed
+- Cursor SDK event-debug artifact env cleared before each run; `--event-debug` sets a deterministic debug directory under `--out-dir`
 - `TERM=xterm-256color`
 - cwd set to the target audit repo
 - prompt paste plus carriage return into the interactive TUI

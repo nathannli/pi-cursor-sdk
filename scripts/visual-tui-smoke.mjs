@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -54,7 +54,7 @@ Common options:
   --setting-sources VALUE       Cursor setting sources. Default: ${DEFAULT_SETTING_SOURCES}.
   --bridge                      Opt in to the pi tool bridge for bridge-specific visual audits.
   --expose-builtin-tools        Opt in to exposing overlapping built-in pi tools to Cursor. Requires --bridge.
-  --event-debug                 Set PI_CURSOR_SDK_EVENT_DEBUG=1 for the run.
+  --event-debug                 Set PI_CURSOR_SDK_EVENT_DEBUG=1 and write debug artifacts under <out-dir>.
   --leftover-pattern REGEX      After capture, fail if a process command still matches REGEX. Repeatable.
   --no-screenshot               Write .ansi/.txt/.html/.jsonl.path only; use agent_browser manually.
   --self-test                   Run the fake-PATH/env isolation probe without launching pi.
@@ -67,7 +67,7 @@ Native replay isolation defaults:
   PI_CURSOR_PI_TOOL_BRIDGE=0
   PI_CURSOR_EXPOSE_BUILTIN_TOOLS=0
   TERM=xterm-256color
-  Debug artifact env is cleared unless --event-debug is passed.
+  Debug artifact env is cleared before each run; --event-debug sets a deterministic debug dir.
 
 Artifacts written:
   <label>.ansi                  Raw tmux ANSI capture.
@@ -78,7 +78,7 @@ Artifacts written:
 
 Prerequisites:
   - pi, node, tmux, and npm-installed dev dependencies on PATH / in node_modules.
-  - The runner resolves pi/node/tmux from the parent PATH and reuses those paths inside tmux.
+  - The runner resolves pi/tmux from the parent PATH, uses process.execPath for node, and reuses those paths inside tmux.
   - For automatic PNG capture, install a Playwright browser once when needed:
       npx playwright install chromium
   - In the pi agent harness, --no-screenshot plus agent_browser on the generated HTML is also acceptable.
@@ -498,8 +498,11 @@ function buildLaunchPlan(options, commands, shell) {
 		["PI_CURSOR_EXPOSE_BUILTIN_TOOLS", options.exposeBuiltinTools ? "1" : "0"],
 		["TERM", "xterm-256color"],
 	];
-	const clearEnvNames = options.eventDebug ? [] : DEBUG_ENV_NAMES;
-	if (options.eventDebug) envAssignments.push(["PI_CURSOR_SDK_EVENT_DEBUG", "1"]);
+	const clearEnvNames = [...DEBUG_ENV_NAMES];
+	if (options.eventDebug) {
+		envAssignments.push(["PI_CURSOR_SDK_EVENT_DEBUG", "1"]);
+		envAssignments.push(["PI_CURSOR_SDK_EVENT_DEBUG_DIR", resolve(options.outDir, `${options.safeLabel ?? "visual-smoke"}.cursor-sdk-events`)]);
+	}
 	const command = [
 		...envAssignments.map(([name, value]) => `${name}=${shellQuote(value)}`),
 		"exec",
@@ -513,7 +516,7 @@ function buildLaunchPlan(options, commands, shell) {
 	].join(" ");
 	const clearLines = clearEnvNames.map((name) => `unset ${name}`).join("\n");
 	const script = [
-		`export PATH=${shellQuote(process.env.PATH ?? "")}`,
+		`export PATH=${shellQuote(`${dirname(commands.node)}${delimiter}${process.env.PATH ?? ""}`)}`,
 		clearLines,
 		`cd ${shellQuote(options.cwd)} || exit 97`,
 		command,
@@ -641,9 +644,17 @@ function runSelfTest() {
 		const binDir = join(tempDir, "bin");
 		mkdirSync(binDir, { recursive: true });
 		const fakePi = join(binDir, "pi");
+		const fakeNode = join(binDir, "node");
+		const fakeNodeMarker = join(tempDir, "fake-node-used");
 		const envCapture = join(tempDir, "fake-pi.env");
-		writeFileSync(fakePi, `#!/bin/sh\nenv > ${shellQuote(envCapture)}\n`, "utf8");
+		writeFileSync(
+			fakePi,
+			`#!/usr/bin/env node\nconst { writeFileSync } = require("node:fs");\nwriteFileSync(${JSON.stringify(envCapture)}, Object.entries(process.env).map(([key, value]) => key + "=" + (value ?? "")).join("\\n") + "\\n", "utf8");\n`,
+			"utf8",
+		);
+		writeFileSync(fakeNode, `#!/bin/sh\necho fake-node-used > ${shellQuote(fakeNodeMarker)}\nexit 99\n`, "utf8");
 		chmodSync(fakePi, 0o755);
+		chmodSync(fakeNode, 0o755);
 
 		const hostilePath = `${binDir}${delimiter}${process.env.PATH ?? ""}`;
 		assertSelfTest(resolveCommand("pi", hostilePath) === fakePi, "direct PATH resolver did not prefer fake PATH head");
@@ -654,6 +665,8 @@ function runSelfTest() {
 			cwd: ROOT,
 			mode: DEFAULT_MODE,
 			model: DEFAULT_MODEL,
+			outDir: tempDir,
+			safeLabel: "self-test",
 			sessionDir: join(tempDir, "session"),
 			sessionId: "self-test",
 			settingSources: DEFAULT_SETTING_SOURCES,
@@ -661,7 +674,7 @@ function runSelfTest() {
 			exposeBuiltinTools: false,
 			eventDebug: false,
 		};
-		const plan = buildLaunchPlan(baseOptions, { pi: fakePi }, "/bin/sh");
+		const plan = buildLaunchPlan(baseOptions, { pi: fakePi, node: process.execPath }, "/bin/sh");
 		const defaults = envMap(plan.envAssignments);
 		assertSelfTest(defaults.get("PI_CURSOR_NATIVE_TOOL_DISPLAY") === "1", "native display must be forced on");
 		assertSelfTest(defaults.get("PI_CURSOR_REGISTER_NATIVE_TOOLS") === "1", "native tool registration must be forced on");
@@ -686,9 +699,11 @@ function runSelfTest() {
 			PI_CURSOR_SDK_EVENT_DEBUG_SESSION_DIR: join(tempDir, "debug-session-dir"),
 			PI_CURSOR_SDK_EVENT_DEBUG_STDERR: "1",
 		};
-		const probe = run("/bin/sh", ["-lc", plan.script], { env: hostileEnv });
+		const probe = run("/bin/sh", ["-c", plan.script], { env: hostileEnv });
 		assertSelfTest(probe.status === 0, `fake-pi env capture exited ${probe.status}: ${probe.stderr?.toString() ?? ""}`);
 		const capturedEnv = parseEnvCapture(envCapture);
+		assertSelfTest(!existsSync(fakeNodeMarker), "launch PATH should force the resolved node before hostile fake node");
+		assertSelfTest((capturedEnv.get("PATH") ?? "").split(delimiter)[0] === dirname(process.execPath), "captured PATH should start with resolved node directory");
 		assertSelfTest(capturedEnv.get("PI_CURSOR_NATIVE_TOOL_DISPLAY") === "1", "captured env should force native display on");
 		assertSelfTest(capturedEnv.get("PI_CURSOR_REGISTER_NATIVE_TOOLS") === "1", "captured env should force native registration on");
 		assertSelfTest(capturedEnv.get("PI_CURSOR_SETTING_SOURCES") === "none", "captured env should force settings off");
@@ -700,7 +715,7 @@ function runSelfTest() {
 
 		const optInPlan = buildLaunchPlan(
 			{ ...baseOptions, settingSources: "all", bridge: true, exposeBuiltinTools: true, eventDebug: true },
-			{ pi: fakePi },
+			{ pi: fakePi, node: process.execPath },
 			"/bin/sh",
 		);
 		const optIns = envMap(optInPlan.envAssignments);
@@ -708,7 +723,18 @@ function runSelfTest() {
 		assertSelfTest(optIns.get("PI_CURSOR_PI_TOOL_BRIDGE") === "1", "bridge opt-in must be reflected");
 		assertSelfTest(optIns.get("PI_CURSOR_EXPOSE_BUILTIN_TOOLS") === "1", "built-in exposure opt-in must be reflected");
 		assertSelfTest(optIns.get("PI_CURSOR_SDK_EVENT_DEBUG") === "1", "event debug opt-in must be reflected");
-		assertSelfTest(optInPlan.clearEnvNames.length === 0, "debug env should not be cleared when event debug is explicit");
+		assertSelfTest(optIns.get("PI_CURSOR_SDK_EVENT_DEBUG_DIR") === join(tempDir, "self-test.cursor-sdk-events"), "event debug dir must be deterministic under out-dir");
+		for (const name of DEBUG_ENV_NAMES) {
+			assertSelfTest(optInPlan.clearEnvNames.includes(name), `${name} must be cleared even when event debug is explicit`);
+		}
+		const eventDebugProbe = run("/bin/sh", ["-c", optInPlan.script], { env: hostileEnv });
+		assertSelfTest(eventDebugProbe.status === 0, `fake-pi event-debug env capture exited ${eventDebugProbe.status}: ${eventDebugProbe.stderr?.toString() ?? ""}`);
+		const capturedEventDebugEnv = parseEnvCapture(envCapture);
+		assertSelfTest(capturedEventDebugEnv.get("PI_CURSOR_SDK_EVENT_DEBUG") === "1", "event debug should be explicitly enabled");
+		assertSelfTest(capturedEventDebugEnv.get("PI_CURSOR_SDK_EVENT_DEBUG_DIR") === join(tempDir, "self-test.cursor-sdk-events"), "event debug dir should be deterministic under out-dir");
+		assertSelfTest(!capturedEventDebugEnv.has("PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR"), "stale event debug run dir should be cleared");
+		assertSelfTest(!capturedEventDebugEnv.has("PI_CURSOR_SDK_EVENT_DEBUG_SESSION_DIR"), "stale event debug session dir should be cleared");
+		assertSelfTest(!capturedEventDebugEnv.has("PI_CURSOR_SDK_EVENT_DEBUG_STDERR"), "stale event debug stderr flag should be cleared");
 		console.log("[visual-smoke] self-test PASS");
 	} finally {
 		rmSync(tempDir, { recursive: true, force: true });
