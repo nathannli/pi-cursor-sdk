@@ -113,7 +113,7 @@ run_in_dir_capture_split() {
 	local stdout="$4"
 	local stderr="$5"
 	shift 5
-	run_with_timeout "$label" "$timeout_secs" "$SHELL_BIN" -c 'cd "$1" || exit 97; stdout="$2"; stderr="$3"; shift 3; exec "$@" >"$stdout" 2>"$stderr"' sh "$dir" "$stdout" "$stderr" "$@"
+	run_with_timeout "$label" "$timeout_secs" "$SHELL_BIN" -c 'cd "$1" || exit 97; stdout="$2"; stderr="$3"; shift 3; exec "$@" </dev/null >"$stdout" 2>"$stderr"' sh "$dir" "$stdout" "$stderr" "$@"
 }
 
 validate_replay_jsonl() {

@@ -2,20 +2,37 @@
 
 ## Unreleased
 
+## 0.1.21 - 2026-05-28
+
+**Upgrade:** Requires **pi 0.76.0+** and installs exact **`@cursor/sdk@1.0.14`**. Older pi or Cursor SDK combinations are not supported on this release line.
+
 ### Added
 
-- Add Cursor SDK-native `agent` / `plan` mode controls via `--cursor-mode agent|plan` and `/cursor-mode agent|plan`, with default `agent` mode and display-only plan/todo replay semantics.
-- Add package metadata regression coverage for exact `@cursor/sdk@1.0.14`, pi 0.76.0 local validation dependencies, and minimum-only `@earendil-works/*` peer dependency ranges.
-- Add `npm run smoke:visual` as the maintained offscreen TUI visual smoke runner for ANSI/text/HTML/PNG/JSONL evidence.
-- Add maintainer `/cursor-tools` debug command and [Cursor dogfood checklist](docs/cursor-dogfood-checklist.md).
+- Add Cursor SDK **`agent` / `plan` mode** controls: `--cursor-mode agent|plan` for one run, `/cursor-mode agent|plan` (persisted in the session), and `/cursor-mode` to show current mode. Default is `agent`. Plan-mode `createPlan` / `updateTodos` activity stays display-only in pi replay.
+- Add a bootstrap **callable tool surfaces** block on the first Cursor send (default on). It summarizes Cursor host tools, exposed `pi__*` bridge tools for the run, and that configured Cursor MCP servers are discovered at runtime. Disable with `PI_CURSOR_TOOL_MANIFEST=0`. See [cursor-tool-surfaces.md](docs/cursor-tool-surfaces.md).
+- Add maintainer `/cursor-tools` to print the effective callable-surface manifest for the current session.
 
 ### Changed
 
-- Bump Cursor SDK to exact `@cursor/sdk@1.0.14` and remove older SDK compatibility assumptions.
-- Bump the pi local validation baseline to `@earendil-works/*@0.76.0` while keeping peer dependencies minimum-only (`>=0.76.0`) with no upper bound.
-- Seed Cursor SDK mode through `Agent.create({ mode })` and pass the effective mode on every `agent.send(..., { mode })` call so `/cursor-mode` and `--cursor-mode` remain the source of truth for pooled agents.
-- Update live smoke and visual validation requirements for pi 0.76.0 `--session-id`, Cursor SDK plan mode, deterministic native-replay-only card-category proof, direct parent-`PATH` command resolution in tmux-launched runners, validated-Node shim execution for every smoke-runner pi shim, controlled debug/settings env isolation, and mandatory browser-rendered card/color inspection through the canonical offscreen PTY + ANSI + PNG + JSONL path.
-- Shorten bootstrap tool-boundary prompt text; dedupe the pi bridge contract from per-tool MCP descriptions (one-line pointer to bootstrap); add shell `cd` hint to the tool tail guard.
+- Cut over to exact `@cursor/sdk@1.0.14` and drop compatibility paths for older Cursor SDK releases.
+- Raise the documented pi floor to **0.76.0+** (`peerDependencies` are minimum-only `>=0.76.0` with no upper bound).
+- Seed Cursor SDK mode through `Agent.create({ mode })` and pass the effective mode on every `agent.send(..., { mode })` so CLI and slash-command mode stay authoritative for pooled session agents.
+- Shorten bootstrap tool-boundary prompt text; move the full pi bridge contract out of per-tool MCP descriptions (one-line pointer to the bootstrap block); add a shell `cd` hint to the tool tail guard.
+- Refactor the Cursor provider turn pipeline (prepare / send / finalize / emit / coordinator) and centralize tool presentation, replay details, and run outcomes. Behavior is intended to be the same or stricter; see **Fixed** for user-visible corrections.
+
+### Fixed
+
+- Fix edit/write **activity replay diff previews** so path-only fallbacks still show diff content instead of title-only cards.
+- Fix **replay diff card colors** in the TUI.
+- Fix **`generateImage` error replay titles** when the SDK reports a failed image call.
+- Fix **abort races** during turn finalize and send cleanup so user aborts and overlapping runs tear down more reliably.
+- Fix maintainer **`smoke:isolated` / `smoke:live` print-mode** captures hanging on pi 0.76 when stdout is redirected but stdin stays open (close stdin for `-p` / `--print` runs).
+
+### Maintainer
+
+- Add `npm run smoke:visual` for offscreen TUI visual smoke (ANSI/text/HTML/PNG/JSONL).
+- Add [Cursor dogfood checklist](docs/cursor-dogfood-checklist.md) and tighten live/visual smoke env isolation for pi 0.76 `--session-id`, plan mode, and native-replay card proof.
+- Add package metadata regression tests for the SDK/pi cutover baselines.
 
 ## 0.1.20 - 2026-05-26
 

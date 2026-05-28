@@ -126,7 +126,7 @@ run_direct_attempt() {
 	shift 4
 	rm -f "$stdout" "$stderr"
 
-	if run_with_timeout "$timeout_secs" "$@" >"$stdout" 2>"$stderr"; then
+	if run_with_timeout "$timeout_secs" "$@" </dev/null >"$stdout" 2>"$stderr"; then
 		return 0
 	fi
 	return $?
