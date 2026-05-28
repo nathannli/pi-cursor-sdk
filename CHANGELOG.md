@@ -7,6 +7,7 @@
 - Add Cursor SDK-native `agent` / `plan` mode controls via `--cursor-mode agent|plan` and `/cursor-mode agent|plan`, with default `agent` mode and display-only plan/todo replay semantics.
 - Add package metadata regression coverage for exact `@cursor/sdk@1.0.14`, pi 0.76.0 local validation dependencies, and minimum-only `@earendil-works/*` peer dependency ranges.
 - Add `npm run smoke:visual` as the maintained offscreen TUI visual smoke runner for ANSI/text/HTML/PNG/JSONL evidence.
+- Add maintainer `/cursor-tools` debug command and [Cursor dogfood checklist](docs/cursor-dogfood-checklist.md).
 
 ### Changed
 
@@ -14,6 +15,7 @@
 - Bump the pi local validation baseline to `@earendil-works/*@0.76.0` while keeping peer dependencies minimum-only (`>=0.76.0`) with no upper bound.
 - Seed Cursor SDK mode through `Agent.create({ mode })` and pass the effective mode on every `agent.send(..., { mode })` call so `/cursor-mode` and `--cursor-mode` remain the source of truth for pooled agents.
 - Update live smoke and visual validation requirements for pi 0.76.0 `--session-id`, Cursor SDK plan mode, deterministic native-replay-only card-category proof, direct parent-`PATH` command resolution in tmux-launched runners, validated-Node shim execution for every smoke-runner pi shim, controlled debug/settings env isolation, and mandatory browser-rendered card/color inspection through the canonical offscreen PTY + ANSI + PNG + JSONL path.
+- Shorten bootstrap tool-boundary prompt text; dedupe the pi bridge contract from per-tool MCP descriptions (one-line pointer to bootstrap); add shell `cd` hint to the tool tail guard.
 
 ## 0.1.20 - 2026-05-26
 

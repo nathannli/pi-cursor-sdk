@@ -396,7 +396,7 @@ describe("buildCursorPrompt", () => {
 
 	it("explains that only latest user images are available as image bytes", () => {
 		const result = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
-		expect(result.text).toContain("only latest user images are sent");
+		expect(result.text).toContain("only the latest user message's images are sent as bytes");
 		expect(result.text).toContain("ask to reattach or describe prior images");
 	});
 
@@ -534,17 +534,38 @@ describe("buildCursorPrompt", () => {
 		};
 		const result = buildCursorPrompt(ctx);
 		expect(result.text.indexOf("Cursor SDK tool boundary:")).toBeLessThan(result.text.indexOf("System instructions from pi:"));
-		expect(result.text).toContain("Pi tool names, replay tool names, and transcript tool names are context only");
-		expect(result.text).toContain("pi__* names are live Cursor MCP bridge tool names only when exposed in the current run");
-		expect(result.text).toContain("Call the pi__* MCP tool name, not the real pi tool name shown in pi history or transcripts");
-		expect(result.text).toContain("Bridged calls execute through normal pi tool flow");
-		expect(result.text).toContain("Cursor-native host tools, settings, plugins, and configured MCP servers are separate from the pi bridge");
-		expect(result.text).toContain("do not claim access to pi-side tools from the system prompt");
-		expect(result.text).toContain("do not claim WebSearch/WebFetch unless Cursor executes them");
+		expect(result.text).toContain("Pi tool names, replay labels, and transcript names are context only");
+		expect(result.text).toContain("call pi__* MCP names when exposed");
+		expect(result.text).toContain("Replay activity is display-only");
+		expect(result.text).toContain("Do not claim pi-side or WebSearch/WebFetch tools");
+		expect(result.text).toContain("Use pi__cursor_ask_question for material choices if exposed");
+		expect(result.text).not.toContain("Pi bridge contract:");
 		expect(result.text).not.toContain("do not use SwitchMode");
-		expect(result.text).not.toContain("do not execute every Cursor tool");
-		expect(result.text).toContain("replay is display-only and not a capability to invoke");
-		expect(result.text).toContain("use Cursor web/search/browser/MCP or say web search is not configured");
+	});
+
+	it("omits manifest pointer from boundary when tool manifest is disabled", () => {
+		const result = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
+		expect(result.text).not.toContain("See callable tool surfaces block below.");
+	});
+
+	it("points boundary readers to the manifest when tool manifest is present", () => {
+		const manifest = "Callable tool surfaces this run:\n- sample";
+		const result = buildCursorPrompt(
+			{ messages: [{ role: "user", content: "test", timestamp: 1 }] },
+			{ toolManifest: manifest },
+		);
+		expect(result.text).toContain("See callable tool surfaces block below.");
+		expect(result.text).toContain(manifest);
+	});
+
+	it("includes shell cd hint in the tool tail guard", () => {
+		const tail = getCursorToolTailGuardText();
+		expect(tail).toContain("explicit `cd`");
+		expect(tail).toContain("session cwd may not match paths in tool args");
+		const bootstrap = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
+		const incremental = buildCursorIncrementalPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
+		expect(bootstrap.text).toContain("explicit `cd`");
+		expect(incremental.text).toContain("explicit `cd`");
 	});
 });
 

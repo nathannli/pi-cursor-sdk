@@ -555,12 +555,9 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 			const listed = await client.listTools();
 			expect(listed.tools.map((tool) => tool.name)).toEqual(["pi__read"]);
 			expect(listed.tools[0].description).toContain("Read files");
-			expect(listed.tools[0].description).toContain("pi__* names are live Cursor MCP bridge tool names only when exposed in the current run");
-			expect(listed.tools[0].description).toContain("Call the pi__* MCP tool name, not the real pi tool name shown in pi history or transcripts");
-			expect(listed.tools[0].description).toContain("Bridged calls execute through normal pi tool flow");
-			expect(listed.tools[0].description).toContain("Replay IDs, replay labels, and transcript tool names are display-only/context-only");
-			expect(listed.tools[0].description).toContain("Cursor-native host tools, settings, plugins, and configured MCP servers are separate from the pi bridge");
-			expect(listed.tools[0].description).toContain("This run exposes real pi tool read as Cursor MCP tool pi__read.");
+			expect(listed.tools[0].description).toContain("Call MCP name pi__read (pi tool: read)");
+			expect(listed.tools[0].description).toContain("Full tool-surface rules are in the session bootstrap prompt.");
+			expect(listed.tools[0].description).not.toContain("Pi bridge contract:");
 		} finally {
 			await client.close();
 			await transport.close();

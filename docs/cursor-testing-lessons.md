@@ -4,6 +4,8 @@
 
 This document records maintainer testing lessons for `pi-cursor-sdk`. It complements unit tests and the [Cursor live smoke checklist](./cursor-live-smoke-checklist.md). Use it when adding regression coverage, debugging false-green releases, or building isolated smoke harnesses.
 
+For a **minimal one-session dogfood pass** (baseline env, one native + one bridge call, JSONL ID patterns, bootstrap manifest, edit diff card), use the [Cursor dogfood checklist](./cursor-dogfood-checklist.md) before running the full live smoke matrix.
+
 ## Core lesson: integration-shaped bugs beat unit mocks
 
 The native replay `Tool grep not found` failure was integration-shaped, not unit-shaped:

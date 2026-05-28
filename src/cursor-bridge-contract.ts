@@ -20,8 +20,6 @@ export function buildCursorPiBridgeMcpToolDescription(options: {
 }): string {
 	return [
 		options.piToolDescription,
-		"",
-		getCursorPiBridgeContractText(),
-		`This run exposes real pi tool ${options.piToolName} as Cursor MCP tool ${options.mcpToolName}.`,
+		`Call MCP name ${options.mcpToolName} (pi tool: ${options.piToolName}). Full tool-surface rules are in the session bootstrap prompt.`,
 	].join("\n");
 }

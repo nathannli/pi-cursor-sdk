@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { Context, Message, ToolCall } from "@earendil-works/pi-ai";
 import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { SDKImage } from "@cursor/sdk";
-import { getCursorPiBridgeContractText } from "./cursor-bridge-contract.js";
 import { getCursorReplayPromptLabel } from "./cursor-tool-names.js";
 
 export interface CursorPrompt {
@@ -23,20 +22,25 @@ export const CURSOR_IMAGE_TOKEN_ESTIMATE = 1200;
 const SECTION_SEPARATOR = "\n\n";
 
 export function getCursorToolTailGuardText(): string {
-	return "Tool boundary reminder: If a tool is needed, call an available Cursor SDK/MCP tool. Never print a tool card (for example Tool call/Shell/command) as assistant text.";
+	return [
+		"Shell: use an explicit `cd` to the repo path when running project commands; session cwd may not match paths in tool args.",
+		"Tool boundary reminder: If a tool is needed, call an available Cursor SDK/MCP tool. Never print a tool card (for example Tool call/Shell/command) as assistant text.",
+	].join("\n");
 }
 
-function getCursorToolBoundaryText(): string {
-	return [
+function getCursorToolBoundaryText(options: { hasToolManifest?: boolean } = {}): string {
+	const lines = [
 		"Cursor SDK tool boundary:",
-		"You can call only tools actually exposed by Cursor SDK in this run. Pi tool names, replay tool names, and transcript tool names are context only, not callable capabilities.",
-		getCursorPiBridgeContractText(),
-		"If asked to list or exercise available tools, list and exercise Cursor SDK tools only; do not claim access to pi-side tools from the system prompt unless Cursor exposes an equivalent tool that runs.",
+		"Call only tools exposed by Cursor SDK in this run. Pi tool names, replay labels, and transcript names are context only—not callable.",
+		"Bridged pi tools: call pi__* MCP names when exposed, not the pi card name in history. Replay activity is display-only.",
+		"Do not claim pi-side or WebSearch/WebFetch tools unless Cursor executes an equivalent tool.",
 		"Use pi__cursor_ask_question for material choices if exposed.",
-		"Web: use Cursor web/search/browser/MCP or say web search is not configured; do not claim WebSearch/WebFetch unless Cursor executes them.",
-		"Replay: pi may display recorded Cursor tool activity as pi-style cards, but replay is display-only and not a capability to invoke.",
-		"Images: only latest user images are sent; ask to reattach or describe prior images.",
-	].join("\n");
+		"Images: only the latest user message's images are sent as bytes; ask to reattach or describe prior images.",
+	];
+	if (options.hasToolManifest) {
+		lines.push("See callable tool surfaces block below.");
+	}
+	return lines.join("\n");
 }
 
 function getCursorBootstrapTailSections(): string[] {
@@ -372,7 +376,7 @@ export function buildCursorIncrementalPrompt(context: Context, options: CursorPr
 }
 
 export function buildCursorPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
-	const sectionsBeforeMessages: string[] = [getCursorToolBoundaryText()];
+	const sectionsBeforeMessages: string[] = [getCursorToolBoundaryText({ hasToolManifest: Boolean(options.toolManifest) })];
 	if (options.toolManifest) {
 		sectionsBeforeMessages.push(options.toolManifest);
 	}
