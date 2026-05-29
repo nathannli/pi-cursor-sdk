@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.26 - 2026-05-29
+
 ### Added
 
 - Cache the discovered Cursor model catalog on disk at `~/.pi/agent/cursor-sdk-model-list.json` (`0600`, keyed by an API-key fingerprint) so warm pi startups skip the live `Cursor.models.list` network round-trip that added several seconds to boot (#78). Tune with `PI_CURSOR_SDK_MODEL_CACHE_TTL_MS` (default 24h) or disable with `PI_CURSOR_SDK_DISABLE_MODEL_CACHE=1`.
