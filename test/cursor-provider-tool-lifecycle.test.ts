@@ -165,11 +165,12 @@ describe("streamCursor Cursor tool lifecycle", () => {
 		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
 		const trace = collectThinkingDeltas(events);
 
-		expect(trace.match(/Cursor shell: shell/g)).toHaveLength(1);
+		expect(trace.match(/Cursor shell: npm test/g)).toHaveLength(1);
+		expect(trace).not.toContain("Cursor shell: shell");
 		expect(trace.match(/\$ npm test/g)).toHaveLength(2);
 	});
 
-	it("keeps lifecycle progress for distinct shell starts even when labels match", async () => {
+	it("surfaces safe distinct shell lifecycle labels while keeping completed shell results", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
 		const shellCalls = [
 			{ callId: "shell-1", toolCall: { name: "shell", args: { command: "npm test" } } },
@@ -211,9 +212,51 @@ describe("streamCursor Cursor tool lifecycle", () => {
 		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
 		const trace = collectThinkingDeltas(events);
 
-		expect(trace.match(/Cursor shell: shell/g)).toHaveLength(2);
+		expect(trace).toContain("Cursor shell: npm test");
+		expect(trace).toContain("Cursor shell: git status");
+		expect(trace).not.toContain("Cursor shell: shell");
 		expect(trace).toContain("$ npm test");
 		expect(trace).toContain("$ git status");
+	});
+
+	it("does not emit generic shell lifecycle progress when command details are unsafe", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
+		const shellCall = { name: "shell", args: { command: "cd /Users/test/project && gh pr view 114" } };
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: shellCall, callId: "shell-unsafe" } });
+			await delayBeyondLifecycleDefer();
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						...shellCall,
+						result: { status: "success", value: { stdout: "ok\n", stderr: "", exitCode: 0 } },
+					},
+					callId: "shell-unsafe",
+				},
+			});
+			opts.onDelta({ update: { type: "text-delta", text: "done" } });
+			return asMockCursorRun({
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			});
+		});
+		mockCreatedAgent({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const trace = collectThinkingDeltas(events);
+
+		expect(trace).not.toContain("Cursor shell: shell");
+		expect(trace).not.toContain("Cursor shell: cd /Users/test/project");
+		expect(trace).toContain("$ cd /Users/test/project && gh pr view 114");
 	});
 
 	it("does not emit lifecycle progress for fast read completions", async () => {

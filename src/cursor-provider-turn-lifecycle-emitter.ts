@@ -35,6 +35,8 @@ export class CursorToolLifecycleEmitter {
 	private readonly lifecycleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private readonly activeLifecycleFingerprintOwners = new Map<string, string>();
 	private readonly lifecycleFingerprintByCallId = new Map<string, string>();
+	private readonly activeLifecycleProgressTextOwners = new Map<string, string>();
+	private readonly lifecycleProgressTextByCallId = new Map<string, string>();
 
 	constructor(options: CursorToolLifecycleEmitterOptions) {
 		this.liveRun = options.liveRun;
@@ -49,6 +51,9 @@ export class CursorToolLifecycleEmitter {
 		if (typeof callId !== "string" || this.emittedLifecycleCallIds.has(callId)) return;
 		if (this.isBridgeMcpToolCall(toolCall)) return;
 		if (!isCursorToolLifecycleEligible(toolCall)) return;
+
+		const progressText = formatCursorToolLifecycleProgressText(toolCall, this.resolvedApiKey);
+		if (!progressText) return;
 
 		const fingerprint = getStartedToolCallFingerprint(toolCall);
 		const existingOwner = this.activeLifecycleFingerprintOwners.get(fingerprint);
@@ -65,6 +70,10 @@ export class CursorToolLifecycleEmitter {
 		this.cancel(callId);
 		this.activeLifecycleFingerprintOwners.set(fingerprint, callId);
 		this.lifecycleFingerprintByCallId.set(callId, fingerprint);
+		if (!this.activeLifecycleProgressTextOwners.has(progressText)) {
+			this.activeLifecycleProgressTextOwners.set(progressText, callId);
+		}
+		this.lifecycleProgressTextByCallId.set(callId, progressText);
 		const timer = setTimeout(() => {
 			this.lifecycleTimers.delete(callId);
 			if (!this.hasStartedToolCall(callId)) {
@@ -72,7 +81,18 @@ export class CursorToolLifecycleEmitter {
 				return;
 			}
 			if (this.emittedLifecycleCallIds.has(callId)) return;
-			this.emit(callId, toolCall);
+			const progressOwner = this.activeLifecycleProgressTextOwners.get(progressText);
+			if (progressOwner && progressOwner !== callId && this.hasStartedToolCall(progressOwner)) {
+				this.debugRecorder?.recordCoordinatorEvent("tool_lifecycle_skip", {
+					callId,
+					ownerCallId: progressOwner,
+					toolName: getNormalizedCursorToolName(toolCall),
+					reason: "duplicate-active-progress-text",
+				});
+				return;
+			}
+			this.activeLifecycleProgressTextOwners.set(progressText, callId);
+			this.emit(callId, toolCall, progressText);
 		}, CURSOR_TOOL_LIFECYCLE_DEFER_MS);
 		timer.unref?.();
 		this.lifecycleTimers.set(callId, timer);
@@ -93,6 +113,8 @@ export class CursorToolLifecycleEmitter {
 		this.lifecycleTimers.clear();
 		this.activeLifecycleFingerprintOwners.clear();
 		this.lifecycleFingerprintByCallId.clear();
+		this.activeLifecycleProgressTextOwners.clear();
+		this.lifecycleProgressTextByCallId.clear();
 	}
 
 	private clearLifecycleIdentity(callId: string): void {
@@ -101,11 +123,14 @@ export class CursorToolLifecycleEmitter {
 			this.activeLifecycleFingerprintOwners.delete(fingerprint);
 		}
 		this.lifecycleFingerprintByCallId.delete(callId);
+		const progressText = this.lifecycleProgressTextByCallId.get(callId);
+		if (progressText && this.activeLifecycleProgressTextOwners.get(progressText) === callId) {
+			this.activeLifecycleProgressTextOwners.delete(progressText);
+		}
+		this.lifecycleProgressTextByCallId.delete(callId);
 	}
 
-	private emit(callId: string, toolCall: unknown): void {
-		const progressText = formatCursorToolLifecycleProgressText(toolCall, this.resolvedApiKey);
-		if (!progressText) return;
+	private emit(callId: string, toolCall: unknown, progressText: string): void {
 		this.emittedLifecycleCallIds.add(callId);
 		this.debugRecorder?.recordCoordinatorEvent("tool_lifecycle", {
 			callId,
