@@ -267,7 +267,7 @@ Keep project-specific tools in repo scripts when they are truly one-off.
 
 Template update runbook:
 
-1. Confirm no active work depends on mutating the template immediately.
+1. Prefer updating `pi-extension-windows-template` over adding per-project/per-run installers when a tool is reusable across pi extensions.
 2. Boot the source VM, not a Crabbox clone.
 3. Install or update the globally useful tool.
 4. Verify from a fresh SSH session: `node --version`, `npm --version`, `git --version`, `tar --version`, and the new tool's `--version` or equivalent.
@@ -275,12 +275,13 @@ Template update runbook:
 6. Shut down the VM cleanly.
 7. Create a new known-good power-off snapshot. Prefer a dated snapshot for trial adoption; promote it to `crabbox-ready` only after at least one project passes the Windows smoke.
 8. Update project docs/config if the snapshot name changes.
+9. Stop or clean stale clones after the template update so future runs do not reuse pre-update state.
 
 Never bake API keys, browser sessions, user project checkouts, generated artifacts, or repo-specific `.env` files into the template.
 
 ## Doctor is mandatory
 
-`npm run smoke:platform:doctor` should fail before any expensive, token-spending, or long-running suite starts.
+`npm run smoke:platform:doctor` should fail before any expensive, token-spending, or long-running suite starts. The release entrypoint should enforce this, either by making `smoke:platform:all` run doctor first or by making the canonical release command run `smoke:platform:doctor && smoke:platform:all`.
 
 Doctor should check:
 
@@ -437,17 +438,19 @@ Do not rely on Crabbox `--artifact-glob` for this matrix. Crabbox's SSH artifact
 
 ## Secrets and environment forwarding
 
-Crabbox intentionally does not forward your whole environment. By default it forwards only narrow built-ins such as `CI` and `NODE_OPTIONS`. Live pi suites must opt in to exactly the variables they need.
+Crabbox intentionally does not forward your whole environment to the remote target. By default it forwards only narrow built-ins such as `CI` and `NODE_OPTIONS`. Live pi suites must opt in to exactly the variables they need.
+
+Local forwarding of secrets is acceptable for these maintainer-owned smoke gates when the suite needs real provider/model auth. The hard line is persistence and sharing: secrets must never be committed, baked into templates, written to artifacts, printed in docs/PRs, or posted in chat.
 
 Best practices:
 
-- Keep auth values out of docs, configs, shell commands, and artifact names.
+- Keep auth values out of docs, configs, shell commands, artifact names, and template images.
 - Store auth variable names in config, e.g. `defaultAuthEnv: ["ZAI_API_KEY"]`.
-- Forward with `--allow-env NAME` or `--env-from-profile <file> --allow-env NAME`.
+- Forward only named auth variables with `--allow-env NAME` or `--env-from-profile <file> --allow-env NAME`.
 - Do not pass API keys as command-line arguments.
-- In Node harnesses, strip sensitive env vars from child processes unless the suite explicitly allows them.
-- Redact stdout, stderr, JSONL, HTML, ANSI, debug files, and failure bundles before writing or sharing.
-- Fail if a redaction scan finds API keys, bearer tokens, cookies, auth headers, or raw `.env` contents.
+- Preserve normal local process environment such as `PATH`, `HOME`, and tool configuration, but do not dump the full environment into artifacts.
+- Redact stdout, stderr, JSONL, HTML, ANSI, debug files, and failure bundles before committing, publishing, posting, or sharing them.
+- Fail if a redaction scan finds API keys, bearer tokens, cookies, auth headers, or raw `.env` contents in persisted artifacts.
 
 Docs may say `CURSOR_API_KEY=(present, redacted)` or `ZAI_API_KEY=(present, redacted)`. They must never include values.
 
@@ -462,8 +465,8 @@ The main guardrails:
 - Cleanup failures fail the target result.
 - Visual assertions inspect rendered output, not only prompt text.
 - JSONL assertions inspect specific message fields, not all-file substrings.
-- Auth is forwarded by allowlist only.
-- Artifacts are redacted before sharing.
+- Auth is forwarded to targets by explicit allowlist only.
+- Secrets can be used locally, but artifacts/docs/comments never expose them.
 - Target-specific assumptions live in `docs/platform-smoke.md`, not in chat.
 
 ## Adoption procedure for a new pi extension
