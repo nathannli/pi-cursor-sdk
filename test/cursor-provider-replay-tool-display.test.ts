@@ -43,6 +43,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+function displayPathForExpect(path: string): string {
+	return path.replace(/\\/g, "/");
+}
 
 describe("streamCursor native replay tool display", () => {
 	beforeEach(resetCursorProviderTestState);
@@ -323,6 +326,7 @@ it("replays Cursor grep activity through native grep display", async () => {
 		await registerNativeToolDisplayForTest(registeredTools);
 		const dir = mkdtempSync(join(tmpdir(), "cursor-edit-replay-"));
 		const targetPath = join(dir, ".tool-demo-temp.txt");
+		const displayTargetPath = displayPathForExpect(targetPath);
 		writeFileSync(targetPath, "old\n");
 
 		try {
@@ -370,14 +374,14 @@ it("replays Cursor grep activity through native grep display", async () => {
 			const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 			expect(toolCall!.name).toBe("cursor");
-			expect(toolCall!.arguments).toMatchObject({ path: targetPath });
+			expect(toolCall!.arguments).toMatchObject({ path: displayTargetPath });
 			expect(toolCall!.arguments).not.toHaveProperty("edits");
 			const cursorTool = registeredTools.find((tool) => tool.name === "cursor");
 			expect(cursorTool).toBeDefined();
 			const toolResult = await cursorTool!.execute(toolCall!.id, toolCall!.arguments, undefined, undefined, createExtensionTestContext());
 			expect(toolResult).toMatchObject({
-				content: [{ type: "text", text: expect.stringContaining(`edit ${targetPath}`) }],
-				details: { variant: "activity", sourceToolName: "edit", title: "Cursor edit", summary: expect.stringContaining(targetPath) },
+				content: [{ type: "text", text: expect.stringContaining(`edit ${displayTargetPath}`) }],
+				details: { variant: "activity", sourceToolName: "edit", title: "Cursor edit", summary: expect.stringContaining(displayTargetPath) },
 				terminate: false,
 			});
 			expect(textFromToolResultBlock(toolResult.content[0])).not.toContain("Validation failed for tool \"edit\"");
@@ -427,6 +431,7 @@ it("replays Cursor grep activity through native grep display", async () => {
 		await registerNativeToolDisplayForTest(registeredTools);
 		const dir = mkdtempSync(join(tmpdir(), "cursor-write-path-only-replay-"));
 		const targetPath = join(dir, "recorded-write.txt");
+		const displayTargetPath = displayPathForExpect(targetPath);
 		writeFileSync(targetPath, "old\n");
 
 		try {
@@ -476,14 +481,14 @@ it("replays Cursor grep activity through native grep display", async () => {
 			const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 			expect(toolCall!.name).toBe("cursor");
-			expect(toolCall!.arguments).toMatchObject({ path: targetPath, activityTitle: "Cursor write", activitySummary: targetPath });
+			expect(toolCall!.arguments).toMatchObject({ path: displayTargetPath, activityTitle: "Cursor write", activitySummary: displayTargetPath });
 			expect(toolCall!.arguments).not.toHaveProperty("content");
 			const cursorTool = registeredTools.find((tool) => tool.name === "cursor");
 			expect(cursorTool).toBeDefined();
 			const toolResult = await cursorTool!.execute(toolCall!.id, toolCall!.arguments, undefined, undefined, createExtensionTestContext());
 			expect(toolResult).toMatchObject({
-				content: [{ type: "text", text: expect.stringContaining(`write ${targetPath}`) }],
-				details: { variant: "activity", sourceToolName: "write", title: "Cursor write", path: targetPath },
+				content: [{ type: "text", text: expect.stringContaining(`write ${displayTargetPath}`) }],
+				details: { variant: "activity", sourceToolName: "write", title: "Cursor write", path: displayTargetPath },
 				terminate: false,
 			});
 			expect(textFromToolResultBlock(toolResult.content[0])).not.toContain("Validation failed for tool \"write\"");
@@ -520,6 +525,7 @@ it("replays Cursor grep activity through native grep display", async () => {
 		await registerNativeToolDisplayForTest(registeredTools);
 		const dir = mkdtempSync(join(tmpdir(), "cursor-strreplace-replay-"));
 		const targetPath = join(dir, "recorded-edit.txt");
+		const displayTargetPath = displayPathForExpect(targetPath);
 		writeFileSync(targetPath, "old\n");
 
 		try {
@@ -573,12 +579,12 @@ it("replays Cursor grep activity through native grep display", async () => {
 			const toolCall = firstDone.message.content.find(isToolCallBlock);
 
 			expect(toolCall!.name).toBe("edit");
-			expect(toolCall!.arguments).toEqual({ path: targetPath, edits: [{ oldText: "old\n", newText: "new\n" }] });
+			expect(toolCall!.arguments).toEqual({ path: displayTargetPath, edits: [{ oldText: "old\n", newText: "new\n" }] });
 			const editTool = registeredTools.find((tool) => tool.name === "edit");
 			expect(editTool).toBeDefined();
 			const toolResult = await editTool!.execute(toolCall!.id, toolCall!.arguments, undefined, undefined, createExtensionTestContext());
 			expect(toolResult).toMatchObject({
-				content: [{ type: "text", text: expect.stringContaining(`edit ${targetPath}`) }],
+				content: [{ type: "text", text: expect.stringContaining(`edit ${displayTargetPath}`) }],
 				details: { variant: "nativeEdit", diff: expect.stringContaining("-old") },
 				terminate: false,
 			});
@@ -615,6 +621,7 @@ it("replays Cursor grep activity through native grep display", async () => {
 		await registerNativeToolDisplayForTest(registeredTools);
 		const dir = mkdtempSync(join(tmpdir(), "cursor-write-replay-"));
 		const targetPath = join(dir, "recorded-write.txt");
+		const displayTargetPath = displayPathForExpect(targetPath);
 		writeFileSync(targetPath, "old\n");
 
 		try {
@@ -665,12 +672,12 @@ it("replays Cursor grep activity through native grep display", async () => {
 
 			expect(toolCall!.name).toBe("write");
 			expect(toolCall!.name).not.toContain("cursor");
-			expect(toolCall!.arguments).toEqual({ path: targetPath, content: "new\n" });
+			expect(toolCall!.arguments).toEqual({ path: displayTargetPath, content: "new\n" });
 			const writeTool = registeredTools.find((tool) => tool.name === "write");
 			expect(writeTool).toBeDefined();
 			const toolResult = await writeTool!.execute(toolCall!.id, toolCall!.arguments, undefined, undefined, createExtensionTestContext());
 			expect(toolResult).toMatchObject({
-				content: [{ type: "text", text: expect.stringContaining(`write ${targetPath}`) }],
+				content: [{ type: "text", text: expect.stringContaining(`write ${displayTargetPath}`) }],
 				details: { variant: "nativeWrite", fileContentAfterWrite: "new\n" },
 				terminate: false,
 			});

@@ -81,7 +81,7 @@ export {
 // Access the mocks via the module
 export const mockedCreate = vi.mocked(Agent.create);
 export const mockedMessagesList = vi.mocked(Agent.messages.list);
-export const mockedCreateAgentPlatform = vi.mocked(createAgentPlatform);
+export const mockedCreateAgentPlatform = vi.mocked(createAgentPlatform, { partial: true });
 
 export type MockSdkAgent = Awaited<ReturnType<typeof Agent.create>>;
 
@@ -147,8 +147,8 @@ export async function collectEvents(stream: ReturnType<typeof streamCursor>): Pr
 
 export type AssistantStreamEventType = AssistantMessageEvent["type"];
 export type AssistantStreamEvent<TType extends AssistantStreamEventType> = Extract<AssistantMessageEvent, { type: TType }>;
-export type CursorDeltaHandler = NonNullable<SendOptions["onDelta"]>;
-export type CursorStepHandler = NonNullable<SendOptions["onStep"]>;
+export type CursorDeltaHandler = (event: { update: unknown }) => void;
+export type CursorStepHandler = (event: { step: unknown }) => void;
 export type CursorToolStreamEventType = "toolcall_start" | "toolcall_delta" | "toolcall_end";
 
 export const CURSOR_TOOL_STREAM_EVENT_TYPES = new Set<AssistantStreamEventType>(["toolcall_start", "toolcall_delta", "toolcall_end"]);
@@ -209,7 +209,9 @@ export function isToolCallBlock(block: AssistantMessage["content"][number]): blo
 }
 
 export type CursorAgentCreateOptions = NonNullable<Parameters<typeof Agent.create>[0]>;
-export type CursorAgentPlatformForTest = Awaited<ReturnType<typeof createAgentPlatform>>;
+export type CursorAgentPlatformForTest = Partial<Awaited<ReturnType<typeof createAgentPlatform>>> & {
+	checkpointStore: Awaited<ReturnType<typeof createAgentPlatform>>["checkpointStore"];
+};
 
 export function getCreatedAgentOptions(callIndex = 0): CursorAgentCreateOptions {
 	const options = mockedCreate.mock.calls[callIndex]?.[0];
@@ -223,8 +225,11 @@ export function createMockAgentPlatform(
 	return {
 		checkpointStore: {
 			loadLatest,
+			saveCheckpoint: vi.fn().mockResolvedValue({ blobId: "checkpoint-1", storeKind: "test" }),
+			getBlobStore: vi.fn().mockResolvedValue({}),
+			getFullConversation: vi.fn().mockResolvedValue({}),
 		},
-	} as CursorAgentPlatformForTest;
+	};
 }
 
 export interface NativeToolDisplayTestPi {

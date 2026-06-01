@@ -1,0 +1,391 @@
+/**
+ * Platform smoke doctor — preflight checks before any Cursor token spend.
+ *
+ * Implements doctor checks from docs/platform-smoke.md:
+ * env vars, Crabbox, providers, Docker, SSH, Parallels, Node, tools,
+ * artifacts, git status, forbidden files, Cursor auth, node-pty.
+ */
+
+import { execSync, execFileSync } from "node:child_process";
+import { accessSync, constants, existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+
+let failures = 0;
+
+function ok(label) { console.log(`  \u2713 ${label}`); }
+function warn(label) { console.log(`  \u26a0 ${label}`); }
+function fail(label) { console.error(`  \u2717 ${label}`); failures++; }
+function env(name) { return process.env[name] ?? ""; }
+
+function silent(cmd, args, opts) {
+	try { return execFileSync(cmd, args, { timeout: 15_000, stdio: "pipe", ...opts }).toString().trim(); }
+	catch { return null; }
+}
+
+function shell(cmd, opts) {
+	try { return execSync(cmd, { timeout: 15_000, stdio: "pipe", ...opts }).toString().trim(); }
+	catch { return null; }
+}
+
+function parseLeaseId(output) {
+	return output.match(/\bleased\s+(\S+)/)?.[1]
+		?? output.match(/\blease=(\S+)/)?.[1]
+		?? null;
+}
+
+function windowsCrabboxBaseArgs() {
+	const vm = env("PLATFORM_SMOKE_WINDOWS_VM") || "pi-extension-windows-template";
+	const snap = env("PLATFORM_SMOKE_WINDOWS_SNAPSHOT") || "crabbox-ready";
+	const user = env("PLATFORM_SMOKE_WINDOWS_USER") || env("USER");
+	const workRoot = env("PLATFORM_SMOKE_WINDOWS_NATIVE_WORK_ROOT") || "C:\\crabbox\\pi-cursor-sdk";
+	return [
+		"--provider", "parallels",
+		"--target", "windows",
+		"--windows-mode", "normal",
+		"--parallels-source", vm,
+		"--parallels-source-snapshot", snap,
+		"--parallels-user", user,
+		"--parallels-work-root", workRoot,
+	];
+}
+
+function crabbox(cbox, args, timeout = 300_000) {
+	try {
+		return {
+			ok: true,
+			stdout: execFileSync(cbox, args, {
+				timeout,
+				stdio: "pipe",
+				env: { ...process.env, CRABBOX_SYNC_GIT_SEED: "false" },
+			}).toString(),
+			stderr: "",
+		};
+	} catch (error) {
+		return {
+			ok: false,
+			stdout: error.stdout?.toString?.() ?? "",
+			stderr: error.stderr?.toString?.() ?? error.message,
+		};
+	}
+}
+
+function disposableWindowsSshProbe(cbox) {
+	const slug = "pi-cursor-sdk-doctor-windows";
+	const baseArgs = windowsCrabboxBaseArgs();
+	const warm = crabbox(cbox, ["warmup", ...baseArgs, "--slug", slug, "--keep"], 300_000);
+	const leaseId = parseLeaseId(warm.stdout) ?? parseLeaseId(warm.stderr) ?? slug;
+	try {
+		if (!warm.ok) return { ok: false, message: `disposable Windows warmup failed: ${(warm.stderr || warm.stdout).slice(-500)}` };
+		const probeCommand = "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command \"node --version; npm --version; git --version; whoami\"";
+		const run = crabbox(cbox, ["run", ...baseArgs, "--id", leaseId, "--no-sync", "--shell", probeCommand], 120_000);
+		if (!run.ok) return { ok: false, message: `disposable Windows probe failed: ${(run.stderr || run.stdout).slice(-500)}` };
+		return { ok: true, message: run.stdout.trim().split(/\r?\n/).slice(-4).join(" | ") };
+	} finally {
+		crabbox(cbox, ["stop", ...baseArgs, "--id", leaseId], 60_000);
+	}
+}
+
+function hasBin(name) { return silent("which", [name]) !== null; }
+
+function findGitRoot(startPath) {
+	let dir = startPath;
+	for (let i = 0; i < 8; i++) {
+		if (existsSync(resolve(dir, ".git"))) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) return null;
+		dir = parent;
+	}
+	return null;
+}
+
+function runChecks(config) {
+	// ── Phase 1: environment variables ──
+	console.log("\n── Environment variables ──");
+	const requiredVars = [
+		"PLATFORM_SMOKE_CRABBOX",
+		"CURSOR_API_KEY",
+		"PLATFORM_SMOKE_WINDOWS_VM",
+		"PLATFORM_SMOKE_WINDOWS_SNAPSHOT",
+		"PLATFORM_SMOKE_WINDOWS_USER",
+		"PLATFORM_SMOKE_WINDOWS_NATIVE_WORK_ROOT",
+	];
+	const optionalVars = [
+		"PLATFORM_SMOKE_MAC_HOST",
+		"PLATFORM_SMOKE_MAC_USER",
+		"PLATFORM_SMOKE_MAC_WORK_ROOT",
+		"PLATFORM_SMOKE_UBUNTU_IMAGE",
+	];
+	for (const name of requiredVars) {
+		const v = env(name);
+		v ? ok(`${name} = ${name === "CURSOR_API_KEY" ? "(present, redacted)" : (v.length > 50 ? v.slice(0, 50) + "..." : v)}`)
+			: fail(`${name} missing`);
+	}
+	for (const name of optionalVars) {
+		const v = env(name);
+		ok(`${name} = ${v || "(default)"}`);
+	}
+
+	// ── Phase 2: Crabbox binary ──
+	console.log("\n── Crabbox binary ──");
+	const cbox = env("PLATFORM_SMOKE_CRABBOX");
+	if (!cbox) {
+		fail("PLATFORM_SMOKE_CRABBOX not set");
+	} else {
+		try { accessSync(cbox, constants.X_OK); ok(`binary: ${cbox}`); }
+		catch { fail(`${cbox} not executable`); }
+		const ver = silent(cbox, ["--version"]);
+		if (ver) ok(`version: ${ver.split("\n")[0]}`);
+		const requiredCommit = config.requiredCrabbox?.commit;
+		if (requiredCommit) {
+			const gitRoot = findGitRoot(dirname(cbox));
+			const actualCommit = gitRoot ? silent("git", ["-C", gitRoot, "rev-parse", "HEAD"]) : null;
+			if (!actualCommit) fail(`could not verify Crabbox source commit for ${cbox}`);
+			else if (actualCommit !== requiredCommit) fail(`Crabbox commit mismatch: expected ${requiredCommit}, got ${actualCommit}`);
+			else ok(`commit: ${actualCommit}`);
+		}
+	}
+
+	// ── Phase 3: Crabbox providers ──
+	console.log("\n── Crabbox providers ──");
+	if (cbox) {
+		const ubuntuImage = env("PLATFORM_SMOKE_UBUNTU_IMAGE") || "cimg/node:24.16";
+		const lcDoc = silent(cbox, ["doctor", "--provider", "local-container", "--local-container-image", ubuntuImage, "--json"]);
+		if (lcDoc) {
+			try {
+				const d = JSON.parse(lcDoc);
+				d.ok ? ok("local-container provider OK") : fail(`local-container: ${d.error ?? "not ok"}`);
+			} catch {
+				warn("could not parse crabbox doctor --json for local-container");
+			}
+		} else {
+			fail("crabbox doctor --provider local-container --json failed");
+		}
+		// ssh doctor needs host config; skip if host not reachable
+		const sshHost = env("PLATFORM_SMOKE_MAC_HOST") || "localhost";
+		const sshUser = env("PLATFORM_SMOKE_MAC_USER") || env("USER");
+		const sshRoot = env("PLATFORM_SMOKE_MAC_WORK_ROOT") || `/Users/${env("USER")}/crabbox/pi-cursor-sdk`;
+		const sshDoc = silent(cbox, [
+			"doctor", "--provider", "ssh", "--target", "macos",
+			"--static-host", sshHost, "--static-user", sshUser,
+			"--static-port", "22", "--static-work-root", sshRoot,
+			"--json",
+		]);
+		if (sshDoc) {
+			try {
+				const d = JSON.parse(sshDoc);
+				d.ok ? ok("ssh (static) provider OK") : warn(`ssh doctor: ${d.checks?.find(c => c.status !== "ok")?.check ?? "some checks not ok"}`);
+			} catch {
+				warn("could not parse crabbox ssh doctor JSON");
+			}
+		} else {
+			warn("crabbox ssh doctor skipped (no remote probe possible without host config)");
+		}
+	}
+
+	// ── Phase 4: Docker ──
+	console.log("\n── Docker ──");
+	const dockerVer = shell("docker info --format '{{.ServerVersion}}'");
+	dockerVer ? ok(`Docker ${dockerVer}`) : fail("Docker not running or not available");
+
+	// ── Phase 5: macOS SSH ──
+	console.log("\n── macOS SSH ──");
+	const host = env("PLATFORM_SMOKE_MAC_HOST") || "localhost";
+	const user = env("PLATFORM_SMOKE_MAC_USER") || env("USER");
+	const sshOut = shell(`ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${user}@${host} 'whoami && node --version && npm --version && git --version'`);
+	if (sshOut) {
+		const lines = sshOut.trim().split("\n");
+		ok(`SSH to ${host}: ${lines[0]}`);
+		if (lines[1]) ok(`remote Node ${lines[1]}`);
+		if (lines[2]) ok(`remote npm ${lines[2]}`);
+		if (lines[3]) ok(`remote ${lines[3]}`);
+	} else {
+		fail(`SSH to ${host} failed`);
+	}
+
+	// ── Phase 6: Parallels ──
+	console.log("\n── Parallels ──");
+	if (!hasBin("prlctl")) {
+		fail("prlctl not found");
+	} else {
+		ok("prlctl found");
+		const vmName = env("PLATFORM_SMOKE_WINDOWS_VM") || "pi-extension-windows-template";
+		const list = shell("prlctl list -a --no-header 2>/dev/null");
+		if (list) {
+			const vms = list.split("\n").filter(Boolean);
+			const tpl = vms.find(l => l.includes(vmName));
+			if (tpl) {
+				ok(`template VM "${vmName}" found`);
+				const status = tpl.split(/\s+/)[1];
+				if (status === "stopped") {
+					ok(`VM "${vmName}" is stopped — ready for linked clones`);
+				} else {
+					warn(`VM "${vmName}" state: ${status} — must be stopped for linked clones`);
+				}
+
+				const snapName = env("PLATFORM_SMOKE_WINDOWS_SNAPSHOT") || "crabbox-ready";
+				const snapsJson = shell(`prlctl snapshot-list "${vmName}" -j 2>/dev/null`);
+				let snapshotFound = false;
+				if (snapsJson) {
+					try {
+						const snapshots = JSON.parse(snapsJson);
+						snapshotFound = Object.values(snapshots).some((snapshot) => snapshot?.name === snapName);
+					} catch {
+						warn(`could not parse snapshot JSON for "${vmName}"`);
+					}
+				}
+				if (!snapshotFound) {
+					const snapsText = shell(`prlctl snapshot-list "${vmName}" 2>/dev/null`);
+					snapshotFound = Boolean(snapsText && snapsText.includes(snapName));
+				}
+				if (snapshotFound) {
+					ok(`snapshot "${snapName}" exists`);
+				} else {
+					fail(`snapshot "${snapName}" not found — run: prlctl snapshot "${vmName}" --name "${snapName}"`);
+				}
+
+				// SSH probe on Windows VM. Do not let a stopped template hide missing Windows prep.
+				const ipLine = shell(`prlctl list -f --no-header "${vmName}" 2>/dev/null`);
+				if (ipLine) {
+					const parts = ipLine.trim().split(/\s+/);
+					const ip = parts.length >= 3 ? parts[2] : null;
+					if (ip && ip !== "-") {
+						ok(`VM IP: ${ip}`);
+						const portCheck = shell(`nc -z -w 3 ${ip} 22 2>/dev/null && echo open || echo closed`);
+						if (portCheck?.includes("open")) {
+							ok(`SSH open on ${ip}:22`);
+						} else {
+							fail(`SSH not open on ${ip}:22 — enable OpenSSH Server in Windows template VM`);
+						}
+					} else {
+						warn(`template "${vmName}" has no IP; verifying Windows SSH through a disposable Crabbox clone`);
+						if (cbox && snapshotFound) {
+							const probe = disposableWindowsSshProbe(cbox);
+							probe.ok ? ok(`disposable Windows clone SSH/tool probe OK: ${probe.message}`) : fail(probe.message);
+						} else {
+							fail(`Windows SSH probe could not run because "${vmName}" has no IP and no verified snapshot was available`);
+						}
+					}
+				} else {
+					fail(`could not inspect Windows VM IP for "${vmName}"`);
+				}
+			} else {
+				fail(`VM "${vmName}" not found. Available: ${vms.map(v => v.split(/\s+/).pop()).join(", ")}`);
+			}
+		} else {
+			fail("prlctl list returned no output");
+		}
+	}
+
+	// ── Phase 7: Node.js ──
+	console.log("\n── Node.js ──");
+	const nv = shell("node --version");
+	if (nv) {
+		const major = parseInt(nv.replace("v", "").split(".")[0], 10);
+		major >= (config?.nodeValidationMajor ?? 24)
+			? ok(`Node ${nv} (>= ${config?.nodeValidationMajor ?? 24})`)
+			: fail(`Node ${nv} — need ${config?.nodeValidationMajor ?? 24}+`);
+	} else {
+		fail("node not found");
+	}
+
+	// ── Phase 8: Tools ──
+	console.log("\n── Tools ──");
+	for (const [name, command] of [
+		["npm", "npm --version"],
+		["git", "git --version"],
+		["rsync", "rsync --version"],
+		["tar", "tar --version"],
+	]) {
+		const out = shell(command);
+		out ? ok(`${name}: ${out.split("\n")[0]}`) : fail(`${name} not found`);
+	}
+
+	// ── Phase 9: Artifact root ──
+	console.log("\n── Artifact root ──");
+	const artRoot = resolve(process.cwd(), config?.artifactRoot ?? ".artifacts/platform-smoke");
+	try {
+		mkdirSync(artRoot, { recursive: true });
+		const tf = resolve(artRoot, ".doctor-write-test");
+		writeFileSync(tf, "doctor-test");
+		unlinkSync(tf);
+		ok(`writable: ${artRoot}`);
+	} catch (e) {
+		fail(`cannot write to ${artRoot}: ${e.message}`);
+	}
+
+	// ── Phase 10: Git status ──
+	console.log("\n── Git status ──");
+	const branch = shell("git branch --show-current");
+	branch ? ok(`branch: ${branch}`) : warn("could not determine branch");
+	const st = shell("git status --short");
+	if (st) {
+		const changed = st.trim().split("\n").length;
+		warn(`${changed} uncommitted change(s)`);
+	} else {
+		ok("clean worktree");
+	}
+
+	// ── Phase 11: Forbidden files ──
+	console.log("\n── Forbidden files ──");
+	let anyForbidden = false;
+	for (const pat of [".env", "*.tgz"]) {
+		const found = shell(`find . -maxdepth 2 -name "${pat}" 2>/dev/null`);
+		if (found) {
+			fail(`found: ${found.trim()}`);
+			anyForbidden = true;
+		}
+	}
+	if (!anyForbidden) ok("no .env, .tgz");
+
+	// Check for tracked .env.*
+	for (const f of [".env.production", ".env.local"]) {
+		if (existsSync(resolve(process.cwd(), f))) {
+			fail(`tracked forbidden: ${f}`);
+		}
+	}
+	ok("no tracked .env.*");
+
+	// ── Phase 12: Cursor auth ──
+	console.log("\n── Cursor auth ──");
+	const key = env("CURSOR_API_KEY");
+	if (key && key.length > 10) {
+		ok(`CURSOR_API_KEY present (${key.length} chars, redacted)`);
+	} else if (key) {
+		fail("CURSOR_API_KEY too short (likely invalid)");
+	} else {
+		fail("CURSOR_API_KEY missing — live Cursor suites will not run");
+	}
+
+	// ── Phase 13: node-pty self-test ──
+	console.log("\n── node-pty self-test ──");
+	const ptyPath = resolve(process.cwd(), "node_modules", "node-pty");
+	if (existsSync(ptyPath)) {
+		try {
+			// node-pty can hang with mismatched Node ABI; use timeout
+			const ptyResult = shell("node -e \"try { require('node-pty'); console.log('node-pty ok') } catch(e) { console.error(e.message); process.exit(1) }\"", { timeout: 15_000 });
+			if (ptyResult && ptyResult.includes("node-pty ok")) {
+				ok("node-pty loads successfully");
+			} else {
+				fail(`node-pty not functional: ${ptyResult?.slice(0, 200) || 'null'}. This blocks live PTY suites but not platform-build.`);
+			}
+		} catch (e) {
+			fail(`node-pty self-test error: ${e.message}. This blocks live PTY suites but not platform-build.`);
+		}
+	} else {
+		warn("node-pty not installed — live PTY suites will not run. Run: npm ci");
+	}
+
+	// ── Phase 14: Summary ──
+	console.log(`\n=== Results: ${failures} failure(s) ===`);
+	if (failures > 0) {
+		console.log("Fix failures above before running live Cursor suites.");
+		console.log("Use `npm run smoke:platform:doctor` to re-validate.");
+		process.exitCode = 1;
+	} else {
+		console.log("All checks passed. Ready for platform smoke.");
+	}
+}
+
+export async function runDoctor(config) {
+	runChecks(config);
+}

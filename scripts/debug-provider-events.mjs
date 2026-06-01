@@ -5,7 +5,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	apiKeySecretsFromProcess,
@@ -20,10 +20,17 @@ import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 import { createScriptFail } from "./lib/cursor-script-fail.mjs";
 import { serializeCursorSettingSources } from "../shared/cursor-setting-sources.mjs";
 
+function isMainModule() {
+	if (!process.argv[1]) return false;
+	const current = fileURLToPath(import.meta.url);
+	const invoked = resolve(process.argv[1]);
+	return process.platform === "win32" ? current.toLowerCase() === invoked.toLowerCase() : current === invoked;
+}
+
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("..", import.meta.url));
 const packageJson = require("../package.json");
-const DEFAULT_MODEL = "cursor/composer-2.5";
+const DEFAULT_MODEL = "cursor/composer-2-5";
 const DEFAULT_OUT_BASE = ".debug/cursor-sdk-events";
 const SDK_EVENT_DEBUG_LOG_PREFIX = "[pi-cursor-sdk:sdk-events]";
 const PI_SESSION_SNAPSHOT_ARTIFACT = "pi-session-snapshot.jsonl";
@@ -291,7 +298,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 	console.log(JSON.stringify(await runDebugProviderEvents(args, env)));
 }
 
-if (import.meta.url === new URL(process.argv[1], "file:").href) {
+if (isMainModule()) {
 	main().catch((error) => {
 		fail(error instanceof Error ? error.message : String(error), apiKeySecretsFromProcess());
 	});

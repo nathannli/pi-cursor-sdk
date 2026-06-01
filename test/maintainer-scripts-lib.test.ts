@@ -1,3 +1,4 @@
+import { delimiter, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { resolveCursorSettingSources as resolveProviderSettingSources } from "../src/cursor-setting-sources.js";
 import {
@@ -49,7 +50,7 @@ describe("maintainer scripts shared lib", () => {
 
 	it("builds sealed smoke env without leaking debug or setting-source state", () => {
 		expect(scriptSdkEventDebugEnvNames).toEqual(sharedSdkEventDebugEnvNames);
-		expect(sealedNodePath("/opt/node/bin/node", "/tmp/bin:/usr/bin")).toBe("/opt/node/bin:/tmp/bin:/usr/bin");
+		expect(sealedNodePath("/opt/node/bin/node", `/tmp/bin${delimiter}/usr/bin`)).toBe(`/opt/node/bin${delimiter}/tmp/bin${delimiter}/usr/bin`);
 		expect(sealedNodePath("/opt/node/bin/node", "")).toBe("/opt/node/bin");
 		const env = buildCursorSmokeEnv({
 			baseEnv: {
@@ -65,7 +66,7 @@ describe("maintainer scripts shared lib", () => {
 			bridge: false,
 			exposeBuiltinTools: false,
 		});
-		expect(env.PATH).toBe("/opt/node/bin:/tmp/fake:/usr/bin");
+		expect(env.PATH).toBe(`/opt/node/bin${delimiter}/tmp/fake:/usr/bin`);
 		expect(env.PI_CURSOR_SETTING_SOURCES).toBe("none");
 		expect(env.PI_CURSOR_NATIVE_TOOL_DISPLAY).toBe("1");
 		expect(env.PI_CURSOR_REGISTER_NATIVE_TOOLS).toBe("1");
@@ -163,7 +164,7 @@ describe("maintainer scripts shared lib", () => {
 			fail,
 		});
 		expect(args).toMatchObject({
-			cwd: "/tmp/work",
+			cwd: resolve("/tmp/work"),
 			model: "composer-2.5",
 			prompt: "hi",
 			settingSources: undefined,
@@ -206,7 +207,7 @@ describe("maintainer scripts shared lib", () => {
 
 	it("builds timestamped artifact directories under /tmp by default", () => {
 		const dir = defaultTimestampedDir("pi-cursor-sdk-test-prefix");
-		expect(dir).toMatch(/^\/tmp\/pi-cursor-sdk-test-prefix-/);
+		expect(dir.startsWith(resolve("/tmp", "pi-cursor-sdk-test-prefix-"))).toBe(true);
 	});
 
 	it("parses JSONL stdout and exposes child shutdown helpers", async () => {

@@ -31,13 +31,13 @@ Default behavior:
 
 ```bash
 # Disable pi bridge entirely
-PI_CURSOR_PI_TOOL_BRIDGE=0 pi --model cursor/composer-2.5
+PI_CURSOR_PI_TOOL_BRIDGE=0 pi --model cursor/composer-2-5
 
 # Expose overlapping pi builtins through the bridge
-PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 pi --model cursor/composer-2.5
+PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 pi --model cursor/composer-2-5
 
 # Disable bootstrap tool manifest
-PI_CURSOR_TOOL_MANIFEST=0 pi --model cursor/composer-2.5
+PI_CURSOR_TOOL_MANIFEST=0 pi --model cursor/composer-2-5
 ```
 
 ## Cursor settings vs pi toggles

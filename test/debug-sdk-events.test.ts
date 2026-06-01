@@ -1,7 +1,7 @@
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CURSOR_SDK_STARTUP_NOISE_PATTERNS as providerNoisePatterns } from "../src/cursor-sdk-output-filter.js";
 import { resolveCursorSettingSources as resolveProviderSettingSources } from "../src/cursor-setting-sources.js";
@@ -52,7 +52,7 @@ describe("debug-sdk-events maintainer probe", () => {
 				PI_CURSOR_SETTING_SOURCES: "all",
 			}),
 		).toMatchObject({
-			cwd: "/tmp/work",
+			cwd: resolve("/tmp/work"),
 			model: "composer-2.5",
 			prompt: "hello",
 			apiKey: "key",
@@ -98,7 +98,7 @@ describe("debug-sdk-events maintainer probe", () => {
 		});
 		expect(summary.wait).toEqual({ status: "finished", durationMs: 250, hasResultText: true });
 		expect(summary.conversation).toEqual({ turnCount: 1 });
-		expect(summary.files.streamEvents).toBe(`${artifactDir}/stream-events.jsonl`);
+		expect(summary.files.streamEvents).toBe(join(artifactDir, "stream-events.jsonl"));
 
 		const stdoutPayload = JSON.stringify(summary);
 		expect(stdoutPayload).not.toContain("secret payload");

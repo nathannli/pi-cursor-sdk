@@ -5,7 +5,8 @@
  */
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 import {
 	apiKeySecretsFromProcess,
 	commonProbeFlags,
@@ -17,6 +18,13 @@ import {
 } from "./lib/cursor-cli-args.mjs";
 import { createScriptFail } from "./lib/cursor-script-fail.mjs";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./lib/cursor-sdk-output-filter.mjs";
+
+function isMainModule() {
+	if (!process.argv[1]) return false;
+	const current = fileURLToPath(import.meta.url);
+	const invoked = resolve(process.argv[1]);
+	return process.platform === "win32" ? current.toLowerCase() === invoked.toLowerCase() : current === invoked;
+}
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -343,7 +351,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 	await captureEvents(args);
 }
 
-if (import.meta.url === new URL(process.argv[1], "file:").href) {
+if (isMainModule()) {
 	main().catch((error) => {
 		const message = error instanceof Error ? error.message : String(error);
 		fail(message, apiKeySecretsFromProcess());

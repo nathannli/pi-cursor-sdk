@@ -4,7 +4,7 @@ Short maintainer checklist for **minimal-surface** validation after prompt, brid
 
 ## Minimal environment
 
-- Extension only: `pi -e . --cursor-no-fast --model cursor/composer-2.5`
+- Extension only: `pi -e . --cursor-no-fast --model cursor/composer-2-5`
 - Fresh session dir: `--session-dir /tmp/pi-cursor-dogfood-<id>`
 - Baseline surface (no ambient Cursor MCP/rules):
   - `PI_CURSOR_SETTING_SOURCES=none`, **or**

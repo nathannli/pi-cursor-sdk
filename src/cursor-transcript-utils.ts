@@ -145,14 +145,18 @@ export function formatError(error: unknown): string {
 	return text ? `Error: ${text}` : "Error";
 }
 
+function normalizeDisplaySeparators(path: string): string {
+	return path.replace(/\\/g, "/");
+}
+
 export function formatDisplayPath(path: string, cwd = process.cwd()): string {
 	const trimmed = path.trim();
 	if (!trimmed) return trimmed;
-	if (!isAbsolute(trimmed)) return trimmed;
+	if (!isAbsolute(trimmed)) return normalizeDisplaySeparators(trimmed);
 	const relativePath = relative(cwd, trimmed);
 	if (!relativePath || relativePath === "") return ".";
-	if (relativePath.startsWith("..") || isAbsolute(relativePath)) return trimmed;
-	return relativePath;
+	if (relativePath.startsWith("..") || isAbsolute(relativePath)) return normalizeDisplaySeparators(trimmed);
+	return normalizeDisplaySeparators(relativePath);
 }
 
 export function formatDiffPath(path: string, cwd = process.cwd()): string {

@@ -245,7 +245,7 @@ exec %s
 		"$TMUX_BIN" capture-pane -pt "$session" >"$capture" 2>/dev/null || true
 		missing=""
 		"$RG_BIN" -q "SUM=42" "$capture" || missing="${missing} SUM=42"
-		"$RG_BIN" -q "\\(cursor\\) composer-2\\.5" "$capture" || missing="${missing} footer (cursor) composer-2.5"
+		"$RG_BIN" -q "\\(cursor\\) composer-2[-.]5" "$capture" || missing="${missing} footer (cursor) composer-2-5"
 		if [[ -z "$missing" ]]; then
 			"$TMUX_BIN" kill-session -t "$session" 2>/dev/null || true
 			log "$name PASS"
@@ -394,7 +394,7 @@ fi
 PI_BASE=(
 	"$PI_BIN" -e "$ROOT"
 	--cursor-no-fast
-	--model cursor/composer-2.5
+	--model cursor/composer-2-5
 )
 
 if [[ -z "${CURSOR_API_KEY:-}" ]]; then
@@ -416,7 +416,7 @@ log "partial live smoke: prereq, basic, default-settings, noninteractive-math, t
 
 if ! "${NONE_ENV[@]}" "${PI_BASE[@]}" --list-models cursor 2>"$SMOKE_DIR/prereq.stderr.txt" | tee "$SMOKE_DIR/prereq.models.txt" | "$RG_BIN" -q "composer-2\\.5"; then
 	if ! model_listed "$SMOKE_DIR/prereq.stderr.txt"; then
-		fail "cursor/composer-2.5 not listed"
+		fail "cursor/composer-2-5 not listed"
 	fi
 fi
 log "prereq PASS"

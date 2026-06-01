@@ -1,13 +1,15 @@
 # Cursor Live Smoke Checklist
 
+> **Platform Smoke (new):** The required cross-platform release gate is `npm run smoke:platform:doctor && npm run smoke:platform:all`. See [docs/platform-smoke.md](./platform-smoke.md) for the full contract. The manual checks below remain useful inner-loop/debug tools but are not the required release gate.
+
 ## Purpose
 
-Use this manual checklist before releasing Cursor provider/runtime changes. Unit tests and mocks are necessary, but they are not enough for this extension. See [Cursor testing lessons](./cursor-testing-lessons.md) for auth/isolated-harness pitfalls and the plan-mode replay regression that motivated recent hardening. Always assume every runtime surface is in scope. A release is not ready until every live check below has been observed with `cursor/composer-2.5` through the local working tree.
+Use this manual checklist during development of Cursor provider/runtime changes. Unit tests and mocks are necessary, but they are not enough for this extension. See [Cursor testing lessons](./cursor-testing-lessons.md) for auth/isolated-harness pitfalls and the plan-mode replay regression that motivated recent hardening. Always assume every runtime surface is in scope. A release is not ready until every live check below has been observed with `cursor/composer-2-5` through the local working tree.
 
 ## Release rule
 
 - Run from a clean working tree except for the intended branch diff.
-- Use the local extension under test: `pi -e . --cursor-no-fast --model cursor/composer-2.5`.
+- Use the local extension under test: `pi -e . --cursor-no-fast --model cursor/composer-2-5`.
 - Use a temporary `--session-dir` for every run.
 - Do not paste or commit Cursor API keys, raw session contents with secrets, endpoint URLs, or local private paths.
 - If a check fails, stop and fix or explicitly mark the release blocked. Do not ship with "optional," "deferred," "mostly," or "probably" checks outstanding.
@@ -66,8 +68,8 @@ The replay scan flags only error `toolResult` / error assistant messages with `T
 Pass criteria:
 
 - `pi --version` reports pi 0.78.0 for this cutover baseline.
-- `npm ls` shows `@cursor/sdk@1.0.16` and local `@earendil-works/*@0.78.0` packages.
-- `cursor/composer-2.5` appears in the model list.
+- `npm ls` shows `@cursor/sdk@1.0.17` and local `@earendil-works/*@0.78.0` packages.
+- `cursor/composer-2-5` appears in the model list.
 - No Cursor key or auth token is printed.
 - If neither `~/.pi/agent/auth.json` cursor auth nor `CURSOR_API_KEY` is available, stop and report the live smoke as blocked.
 
@@ -75,7 +77,7 @@ Pass criteria:
 
 ```bash
 PI_CURSOR_SETTING_SOURCES=none \
-pi -e . --cursor-no-fast --model cursor/composer-2.5 \
+pi -e . --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/basic" \
   --no-tools \
   -p 'Live smoke. Reply exactly: PI_CURSOR_SMOKE_OK' \
@@ -93,7 +95,7 @@ Pass criteria:
 ## 2. Default setting-source startup noise check
 
 ```bash
-pi -e . --cursor-no-fast --model cursor/composer-2.5 \
+pi -e . --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/default-settings" \
   --no-tools \
   -p 'Default settings smoke. Include PRODUCT=42 in the final answer.' \
@@ -115,14 +117,14 @@ Run a real interactive session under tmux:
 ```bash
 SESSION="pi-cursor-sdk-smoke-$(date +%s)"
 tmux new-session -d -s "$SESSION" -x 120 -y 40 -- zsh -lc \
-  "cd '$PWD' && PI_CURSOR_SETTING_SOURCES=none pi -e . --cursor-no-fast --model cursor/composer-2.5 --session-dir '$SMOKE_DIR/tui' --session-id cursor-sdk-1016-tui --no-tools 'TUI smoke. Compute 19 + 23. Reply only with SUM=<number>.'"
+  "cd '$PWD' && PI_CURSOR_SETTING_SOURCES=none pi -e . --cursor-no-fast --model cursor/composer-2-5 --session-dir '$SMOKE_DIR/tui' --session-id cursor-sdk-1016-tui --no-tools 'TUI smoke. Compute 19 + 23. Reply only with SUM=<number>.'"
 ```
 
 Observe with `tmux capture-pane -pt "$SESSION"` or attach manually.
 
 Pass criteria:
 
-- Footer shows `(cursor) composer-2.5`. With `--cursor-no-fast`, Cursor fast mode is off and the Cursor extension status should not show `cursor fast`; ignore unrelated status text from other extensions.
+- Footer shows `(cursor) composer-2-5`. With `--cursor-no-fast`, Cursor fast mode is off and the Cursor extension status should not show `cursor fast`; ignore unrelated status text from other extensions.
 - The run uses pi 0.78.0 `--session-id` successfully.
 - Assistant answer appears correctly.
 - `/session` shows one user and one assistant message for the simple run.
@@ -131,7 +133,7 @@ Pass criteria:
 
 ## 4. Mandatory visual card/color rendering check
 
-This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.78.0, `@cursor/sdk@1.0.16`, a fresh temporary session dir, Cursor SDK `plan` mode, native replay enabled, and the checked-in visual runner. The runner resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, and prepends that Node directory for both prereq checks and tmux launches so `#!/usr/bin/env node` shims use the validated Node. The default matrix is native replay only: native replay registration is forced on, settings sources are `none`, the pi bridge is off, overlapping built-in pi tools are not exposed, and inherited Cursor SDK event-debug artifact env is cleared. With `--event-debug`, debug capture writes to a deterministic directory under `VISUAL_DIR`.
+This is the canonical visual release path for Cursor provider/runtime changes. It requires offscreen TUI visual inspection, not only JSONL or code review. Use pi 0.78.0, `@cursor/sdk@1.0.17`, a fresh temporary session dir, Cursor SDK `plan` mode, native replay enabled, and the checked-in visual runner. The runner resolves `pi` by directly walking the parent `PATH`, uses `process.execPath` for Node, and prepends that Node directory for both prereq checks and tmux launches so `#!/usr/bin/env node` shims use the validated Node. The default matrix is native replay only: native replay registration is forced on, settings sources are `none`, the pi bridge is off, overlapping built-in pi tools are not exposed, and inherited Cursor SDK event-debug artifact env is cleared. With `--event-debug`, debug capture writes to a deterministic directory under `VISUAL_DIR`.
 
 ```bash
 VISUAL_DIR="$(mktemp -d /tmp/pi-cursor-sdk-1016-visual.XXXXXX)"
@@ -202,7 +204,7 @@ Pass criteria:
 
 ```bash
 PI_CURSOR_SETTING_SOURCES=none \
-pi -e . --cursor-no-fast --cursor-mode plan --model cursor/composer-2.5 \
+pi -e . --cursor-no-fast --cursor-mode plan --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/cursor-mode-plan" \
   --session-id cursor-sdk-1016-plan \
   --no-tools \
@@ -224,7 +226,7 @@ Pass criteria:
 PI_CURSOR_SETTING_SOURCES=none \
 PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 \
 PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1 \
-pi -e . --cursor-no-fast --model cursor/composer-2.5 \
+pi -e . --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/bridge" \
   -p 'Bridge smoke. Do exactly two tool calls before answering: first call pi__read on ./package.json; second call pi__read on ./definitely-missing-pi-cursor-sdk-smoke-file.txt. Then answer: OK_NAME=<package name>; MISSING_RESULT=<error or success>. Do not use shell.' \
   > "$SMOKE_DIR/bridge.stdout.txt" \
@@ -245,7 +247,7 @@ Pass criteria:
 PI_CURSOR_SETTING_SOURCES=none \
 PI_CURSOR_PI_TOOL_BRIDGE=0 \
 PI_CURSOR_NATIVE_TOOL_DISPLAY=1 \
-pi -e . --cursor-no-fast --model cursor/composer-2.5 \
+pi -e . --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/native-replay" \
   -p 'Native replay smoke. Use your Cursor file-reading capability to read ./README.md, then answer README_SEEN=yes if it contains pi-cursor-sdk.' \
   > "$SMOKE_DIR/native-replay.stdout.txt" \
@@ -319,7 +321,7 @@ Use a harmless long-running command and interrupt it after the bridge request is
 PI_CURSOR_SETTING_SOURCES=none \
 PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 \
 PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1 \
-pi -e . --cursor-no-fast --model cursor/composer-2.5 \
+pi -e . --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/abort" \
   -p 'Abort smoke. Call pi__bash with command: sleep 30 && echo SHOULD_NOT_PRINT. Do not answer until the tool completes.'
 ```

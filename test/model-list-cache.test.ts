@@ -47,7 +47,7 @@ describe("model-list-cache", () => {
 	it("writes the cache file with 0600 permissions and no API key", () => {
 		expect(saveModelListCache(fp, MODELS)).toBe(true);
 		const path = __testUtils.getCachePath();
-		expect(statSync(path).mode & 0o777).toBe(0o600);
+		if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600);
 		const raw = readFileSync(path, "utf-8");
 		expect(raw).not.toContain("test-key");
 		expect(JSON.parse(raw).keyFingerprint).toBe(fp);
@@ -59,7 +59,7 @@ describe("model-list-cache", () => {
 
 		expect(saveModelListCache(fp, MODELS)).toBe(true);
 
-		expect(statSync(path).mode & 0o777).toBe(0o600);
+		if (process.platform !== "win32") expect(statSync(path).mode & 0o777).toBe(0o600);
 	});
 
 	it("misses when the key fingerprint differs", () => {

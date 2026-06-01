@@ -6,6 +6,7 @@
 import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import {
 	installCursorMcpToolTimeoutOverride,
 	restoreCursorMcpToolTimeoutOverride,
@@ -16,6 +17,12 @@ import { createScriptFail } from "./lib/cursor-script-fail.mjs";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./lib/cursor-sdk-output-filter.mjs";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
+
+function isMainModule() {
+	if (!process.argv[1]) return false;
+	const invoked = resolve(process.argv[1]);
+	return process.platform === "win32" ? SCRIPT_PATH.toLowerCase() === invoked.toLowerCase() : SCRIPT_PATH === invoked;
+}
 const SCENARIOS = [
 	{ label: "with-all-settings", settingSources: ["all"] },
 	{ label: "with-all-settings+connect-override", settingSources: ["all"], installConnectOverride: true },
@@ -218,7 +225,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 	}
 }
 
-if (import.meta.url === new URL(process.argv[1], "file:").href) {
+if (isMainModule()) {
 	main().catch((error) => {
 		const message = error instanceof Error ? error.message : String(error);
 		fail(message, apiKeySecretsFromProcess());

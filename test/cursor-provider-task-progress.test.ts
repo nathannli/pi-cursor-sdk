@@ -15,6 +15,7 @@ import {
 	type RegisteredTool,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
+import { getFinalAssistantText } from "../src/cursor-run-final-text.js";
 
 const delayBeforeToolCompletion = () => new Promise((resolve) => setTimeout(resolve, 120));
 
@@ -100,6 +101,17 @@ describe("streamCursor Cursor task progress", () => {
 			},
 		];
 		await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
+	});
+
+	it("selects the final answer as the last non-empty text block in multi-part assistant messages", () => {
+		expect(getFinalAssistantText({
+			content: [
+				{ type: "text", text: "Running diagnostic smoke...\n" },
+				{ type: "thinking", thinking: "Checking tool result.\n" },
+				{ type: "text", text: "   \n" },
+				{ type: "text", text: "LIVE TEST PASS final report" },
+			],
+		})).toBe("LIVE TEST PASS final report");
 	});
 
 	it("does not emit task progress for normal read or bash starts", async () => {

@@ -21,7 +21,7 @@ pi install https://github.com/fitchmultz/pi-cursor-sdk
 2. Start pi with a Cursor model:
 
 ```bash
-pi --model cursor/composer-2.5
+pi --model cursor/composer-2-5
 ```
 
 3. In pi, run `/login`, choose `Use an API key`, choose `Cursor`, and paste your Cursor SDK API key.
@@ -34,7 +34,7 @@ If pi started without a key, run `/cursor-refresh-models` after `/login` to refr
 - pi 0.76.0 or newer
 - a Cursor SDK API key saved through `/login`, available as `CURSOR_API_KEY`, or passed with pi's `--api-key`
 
-No global `@cursor/sdk` install is required. This package depends on exact `@cursor/sdk@1.0.16`, so normal package installation brings in the SDK version this extension was built and tested against. This package declares a pi **minimum** of 0.76.0 with no maximum peer version, so users who update pi before this extension is republished are not blocked from trying the existing extension. The current validation baseline is pi 0.78.0 plus Cursor SDK 1.0.16; older pi or Cursor SDK compatibility paths are not maintained.
+No global `@cursor/sdk` install is required. This package depends on exact `@cursor/sdk@1.0.17`, so normal package installation brings in the SDK version this extension was built and tested against. This package declares a pi **minimum** of 0.76.0 with no maximum peer version, so users who update pi before this extension is republished are not blocked from trying the existing extension. The current validation baseline is pi 0.78.0 plus Cursor SDK 1.0.17; older pi or Cursor SDK compatibility paths are not maintained.
 
 ## Install
 
@@ -64,7 +64,7 @@ For development from this repository:
 
 ```bash
 npm install
-pi -e . --model cursor/composer-2.5
+pi -e . --model cursor/composer-2-5
 ```
 
 ## Configure your Cursor SDK API key
@@ -76,7 +76,7 @@ Use either a user API key from Cursor Dashboard → Integrations or a service ac
 Preferred setup:
 
 ```bash
-pi --model cursor/composer-2.5
+pi --model cursor/composer-2-5
 ```
 
 Then, inside pi:
@@ -95,13 +95,13 @@ Environment setup:
 
 ```bash
 export CURSOR_API_KEY="your-key"
-pi --model cursor/composer-2.5
+pi --model cursor/composer-2-5
 ```
 
 One-shot setup:
 
 ```bash
-pi --api-key "your-key" --model cursor/composer-2.5 --cursor-no-fast -p "Say ok only."
+pi --api-key "your-key" --model cursor/composer-2-5 --cursor-no-fast -p "Say ok only."
 ```
 
 Discovery uses pi's native resolution order for this extension: `--api-key`, the stored `cursor` key in `~/.pi/agent/auth.json`, then `CURSOR_API_KEY`.
@@ -112,10 +112,10 @@ To avoid a live `Cursor.models.list` network round-trip on every pi startup, the
 
 ```bash
 # Cache lifetime in milliseconds (default 86400000 = 24h).
-PI_CURSOR_SDK_MODEL_CACHE_TTL_MS=3600000 pi --model cursor/composer-2.5
+PI_CURSOR_SDK_MODEL_CACHE_TTL_MS=3600000 pi --model cursor/composer-2-5
 
 # Disable the cache and always discover live.
-PI_CURSOR_SDK_DISABLE_MODEL_CACHE=1 pi --model cursor/composer-2.5
+PI_CURSOR_SDK_DISABLE_MODEL_CACHE=1 pi --model cursor/composer-2-5
 ```
 
 Do not store the API key in `~/.pi/agent/cursor-sdk.json`. That file is only for non-secret extension state such as Cursor fast defaults. `PATH` is only for executable lookup and should not contain the API key.
@@ -136,7 +136,7 @@ Expected behavior:
 Smoke test:
 
 ```bash
-pi --model cursor/composer-2.5 --cursor-no-fast --no-session --mode json \
+pi --model cursor/composer-2-5 --cursor-no-fast --no-session --mode json \
   -p "Reply exactly PI_CURSOR_MODEL_OK and nothing else."
 ```
 
@@ -147,7 +147,7 @@ Expected: the final assistant text is `PI_CURSOR_MODEL_OK`. If auth is missing o
 Choose Cursor models interactively with `/model`, or pass a model on the command line:
 
 ```bash
-pi --model cursor/composer-2.5
+pi --model cursor/composer-2-5
 pi --model cursor/gpt-5.5@1m
 pi --model cursor/gpt-5.5@272k
 pi --model cursor/claude-opus-4-8@300k
@@ -201,7 +201,7 @@ For one run, force fast on or off without changing saved defaults:
 
 ```bash
 pi --model cursor/gpt-5.5@1m --cursor-fast -p "Say ok only"
-pi --model cursor/composer-2.5 --cursor-no-fast -p "Say ok only"
+pi --model cursor/composer-2-5 --cursor-no-fast -p "Say ok only"
 ```
 
 Composer 2 and Composer 2.5 can default to fast. Use `--cursor-no-fast` for a one-shot no-fast Composer run. In print mode (`-p`), `--cursor-no-fast` is silent and does not write `~/.pi/agent/cursor-sdk.json`.
@@ -223,8 +223,8 @@ Cursor SDK conversation mode is Cursor-only extension state. It is not a pi mode
 Default mode is `agent`. Start a one-shot run in a specific mode:
 
 ```bash
-pi --model cursor/composer-2.5 --cursor-mode agent
-pi --model cursor/composer-2.5 --cursor-mode plan
+pi --model cursor/composer-2-5 --cursor-mode agent
+pi --model cursor/composer-2-5 --cursor-mode plan
 ```
 
 Change the session mode interactively:
@@ -267,24 +267,24 @@ Bridge controls:
 
 ```bash
 # Roll back to Cursor SDK tools/settings/MCP only; do not expose active pi tools through the bridge.
-PI_CURSOR_PI_TOOL_BRIDGE=0 pi --model cursor/composer-2.5
+PI_CURSOR_PI_TOOL_BRIDGE=0 pi --model cursor/composer-2-5
 
 # Opt in to also expose overlapping pi tool names through the bridge.
-PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 pi --model cursor/composer-2.5
+PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 pi --model cursor/composer-2-5
 
 # Override Cursor SDK MCP tool-call timeout, including bridged pi tools and configured Cursor MCP servers.
-PI_CURSOR_MCP_TOOL_TIMEOUT_SECONDS=7200 pi --model cursor/composer-2.5
-PI_CURSOR_MCP_TOOL_TIMEOUT_MS=7200000 pi --model cursor/composer-2.5
+PI_CURSOR_MCP_TOOL_TIMEOUT_SECONDS=7200 pi --model cursor/composer-2-5
+PI_CURSOR_MCP_TOOL_TIMEOUT_MS=7200000 pi --model cursor/composer-2-5
 
 # Override known MCP initialize/listTools timeouts on first send (default 10s).
-PI_CURSOR_MCP_CONNECT_TIMEOUT_SECONDS=5 pi --model cursor/composer-2.5
-PI_CURSOR_MCP_CONNECT_TIMEOUT_MS=5000 pi --model cursor/composer-2.5
+PI_CURSOR_MCP_CONNECT_TIMEOUT_SECONDS=5 pi --model cursor/composer-2-5
+PI_CURSOR_MCP_CONNECT_TIMEOUT_MS=5000 pi --model cursor/composer-2-5
 
 # Disable bootstrap callable-surface manifest (on by default).
-PI_CURSOR_TOOL_MANIFEST=0 pi --model cursor/composer-2.5
+PI_CURSOR_TOOL_MANIFEST=0 pi --model cursor/composer-2-5
 
 # Emit scrubbed bridge diagnostics as JSONL to stderr with prefix [pi-cursor-sdk:bridge].
-PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1 pi --model cursor/composer-2.5
+PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1 pi --model cursor/composer-2-5
 ```
 
 On bootstrap sends, a compact **callable tool surfaces** block is injected into the Cursor prompt by default so models see host-tool categories, exposed `pi__*` bridge names for the current run, and a reminder that configured Cursor MCP servers are discovered at runtime (not via pi's tool catalog). Disable with `PI_CURSOR_TOOL_MANIFEST=0`.
@@ -293,7 +293,7 @@ On bootstrap sends, a compact **callable tool surfaces** block is injected into 
 
 ### Maintainer live smoke release gate
 
-For Cursor provider/runtime changes, follow the manual [Cursor live smoke checklist](docs/cursor-live-smoke-checklist.md) before release. For a faster minimal-surface pass first, see [Cursor dogfood checklist](docs/cursor-dogfood-checklist.md). See [Cursor testing lessons](docs/cursor-testing-lessons.md) for auth.json seeding, isolated `/tmp` harness layout, JSONL replay-error scans, and other regression traps. Assume every runtime surface is in scope. The checklist uses real `pi -e . --cursor-no-fast --model cursor/composer-2.5` runs with temporary session dirs, pi 0.78.0 `--session-id`, sealed smoke-runner PATH/env wrappers, Cursor SDK `plan` mode, and mandatory visual TUI card/color inspection. The canonical visual path is `npm run smoke:visual`: offscreen PTY capture rendered through a browser/xterm view and saved as PNG screenshots with Playwright, or with `agent_browser` from the generated HTML when available. Its default matrix is native replay only: native replay registration is forced on, Cursor setting sources are disabled, the pi bridge is off, overlapping built-in pi tools are not exposed, and inherited Cursor SDK event-debug artifact env is cleared; `--event-debug` writes to a deterministic debug directory under the visual output directory. The visible TUI/output, rendered screenshots, scrubbed diagnostics, and persisted JSONL must agree. Do not mark a release ready with optional, deferred, mostly-passing, or unobserved smoke checks outstanding.
+For Cursor provider/runtime changes, follow the manual [Cursor live smoke checklist](docs/cursor-live-smoke-checklist.md) before release. For a faster minimal-surface pass first, see [Cursor dogfood checklist](docs/cursor-dogfood-checklist.md). See [Cursor testing lessons](docs/cursor-testing-lessons.md) for auth.json seeding, isolated `/tmp` harness layout, JSONL replay-error scans, and other regression traps. Assume every runtime surface is in scope. The checklist uses real `pi -e . --cursor-no-fast --model cursor/composer-2-5` runs with temporary session dirs, pi 0.78.0 `--session-id`, sealed smoke-runner PATH/env wrappers, Cursor SDK `plan` mode, and mandatory visual TUI card/color inspection. The canonical visual path is `npm run smoke:visual`: offscreen PTY capture rendered through a browser/xterm view and saved as PNG screenshots with Playwright, or with `agent_browser` from the generated HTML when available. Its default matrix is native replay only: native replay registration is forced on, Cursor setting sources are disabled, the pi bridge is off, overlapping built-in pi tools are not exposed, and inherited Cursor SDK event-debug artifact env is cleared; `--event-debug` writes to a deterministic debug directory under the visual output directory. The visible TUI/output, rendered screenshots, scrubbed diagnostics, and persisted JSONL must agree. Do not mark a release ready with optional, deferred, mostly-passing, or unobserved smoke checks outstanding.
 
 ### Maintainer Cursor SDK event capture
 
@@ -317,6 +317,7 @@ Actual Cursor runs still need a key from `/login`, `CURSOR_API_KEY`, or `--api-k
 - **The pi tool bridge is local and MCP-backed.** Bridgeable active pi tools are exposed to local Cursor agents through a tokenized `127.0.0.1` MCP endpoint; internal Cursor replay activity names are excluded, and overlapping built-in pi tools are hidden by default. Set `PI_CURSOR_PI_TOOL_BRIDGE=0` to disable it or `PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1` to expose overlapping built-ins too.
 - **Cursor native tool replay is display-only.** Replay renders recorded Cursor SDK activity and never re-runs Cursor-side commands, reapplies Cursor edits, calls MCP servers, or mutates pi state. Workflow tools such as Cursor mode/task/todo/plan activity are not pi workflow controls. See [Cursor native tool replay](docs/cursor-native-tool-replay.md) for supported replay cards, ordering, conflict handling, and opt-out flags.
 - **Cursor run state can span tool-use turns.** Within a pi session, the extension reuses one Cursor SDK agent across compatible follow-up turns and sends incremental prompts when context still matches. It recreates the agent when context diverges, after compaction or `/tree` navigation, on API key changes, after send errors, or on session shutdown. For bridged pi tools, the matching pi `toolResult` resolves into the same live Cursor SDK run without creating a new `Agent`, unless the run was disposed, aborted, or cancelled. Replay can also split one live Cursor SDK run across pi `toolUse` turns for display.
+- **Final assistant text is the last non-empty text part.** Composer responses can produce one assistant message with early progress `text`, thinking/tool metadata, and a later final `text` report. Consumers that need a final answer should scan assistant message content from the end and use the last non-empty `text` part, not the first.
 - **Cursor setting sources default to all.** The extension passes `local.settingSources: ["all"]` by default so configured Cursor MCP servers, plugin tools, project/user settings, and related Cursor-native capabilities are available like they are in Cursor. To narrow loading, set a comma-separated list such as `PI_CURSOR_SETTING_SOURCES=project,user,plugins`. To disable ambient setting sources, set `PI_CURSOR_SETTING_SOURCES=none`. Direct Cursor SDK bootstrap logs (settings, skills, hook-load compatibility warnings, and similar) are suppressed so they do not pollute the TUI.
 - **AGENTS.md / CLAUDE.md are not duplicated on Cursor models when Cursor loads the same rules.** Pi discovers global and project context files (`AGENTS.md`, `CLAUDE.md`, and case variants) unless you start with `-nc`. On `cursor/*` models the extension removes only `<project_instructions>` blocks that overlap Cursor `settingSources` via the `before_agent_start` hook: `user` for `~/.pi/agent/AGENTS.md`, `project` for repo/parent `AGENTS.md` and `CLAUDE.md` (verified Cursor behavior: local agents load project `AGENTS.md` and `CLAUDE.md` alongside Cursor rules). `~/.pi/agent/CLAUDE.md` is not stripped (Cursor user rules use `~/.claude/CLAUDE.md`, not pi's agent dir). With `PI_CURSOR_SETTING_SOURCES=none` or `plugins`-only, pi context is left intact. Set `PI_CURSOR_PRESERVE_PI_AGENTS_MD=1` to keep duplicate injection.
 - **Max Mode is not a manual pi variant.** Cursor's SDK may enable Max Mode automatically for models that require it. This extension only advertises exact context-window variants that the SDK catalog exposes and otherwise uses conservative SDK-derived default/non-Max context windows.
@@ -339,13 +340,13 @@ You can also restart pi with a key in the same shell or launcher that starts pi:
 
 ```bash
 export CURSOR_API_KEY="your-key"
-pi --model cursor/composer-2.5
+pi --model cursor/composer-2-5
 ```
 
 Or run a one-shot command:
 
 ```bash
-pi --api-key "your-key" --model cursor/composer-2.5 -p "Say ok only"
+pi --api-key "your-key" --model cursor/composer-2-5 -p "Say ok only"
 ```
 
 ### `pi --list-models cursor` shows no Cursor models
@@ -397,13 +398,13 @@ pi extension toggles and pi's MCP catalog do not control Cursor ambient MCP. Loc
 The local pi bridge only exposes tools that are active in the current pi session and present in pi's tool registry at Cursor run start. By default, it does not expose overlapping pi tool names that Cursor already has native equivalents for (`read`, `bash`, `write`, `edit`, `grep`, `find`, and `ls`). Opt in if you intentionally want Cursor to see both the Cursor-native tool and an overlapping built-in pi tool:
 
 ```bash
-PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 pi --model cursor/composer-2.5
+PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 pi --model cursor/composer-2-5
 ```
 
 To disable the bridge for rollback or isolation, start pi with:
 
 ```bash
-PI_CURSOR_PI_TOOL_BRIDGE=0 pi --model cursor/composer-2.5
+PI_CURSOR_PI_TOOL_BRIDGE=0 pi --model cursor/composer-2-5
 ```
 
 ### First Cursor message is slow (10+ seconds)
@@ -411,14 +412,14 @@ PI_CURSOR_PI_TOOL_BRIDGE=0 pi --model cursor/composer-2.5
 The extension loads Cursor setting sources with `PI_CURSOR_SETTING_SOURCES=all` by default, which includes user MCP servers from `~/.cursor/mcp.json`. On the first send of a session, the Cursor SDK connects to each configured MCP server before streaming a reply. pi-cursor-sdk shortens the known MCP initialize/listTools timeout path to **10 seconds by default** (the raw Cursor SDK default is 60 seconds), so a dead server should fail fast instead of blocking for a full minute. Unknown MCP protocol timeout stacks keep the SDK default instead of being shortened. A slow or unavailable server can still add roughly that connect timeout before the first reply. Tighten further with:
 
 ```bash
-PI_CURSOR_MCP_CONNECT_TIMEOUT_SECONDS=5 pi --model cursor/composer-2.5
-PI_CURSOR_MCP_CONNECT_TIMEOUT_MS=5000 pi --model cursor/composer-2.5
+PI_CURSOR_MCP_CONNECT_TIMEOUT_SECONDS=5 pi --model cursor/composer-2-5
+PI_CURSOR_MCP_CONNECT_TIMEOUT_MS=5000 pi --model cursor/composer-2-5
 ```
 
 Workarounds if you do not need user-level MCP in pi:
 
 ```bash
-PI_CURSOR_SETTING_SOURCES=project,plugins,team pi --model cursor/composer-2.5
+PI_CURSOR_SETTING_SOURCES=project,plugins,team pi --model cursor/composer-2-5
 ```
 
 Or fix/disable the slow MCP server in Cursor settings. Maintainer timing probe: `npm run debug:mcp-coldstart`.
@@ -428,8 +429,8 @@ Or fix/disable the slow MCP server in Cursor settings. Maintainer timing probe: 
 The extension raises Cursor SDK's MCP tool-call timeout from 60 seconds to 3600 seconds by default for Cursor SDK MCP `callTool` requests, including the local pi bridge and configured Cursor MCP servers. For longer local MCP tools, set one override:
 
 ```bash
-PI_CURSOR_MCP_TOOL_TIMEOUT_SECONDS=7200 pi --model cursor/composer-2.5
-PI_CURSOR_MCP_TOOL_TIMEOUT_MS=7200000 pi --model cursor/composer-2.5
+PI_CURSOR_MCP_TOOL_TIMEOUT_SECONDS=7200 pi --model cursor/composer-2-5
+PI_CURSOR_MCP_TOOL_TIMEOUT_MS=7200000 pi --model cursor/composer-2-5
 ```
 
 ### Tool calls appear as a plain text list instead of pi tool cards
@@ -476,7 +477,7 @@ Local development run:
 
 ```bash
 npm install
-CURSOR_API_KEY="your-key" pi -e . --model cursor/composer-2.5
+CURSOR_API_KEY="your-key" pi -e . --model cursor/composer-2-5
 ```
 
 Maintainer design notes live in [`docs/cursor-model-ux-spec.md`](docs/cursor-model-ux-spec.md).

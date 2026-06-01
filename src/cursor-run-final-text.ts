@@ -1,4 +1,5 @@
-import { hasUsableText } from "./cursor-record-utils.js";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { asRecord, hasUsableText } from "./cursor-record-utils.js";
 
 function isCursorTextBoundary(text: string, index: number): boolean {
 	if (index <= 0 || index >= text.length) return true;
@@ -37,6 +38,15 @@ export function trimCurrentTurnAlreadyEmittedCursorText(
 		if (emittedTextTrimmedText !== text) return emittedTextTrimmedText;
 	}
 	return trimAlreadyEmittedCursorText(text, emittedText);
+}
+
+export function getFinalAssistantText(message: Pick<AssistantMessage, "content">): string {
+	for (let index = message.content.length - 1; index >= 0; index--) {
+		const block = asRecord(message.content[index]);
+		if (block?.type !== "text" || typeof block.text !== "string") continue;
+		if (hasUsableText(block.text)) return block.text;
+	}
+	return "";
 }
 
 export function selectCursorFinalText(

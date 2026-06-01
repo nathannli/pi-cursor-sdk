@@ -1,8 +1,10 @@
+import { appendFileSync } from "node:fs";
 import { stableNameHash } from "./cursor-pi-tool-bridge-mcp.js";
 import { parseEnvBoolean } from "./cursor-env-boolean.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
 
 export const CURSOR_PI_TOOL_BRIDGE_DEBUG_ENV = "PI_CURSOR_PI_TOOL_BRIDGE_DEBUG";
+export const CURSOR_PI_TOOL_BRIDGE_DEBUG_FILE_ENV = "PI_CURSOR_PI_TOOL_BRIDGE_DEBUG_FILE";
 export const CURSOR_PI_TOOL_BRIDGE_DIAGNOSTIC_PREFIX = "[pi-cursor-sdk:bridge]";
 
 export function resolveCursorPiToolBridgeDebugEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -180,9 +182,18 @@ export function writeCursorPiToolBridgeDiagnostic(
 	} catch {
 		// Diagnostics must never affect bridge execution.
 	}
+	const serialized = serializeCursorPiToolBridgeDiagnostic(event);
+	const debugFile = env[CURSOR_PI_TOOL_BRIDGE_DEBUG_FILE_ENV];
+	if (debugFile) {
+		try {
+			appendFileSync(debugFile, `${JSON.stringify(serialized)}\n`);
+		} catch {
+			// Diagnostics must never affect bridge execution.
+		}
+	}
 	if (!resolveCursorPiToolBridgeDebugEnabled(env)) return;
 	try {
-		process.stderr.write(`${CURSOR_PI_TOOL_BRIDGE_DIAGNOSTIC_PREFIX} ${JSON.stringify(serializeCursorPiToolBridgeDiagnostic(event))}\n`);
+		process.stderr.write(`${CURSOR_PI_TOOL_BRIDGE_DIAGNOSTIC_PREFIX} ${JSON.stringify(serialized)}\n`);
 	} catch {
 		// Diagnostics must never affect bridge execution.
 	}

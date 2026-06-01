@@ -694,6 +694,51 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		}
 	});
 
+	it("aborts active bridged pi tool execution when the tool context signal aborts", async () => {
+		const pi = createBridgePiHarness({
+			active: ["bash"],
+			tools: [createBuiltinToolInfo("bash", Type.Object({ command: Type.String() }), "Run shell commands")],
+		});
+		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";
+		const bridge = registerCursorPiToolBridge(pi);
+		const run = await bridge.createRun();
+		const { client, transport } = await connectClient(getCursorPiBridgeMcpUrl(run));
+		try {
+			const callPromise = client.callTool({ name: "pi__bash", arguments: { command: "sleep 30" } });
+			const observedCallError = callPromise.catch((error: unknown) => error);
+			const [request] = await waitForQueuedRequests(run);
+			const agentAbort = vi.fn();
+			const abortController = new AbortController();
+			const bashInput = request.args as { command: string };
+
+			await pi.runToolCall(
+				{
+					type: "tool_call",
+					toolCallId: request.piToolCallId,
+					toolName: "bash",
+					input: bashInput,
+				},
+				{
+					signal: abortController.signal,
+					abort: agentAbort,
+				},
+			);
+			expect(__testUtils.getActiveBridgeToolExecutionAbortCount()).toBe(1);
+
+			abortController.abort();
+
+			expect(agentAbort).toHaveBeenCalledOnce();
+			expect(__testUtils.getActiveBridgeToolExecutionAbortCount()).toBe(0);
+			const error = await observedCallError;
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toMatch(/aborted|MCP error/i);
+		} finally {
+			await client.close().catch(() => undefined);
+			await transport.close().catch(() => undefined);
+			await run.dispose();
+		}
+	});
+
 	it("cleans active bridged pi tool execution on session shutdown without a tool result", async () => {
 		const pi = createBridgePiHarness({
 			active: ["bash"],

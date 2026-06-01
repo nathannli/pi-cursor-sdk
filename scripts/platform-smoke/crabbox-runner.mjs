@@ -1,0 +1,211 @@
+/**
+ * Crabbox runner — thin wrapper around the Crabbox CLI.
+ *
+ * Handles warmup, sync-aware run, stop, and artifact collection.
+ * Never prints CURSOR_API_KEY.
+ */
+
+import { spawn } from "node:child_process";
+
+const CRABBOX_BIN = process.env.PLATFORM_SMOKE_CRABBOX || "crabbox";
+
+function env(name) { return process.env[name] ?? ""; }
+
+const REDACTED_ENV = (() => {
+	const e = { ...process.env };
+	if (e.CURSOR_API_KEY) e.CURSOR_API_KEY = "REDACTED";
+	return e;
+})();
+
+/** Run a crabbox command, returning stdout+stderr+exit+signal. */
+export function execCrabbox(args, opts = {}) {
+	return new Promise((resolvePromise) => {
+		const timeoutMs = opts.timeout ?? 0;
+		const child = spawn(CRABBOX_BIN, args, {
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env, CRABBOX_SYNC_GIT_SEED: "false", ...opts.env },
+			...opts.spawnOpts,
+		});
+
+		const stdoutChunks = [];
+		const stderrChunks = [];
+		let timeout;
+		let killTimeout;
+		if (timeoutMs > 0) {
+			timeout = setTimeout(() => {
+				stderrChunks.push(Buffer.from(`\n[platform-smoke] crabbox command timed out after ${timeoutMs}ms\n`));
+				try { child.kill("SIGTERM"); } catch {}
+				killTimeout = setTimeout(() => {
+					try { child.kill("SIGKILL"); } catch {}
+				}, 10_000);
+			}, timeoutMs);
+		}
+
+		child.stdout.on("data", (d) => stdoutChunks.push(d));
+		child.stderr.on("data", (d) => stderrChunks.push(d));
+
+		child.on("close", (code, signal) => {
+			if (timeout) clearTimeout(timeout);
+			if (killTimeout) clearTimeout(killTimeout);
+			resolvePromise({
+				stdout: Buffer.concat(stdoutChunks).toString(),
+				stderr: Buffer.concat(stderrChunks).toString(),
+				code: code ?? (signal ? 1 : 0),
+				signal,
+			});
+		});
+
+		child.on("error", (err) => {
+			if (timeout) clearTimeout(timeout);
+			if (killTimeout) clearTimeout(killTimeout);
+			resolvePromise({
+				stdout: Buffer.concat(stdoutChunks).toString(),
+				stderr: (Buffer.concat(stderrChunks).toString() + "\n" + err.message).trim(),
+				code: 1,
+				signal: null,
+			});
+		});
+	});
+}
+
+/**
+ * Build the base crabbox args for a target (used for warmup, run, stop).
+ * These include provider, connection details, and work root.
+ * Callers should append command-specific flags/args.
+ */
+export function buildTargetBaseArgs(targetName) {
+	switch (targetName) {
+		case "macos": {
+			const host = env("PLATFORM_SMOKE_MAC_HOST") || "localhost";
+			const user = env("PLATFORM_SMOKE_MAC_USER") || env("USER");
+			const workRoot = env("PLATFORM_SMOKE_MAC_WORK_ROOT") || `/Users/${env("USER")}/crabbox/pi-cursor-sdk`;
+			return [
+				"--provider", "ssh",
+				"--target", "macos",
+				"--static-host", host,
+				"--static-user", user,
+				"--static-port", "22",
+				"--static-work-root", workRoot,
+			];
+		}
+		case "ubuntu": {
+			const image = env("PLATFORM_SMOKE_UBUNTU_IMAGE") || "cimg/node:24.16";
+			return [
+				"--provider", "local-container",
+				"--target", "linux",
+				"--local-container-image", image,
+			];
+		}
+		case "windows-native": {
+			const vm = env("PLATFORM_SMOKE_WINDOWS_VM") || "pi-extension-windows-template";
+			const snap = env("PLATFORM_SMOKE_WINDOWS_SNAPSHOT") || "crabbox-ready";
+			const user = env("PLATFORM_SMOKE_WINDOWS_USER") || env("USER");
+			const workRoot = env("PLATFORM_SMOKE_WINDOWS_NATIVE_WORK_ROOT") || "C:\\crabbox\\pi-cursor-sdk";
+			return [
+				"--provider", "parallels",
+				"--target", "windows",
+				"--windows-mode", "normal",
+				"--parallels-source", vm,
+				"--parallels-source-snapshot", snap,
+				"--parallels-user", user,
+				"--parallels-work-root", workRoot,
+			];
+		}
+		default:
+			throw new Error(`unknown target: ${targetName}`);
+	}
+}
+
+/**
+ * Get the internal lease ID for a target.
+ * For static SSH, this is "static_localhost".
+ * For local-container, it's the slug (pi-cursor-sdk-ubuntu).
+ * For parallels, it's the slug used during warmup.
+ */
+export function leaseIdFor(targetName) {
+	switch (targetName) {
+		case "macos": return "static_localhost";
+		case "ubuntu": return "pi-cursor-sdk-ubuntu";
+		default: return `pi-cursor-sdk-${targetName}`;
+	}
+}
+
+function parseLeaseId(output) {
+	return output.match(/\bleased\s+(\S+)/)?.[1]
+		?? output.match(/\blease=(\S+)/)?.[1]
+		?? null;
+}
+
+/**
+ * Warm up a Crabbox target lease.
+ * Returns { ok, stdout, stderr, leaseId }.
+ * The lease will be kept until explicitly stopped.
+ */
+export async function warmupLease(targetName, slug) {
+	const fullArgs = ["warmup", ...buildTargetBaseArgs(targetName), "--slug", slug, "--keep"];
+	console.log(`  [crabbox] ${fullArgs.join(" ")}`);
+	const result = await execCrabbox(fullArgs, { timeout: 300_000 });
+	return {
+		ok: result.code === 0,
+		...result,
+		leaseId: parseLeaseId(result.stdout) ?? parseLeaseId(result.stderr) ?? leaseIdFor(targetName),
+	};
+}
+
+/**
+ * Run a command on a warmed-up lease.
+ * The lease must already exist from a prior warmup. By default this performs
+ * one fresh sync so platform smoke always tests the current local checkout.
+ */
+export async function runOnLease(targetName, leaseId, command, opts = {}) {
+	const args = [
+		"run",
+		...buildTargetBaseArgs(targetName),
+		"--id", leaseId,
+	];
+	for (const name of opts.allowEnv ?? []) {
+		args.push("--allow-env", name);
+	}
+	if (opts.sync === false) {
+		args.push("--no-sync");
+	} else if (opts.freshSync !== false) {
+		args.push("--fresh-sync");
+	}
+	if (opts.shell) {
+		args.push("--shell", command);
+	} else {
+		args.push("--", ...(Array.isArray(command) ? command : command.split(" ")));
+	}
+	console.log(`  [crabbox] run ${args.slice(1, 6).join(" ")} ...`);
+	return execCrabbox(args, {
+		timeout: opts.timeout ?? 600_000,
+		env: opts.env,
+	});
+}
+
+/**
+ * Stop/release a warmed-up lease.
+ */
+export async function stopLease(targetName, leaseId) {
+	const args = ["stop", ...buildTargetBaseArgs(targetName), "--id", leaseId];
+	console.log(`  [crabbox] ${args.join(" ")}`);
+	return execCrabbox(args, { timeout: 60_000 });
+}
+
+/**
+ * One-shot: run a command through Crabbox without warmup.
+ * Crabbox syncs the checkout, executes, and releases the lease.
+ */
+export async function runOneShot(targetName, command, opts = {}) {
+	const args = ["run", ...buildTargetBaseArgs(targetName)];
+	if (opts.shell) {
+		args.push("--shell", command);
+	} else {
+		args.push("--", ...(Array.isArray(command) ? command : command.split(" ")));
+	}
+	console.log(`  [crabbox] run (one-shot) ${args.slice(1, 6).join(" ")} ...`);
+	return execCrabbox(args, {
+		timeout: opts.timeout ?? 600_000,
+		env: opts.env,
+	});
+}

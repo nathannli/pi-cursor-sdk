@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
 	CURSOR_PI_TOOL_BRIDGE_DEBUG_ENV,
 	CURSOR_PI_TOOL_BRIDGE_DIAGNOSTIC_PREFIX,
@@ -44,6 +45,42 @@ export {
 
 let registeredCursorPiToolBridge: CursorPiToolBridgeRegistry | undefined;
 
+const WINDOWS_BRIDGE_ABORT_ENV = "PI_CURSOR_BRIDGE_TOOL_CALL_ID";
+
+function installWindowsBridgeBashAbortMarker(event: { toolCallId: string; toolName: string; input: unknown }): string | undefined {
+	if (process.platform !== "win32" || event.toolName !== "bash") return undefined;
+	if (typeof event.input !== "object" || event.input === null || !("command" in event.input)) return undefined;
+	const input = event.input as { command?: unknown };
+	if (typeof input.command !== "string" || input.command.length === 0) return undefined;
+	const marker = event.toolCallId.replace(/[^A-Za-z0-9_.:-]/g, "_");
+	input.command = `${WINDOWS_BRIDGE_ABORT_ENV}=${marker} ${input.command}`;
+	return marker;
+}
+
+function killWindowsBridgeBashMarkerTree(marker: string | undefined): void {
+	if (process.platform !== "win32" || !marker) return;
+	const encodedMarker = Buffer.from(marker, "utf8").toString("base64");
+	const script = `
+$marker = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedMarker}'))
+$needle = '${WINDOWS_BRIDGE_ABORT_ENV}=' + $marker
+$seen = @{}
+function Stop-Tree([int]$ProcessId) {
+  if ($seen.ContainsKey($ProcessId)) { return }
+  $seen[$ProcessId] = $true
+  Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $ProcessId } | ForEach-Object { Stop-Tree $_.ProcessId }
+  Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+}
+Get-CimInstance Win32_Process -Filter "Name = 'bash.exe' OR Name = 'sh.exe'" |
+  Where-Object { $_.CommandLine -and $_.CommandLine.Contains($needle) } |
+  ForEach-Object { Stop-Tree $_.ProcessId }
+`;
+	spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+		stdio: "ignore",
+		timeout: 3_000,
+		windowsHide: true,
+	});
+}
+
 export function registerCursorPiToolBridge(pi: CursorPiToolBridgeExtensionApi): CursorPiToolBridge {
 	bridgeToolExecutionAbortTracker.abortAll("Cursor pi tool bridge extension reloaded");
 	void registeredCursorPiToolBridge?.disposeAll("Cursor pi tool bridge extension reloaded");
@@ -51,10 +88,12 @@ export function registerCursorPiToolBridge(pi: CursorPiToolBridgeExtensionApi): 
 	registeredCursorPiToolBridge = bridge;
 	pi.on("tool_call", (event, ctx) => {
 		if (!bridge.hasPendingPiToolCallId(event.toolCallId)) return undefined;
+		const windowsAbortMarker = installWindowsBridgeBashAbortMarker(event);
 		const trackingStarted = bridgeToolExecutionAbortTracker.track(event.toolCallId, {
 			signal: ctx.signal,
 			abort: () => {
-				void ctx.abort();
+				ctx.abort();
+				killWindowsBridgeBashMarkerTree(windowsAbortMarker);
 			},
 			cancelPending: (reason) => {
 				bridge.cancelPendingPiToolCallId(event.toolCallId, reason);
@@ -100,6 +139,7 @@ export const __testUtils = {
 	getActiveBridgeToolExecutionAbortCount() {
 		return bridgeToolExecutionAbortTracker.getActiveCount();
 	},
+	installWindowsBridgeBashAbortMarkerForTests: installWindowsBridgeBashAbortMarker,
 	emitBridgeToolExecutionProcessAbortSignalForTests(signal: NodeJS.Signals) {
 		bridgeToolExecutionAbortTracker.emitProcessAbortSignalForTests(signal);
 	},
