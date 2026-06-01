@@ -45,7 +45,7 @@ export function buildCursorToolLifecycleLabel(toolCall: unknown, apiKey?: string
 			return scrubLifecycleDetail(getString(args, "description"), apiKey) ?? "task";
 		}
 		case "shell": {
-			return "shell";
+			return scrubLifecycleDetail(getString(args, "command") ?? getString(args, "cmd"), apiKey);
 		}
 		case "mcp": {
 			return scrubLifecycleDetail(getString(args, "toolName"), apiKey) ?? "mcp";

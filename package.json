@@ -1,6 +1,6 @@
 {
 	"name": "pi-cursor-sdk",
-	"version": "0.1.28",
+	"version": "0.1.29",
 	"description": "pi provider extension backed by @cursor/sdk local agents",
 	"author": "Mitch Fultz (https://github.com/fitchmultz)",
 	"license": "MIT",
@@ -36,6 +36,21 @@
 		"scripts/debug-sdk-events.d.mts",
 		"scripts/debug-provider-events.mjs",
 		"scripts/debug-provider-events.d.mts",
+		"platform-smoke.config.mjs",
+		"scripts/platform-smoke.mjs",
+		"scripts/platform-smoke/assertions.mjs",
+		"scripts/platform-smoke/artifacts.mjs",
+		"scripts/platform-smoke/card-detect.mjs",
+		"scripts/platform-smoke/crabbox-runner.mjs",
+		"scripts/platform-smoke/doctor.mjs",
+		"scripts/platform-smoke/live-suite-runner.mjs",
+		"scripts/platform-smoke/jsonl-text.mjs",
+		"scripts/platform-smoke/platform-build-windows.ps1",
+		"scripts/platform-smoke/pty-capture.mjs",
+		"scripts/platform-smoke/render-ansi.mjs",
+		"scripts/platform-smoke/scenarios.mjs",
+		"scripts/platform-smoke/targets.mjs",
+		"scripts/platform-smoke/visual-evidence.mjs",
 		"scripts/lib/cursor-cli-args.mjs",
 		"scripts/lib/cursor-cli-args.d.mts",
 		"scripts/lib/cursor-child-process.mjs",
@@ -54,9 +69,11 @@
 		"docs/cursor-tool-surfaces.md",
 		"docs/cursor-live-smoke-checklist.md",
 		"docs/cursor-testing-lessons.md",
+		"docs/crabbox-platform-testing-lessons.md",
 		"docs/cursor-dogfood-checklist.md",
 		"docs/cursor-native-tool-replay.md",
 		"docs/cursor-native-tool-visual-audit.md",
+		"docs/platform-smoke.md",
 		"LICENSE",
 		"CHANGELOG.md"
 	],
@@ -69,6 +86,7 @@
 		"typecheck:src": "tsc --noEmit",
 		"typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
 		"typecheck:replay-compile": "tsc --noEmit -p test/tsconfig.json",
+		"verify": "npm run check:platform-smoke && npm run typecheck && npm test",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"refresh:cursor-snapshots": "node scripts/refresh-cursor-model-snapshots.mjs",
@@ -79,10 +97,17 @@
 		"smoke:jsonl": "node scripts/validate-smoke-jsonl.mjs",
 		"debug:sdk-events": "node scripts/debug-sdk-events.mjs",
 		"debug:provider-events": "node scripts/debug-provider-events.mjs",
-		"debug:mcp-coldstart": "node scripts/probe-mcp-coldstart.mjs"
+		"debug:mcp-coldstart": "node scripts/probe-mcp-coldstart.mjs",
+		"check:platform-smoke": "node --check scripts/platform-smoke.mjs && node --check scripts/platform-smoke/assertions.mjs && node --check scripts/platform-smoke/artifacts.mjs && node --check scripts/platform-smoke/card-detect.mjs && node --check scripts/platform-smoke/crabbox-runner.mjs && node --check scripts/platform-smoke/doctor.mjs && node --check scripts/platform-smoke/jsonl-text.mjs && node --check scripts/platform-smoke/live-suite-runner.mjs && node --check scripts/platform-smoke/pty-capture.mjs && node --check scripts/platform-smoke/render-ansi.mjs && node --check scripts/platform-smoke/scenarios.mjs && node --check scripts/platform-smoke/targets.mjs && node --check scripts/platform-smoke/visual-evidence.mjs && vitest run test/smoke-tooling.test.ts",
+		"smoke:platform": "node scripts/platform-smoke.mjs",
+		"smoke:platform:doctor": "node scripts/platform-smoke.mjs doctor",
+		"smoke:platform:macos": "node scripts/platform-smoke.mjs run --target macos",
+		"smoke:platform:ubuntu": "node scripts/platform-smoke.mjs run --target ubuntu",
+		"smoke:platform:windows-native": "node scripts/platform-smoke.mjs run --target windows-native",
+		"smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native"
 	},
 	"dependencies": {
-		"@cursor/sdk": "1.0.16",
+		"@cursor/sdk": "1.0.17",
 		"@modelcontextprotocol/sdk": "^1.29.0"
 	},
 	"peerDependencies": {
@@ -96,6 +121,7 @@
 		"@earendil-works/pi-coding-agent": "0.78.0",
 		"@earendil-works/pi-tui": "0.78.0",
 		"@xterm/xterm": "^6.0.0",
+		"node-pty": "^1.1.0",
 		"playwright": "^1.60.0",
 		"typebox": "^1.1.38",
 		"typescript": "^6.0.3",
@@ -109,5 +135,8 @@
 	"overrides": {
 		"undici": "7.25.0",
 		"sqlite3": "6.0.1"
+	},
+	"allowScripts": {
+		"node-pty@1.1.0": true
 	}
 }

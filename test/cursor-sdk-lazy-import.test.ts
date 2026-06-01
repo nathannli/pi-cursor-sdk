@@ -25,7 +25,7 @@ function isTypeOnlyExport(node: ts.ExportDeclaration): boolean {
 function collectRuntimeSdkEdges(): string[] {
 	const offenders: string[] = [];
 	for (const path of sourceFiles(join(process.cwd(), "src"))) {
-		const relativePath = relative(process.cwd(), path);
+		const relativePath = relative(process.cwd(), path).replace(/\\/g, "/");
 		const source = ts.createSourceFile(path, readFileSync(path, "utf-8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 		const visit = (node: ts.Node): void => {
 			if (ts.isImportDeclaration(node)) {

@@ -22,3 +22,10 @@ prompt-exports/
 
 # CueLoop local/runtime state (do not commit)
 .cueloop/
+
+# Platform smoke artifacts (do not commit)
+.artifacts/
+.platform-smoke-runs/
+
+# Crabbox local lease metadata (do not commit)
+.crabbox/

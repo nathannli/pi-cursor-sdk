@@ -49,7 +49,9 @@ describe("cursor tool lifecycle", () => {
 			{ name: "createPlan", args: { plan: "ssh://host/path\nnext step" }, expected: "plan" },
 		] as const;
 
-		expect(buildCursorToolLifecycleLabel({ name: "shell", args: { command: `cd ${secretPath} && npm test` } })).toBe("shell");
+		expect(buildCursorToolLifecycleLabel({ name: "shell", args: { command: "npm test" } })).toBe("npm test");
+		expect(buildCursorToolLifecycleLabel({ name: "shell", args: { command: `cd ${secretPath} && npm test` } })).toBeUndefined();
+		expect(formatCursorToolLifecycleProgressText({ name: "shell", args: { command: `cd ${secretPath} && npm test` } })).toBeUndefined();
 		expect(buildCursorToolLifecycleLabel({ name: "webFetch", args: { url: secretUrl } })).toBe("web fetch");
 		expect(buildCursorToolLifecycleLabel({ name: "generateImage", args: { path: secretPath } })).toBe("image generation");
 		expect(buildCursorToolLifecycleLabel({ name: "recordScreen", args: { path: secretPath } })).toBe("screen recording");

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
 	CURSOR_SDK_EVENT_DEBUG_ENV,
@@ -28,9 +28,9 @@ describe("cursor sdk event debug sink", () => {
 	});
 
 	it("defaults artifact base dir to .debug/cursor-sdk-events", () => {
-		expect(resolveCursorSdkEventDebugBaseDir("/repo", {})).toBe("/repo/.debug/cursor-sdk-events");
+		expect(resolveCursorSdkEventDebugBaseDir("/repo", {})).toBe(resolve("/repo", ".debug/cursor-sdk-events"));
 		expect(resolveCursorSdkEventDebugBaseDir("/repo", { PI_CURSOR_SDK_EVENT_DEBUG_DIR: "tmp/events" })).toBe(
-			"/repo/tmp/events",
+			resolve("/repo", "tmp/events"),
 		);
 	});
 
@@ -583,7 +583,7 @@ describe("debug-provider-events maintainer probe", () => {
 				CURSOR_API_KEY: "key",
 			}),
 		).toMatchObject({
-			cwd: "/tmp/work",
+			cwd: resolve("/tmp/work"),
 			model: "cursor/composer-2.5",
 			prompt: "hello",
 			apiKey: "key",

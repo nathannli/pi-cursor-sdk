@@ -36,6 +36,19 @@ const modelItems: ModelListItem[] = [
 		],
 	},
 	{
+		id: "composer-2.5",
+		displayName: "Cursor Composer 2.5",
+		aliases: ["composer-2-5"],
+		parameters: [{ id: "fast", displayName: "Fast", values: [{ value: "false" }, { value: "true" }] }],
+		variants: [
+			{
+				params: [{ id: "fast", value: "true" }],
+				displayName: "Cursor Composer 2.5",
+				isDefault: true,
+			},
+		],
+	},
+	{
 		id: "gpt-5.5",
 		displayName: "GPT-5.5",
 		parameters: [
@@ -282,7 +295,7 @@ describe("Cursor runtime state", () => {
 		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.FAST_ENTRY_TYPE, {
-			baseModelId: "composer-2",
+			modelId: "composer-2",
 			fast: false,
 		});
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", undefined);
@@ -290,6 +303,67 @@ describe("Cursor runtime state", () => {
 		expect(JSON.parse(readFileSync(__testUtils.getConfigPath(), "utf-8"))).toEqual({
 			fastDefaults: { "composer-2": false },
 		});
+	});
+
+	it("uses the selected Cursor SDK alias as the fast preference key", async () => {
+		const { pi, ctx, commandCtx, commands } = createCursorRuntimeHarness({ modelId: "composer-2-5" });
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor fast");
+
+		await commands.get("cursor-fast")!.handler("", commandCtx);
+
+		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.FAST_ENTRY_TYPE, {
+			modelId: "composer-2-5",
+			fast: false,
+		});
+		expect(getEffectiveFastForModelId("composer-2-5")).toBe(false);
+		expect(JSON.parse(readFileSync(__testUtils.getConfigPath(), "utf-8"))).toEqual({
+			fastDefaults: { "composer-2-5": false },
+		});
+	});
+
+	it("restores legacy base-model fast preferences for Cursor SDK aliases", async () => {
+		const { pi, ctx } = createCursorRuntimeHarness({
+			modelId: "composer-2-5",
+			branch: [
+				{
+					type: "custom",
+					id: "fast-entry",
+					parentId: null,
+					timestamp: new Date(0).toISOString(),
+					customType: __testUtils.FAST_ENTRY_TYPE,
+					data: { baseModelId: "composer-2.5", fast: false },
+				},
+			],
+		});
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", undefined);
+		expect(getEffectiveFastForModelId("composer-2-5")).toBe(false);
+	});
+
+	it("keeps legacy session fast preferences above global alias defaults", async () => {
+		writeFileSync(__testUtils.getConfigPath(), JSON.stringify({ fastDefaults: { "composer-2-5": true } }));
+		const { pi, ctx } = createCursorRuntimeHarness({
+			modelId: "composer-2-5",
+			branch: [
+				{
+					type: "custom",
+					id: "fast-entry",
+					parentId: null,
+					timestamp: new Date(0).toISOString(),
+					customType: __testUtils.FAST_ENTRY_TYPE,
+					data: { baseModelId: "composer-2.5", fast: false },
+				},
+			],
+		});
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", undefined);
+		expect(getEffectiveFastForModelId("composer-2-5")).toBe(false);
 	});
 
 	it("does not update fast state when the global config cannot be saved", async () => {

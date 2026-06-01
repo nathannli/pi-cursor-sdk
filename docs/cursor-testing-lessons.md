@@ -1,10 +1,12 @@
 # Cursor Testing Lessons
 
+> **Platform Smoke (new):** The required cross-platform release gate is `npm run smoke:platform:doctor && npm run smoke:platform:all`. See [docs/platform-smoke.md](./platform-smoke.md). For portable lessons other pi extension projects can adapt without sharing repo-specific state, see [Crabbox Platform Testing Lessons](./crabbox-platform-testing-lessons.md). The live smoke checklist remains useful for inner-loop development but is not the release gate.
+
 ## Purpose
 
 This document records maintainer testing lessons for `pi-cursor-sdk`. It complements unit tests and the [Cursor live smoke checklist](./cursor-live-smoke-checklist.md). Use it when adding regression coverage, debugging false-green releases, or building isolated smoke harnesses.
 
-For a **minimal one-session dogfood pass** (baseline env, one native + one bridge call, JSONL ID patterns, bootstrap manifest, edit diff card), use the [Cursor dogfood checklist](./cursor-dogfood-checklist.md) before running the full live smoke matrix.
+For a **minimal one-session dogfood pass** (baseline env, one native + one bridge call, JSONL ID patterns, bootstrap manifest, edit diff card), use the [Cursor dogfood checklist](./cursor-dogfood-checklist.md) as inner-loop evidence before running the platform smoke gate.
 
 ## Core lesson: integration-shaped bugs beat unit mocks
 
@@ -176,7 +178,7 @@ Simulate plan-mode execute stripping with the repo fixture:
 It sets active tools to `read`, `bash`, `edit`, `write` on each `turn_start`. Run pi with:
 
 ```bash
-pi -e scripts/fixtures/plan-strip-shim --cursor-no-fast --model cursor/composer-2.5 \
+pi -e scripts/fixtures/plan-strip-shim --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/plan-strip" \
   -p 'After reset, read README.md and answer PLAN_STRIP_OK=yes.'
 ```
@@ -189,15 +191,17 @@ Pass criteria:
 
 ## Local validation ladder
 
-Run in order before claiming release-ready for provider/runtime changes:
+Run local checks first, then the platform smoke gate before claiming release-ready for provider/runtime changes:
 
 ```bash
 npm test
 npm run typecheck
 npm pack --dry-run
 SKIP_LIVE=1 npm run smoke:isolated
-npm run smoke:isolated            # requires auth.json or CURSOR_API_KEY
-npm run smoke:live                # partial tmux checklist subset
+npm run smoke:isolated            # inner-loop helper; requires auth.json or CURSOR_API_KEY
+npm run smoke:live                # inner-loop partial tmux checklist subset
+npm run smoke:platform:doctor
+npm run smoke:platform:all
 ```
 
 After changing `scripts/validate-smoke-jsonl.mjs` or replay scan expectations, also run:
@@ -206,14 +210,15 @@ After changing `scripts/validate-smoke-jsonl.mjs` or replay scan expectations, a
 npm test -- test/validate-smoke-jsonl.test.ts
 ```
 
-Then follow the full manual [Cursor live smoke checklist](./cursor-live-smoke-checklist.md) for surfaces the scripts do not cover (bridge MCP, abort/cancel, full TUI observation, packaging review, cleanup).
+Then use the [Cursor live smoke checklist](./cursor-live-smoke-checklist.md) only for focused inner-loop surfaces the scripts do not cover (bridge MCP, abort/cancel, full TUI observation, packaging review, cleanup) before rerunning the platform smoke gate.
 
-## What belongs in CI vs manual smoke
+## What belongs in CI vs platform/manual smoke
 
 - **CI / default `npm test`:** mocked provider tests, extension lifecycle tests, JSONL validator tests, script syntax/help checks. No live Cursor calls.
-- **Manual / pre-release:** `npm run smoke:isolated`, `npm run smoke:live`, and the full checklist. Requires real Cursor auth and observes TUI/runtime behavior mocks cannot reproduce.
+- **Platform release gate:** `npm run smoke:platform:doctor && npm run smoke:platform:all`. Requires real Cursor auth and cross-platform Crabbox setup.
+- **Focused manual smoke:** `npm run smoke:isolated`, `npm run smoke:live`, and selected live-checklist sections for inner-loop debugging of behavior mocks cannot reproduce.
 
-If live smoke auth is unavailable, report the release as **blocked**, not skipped-ready.
+If platform smoke auth or target setup is unavailable, report the release as **blocked**, not skipped-ready.
 
 ## Cursor SDK event capture probe
 
@@ -238,7 +243,7 @@ The script writes timestamped artifacts under `--out` (default `/tmp/pi-cursor-s
 
 Stdout prints artifact paths and summary counts only. Raw payloads stay on disk and may contain local paths, project text, tool args/results, or secrets — do not commit or share them.
 
-Hard repo rule: Cursor SDK behavior claims must come from the installed `@cursor/sdk` package and/or https://cursor.com/docs/sdk/typescript, not from memory or ad-hoc probes alone. Current cutover validation targets exact `@cursor/sdk@1.0.16` and pi 0.78.0 local packages.
+Hard repo rule: Cursor SDK behavior claims must come from the installed `@cursor/sdk` package and/or https://cursor.com/docs/sdk/typescript, not from memory or ad-hoc probes alone. Current cutover validation targets exact `@cursor/sdk@1.0.17` and pi 0.78.0 local packages.
 
 ## Pi provider SDK event capture
 
@@ -249,7 +254,7 @@ One-shot maintainer script (RPC pi run, gitignored artifacts by default):
 ```bash
 CURSOR_API_KEY=... npm run debug:provider-events -- \
   --cwd . \
-  --model cursor/composer-2.5 \
+  --model cursor/composer-2-5 \
   --prompt 'Repro prompt here' \
   --out .debug/cursor-sdk-events/manual-repro
 ```
@@ -289,7 +294,7 @@ Artifacts under `--out` (default `.debug/cursor-sdk-events/<timestamp>/` under `
 During any normal pi session you can also opt in with:
 
 ```bash
-PI_CURSOR_SDK_EVENT_DEBUG=1 pi -e . --model cursor/composer-2.5
+PI_CURSOR_SDK_EVENT_DEBUG=1 pi -e . --model cursor/composer-2-5
 ```
 
 Multi-turn sessions group automatically by pi session file:
@@ -340,7 +345,7 @@ Ask the reporter (or capture yourself) for:
 | Field | Why |
 | --- | --- |
 | `pi --version` and installed `pi-cursor-sdk` version | Confirms extension/runtime in use |
-| Model ID (for example `cursor/composer-2.5`) | Routing/replay behavior is model-scoped |
+| Model ID (for example `cursor/composer-2-5`) | Routing/replay behavior is model-scoped |
 | Exact repro prompt and prior turns | Multi-turn replay history affects prompt text |
 | Flags: `--cursor-no-fast`, `PI_CURSOR_PI_TOOL_BRIDGE`, `PI_CURSOR_EXPOSE_BUILTIN_TOOLS`, `PI_CURSOR_SETTING_SOURCES`, `PI_CURSOR_TOOL_MANIFEST` | Bridge vs native-only vs narrowed settings; bootstrap callable-surface manifest |
 | Whether the listed names are `pi__*` bridge MCP, Cursor-native (`browser_navigate`, `WebSearch`), or `cursor-replay-*` replay IDs | Three different surfaces (see [Cursor native tool replay](./cursor-native-tool-replay.md#live-bridge-vs-replay)) |
@@ -361,7 +366,7 @@ chmod 600 "$SMOKE_DIR/home/.pi/agent/auth.json"
 env -i HOME="$SMOKE_DIR/home" PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
   MISE_DISABLE=1 \
   PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1 \
-  pi -e . --cursor-no-fast --model cursor/composer-2.5 \
+  pi -e . --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/session" \
   -p '<exact reporter prompt>'
 ```
@@ -373,7 +378,7 @@ For pi parsing, replay routing, or bridge timing, prefer:
 ```bash
 npm run debug:provider-events -- \
   --cwd "$PWD" \
-  --model cursor/composer-2.5 \
+  --model cursor/composer-2-5 \
   --prompt '<exact reporter prompt>' \
   --out "$SMOKE_DIR/provider-events"
 ```

@@ -33,6 +33,7 @@ class CursorPiToolBridgeToolExecutionAbortTracker {
 
 		execution.onAbort = () => {
 			this.cancelExecution(execution, "Cursor pi bridge tool execution was aborted");
+			this.abortExecution(execution);
 			this.finish(toolCallId);
 		};
 		execution.signal?.addEventListener("abort", execution.onAbort, { once: true });

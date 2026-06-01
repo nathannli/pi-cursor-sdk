@@ -165,7 +165,7 @@ function buildPiRpcEnv(baseEnv = process.env, nodePath = process.execPath) {
 }
 
 async function runPiRpcSmoke(sessionDir, piBin) {
-	const args = ["-e", root, "--cursor-no-fast", "--model", "cursor/composer-2.5", "--mode", "rpc", "--session-dir", sessionDir];
+	const args = ["-e", root, "--cursor-no-fast", "--model", "cursor/composer-2-5", "--mode", "rpc", "--session-dir", sessionDir];
 	const env = buildPiRpcEnv();
 
 	const child = spawn(piBin, args, { cwd: root, env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });

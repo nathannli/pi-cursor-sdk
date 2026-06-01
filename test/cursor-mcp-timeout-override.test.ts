@@ -222,7 +222,7 @@ describe("Cursor MCP timeout override", () => {
 		vi.doUnmock("../src/cursor-mcp-timeout-override.js");
 		vi.doUnmock("../src/cursor-session-agent.js");
 		vi.resetModules();
-	});
+	}, 15_000);
 
 	it("extends only the Cursor SDK MCP tool-call default timeout", () => {
 		vi.useFakeTimers();

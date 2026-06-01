@@ -215,6 +215,14 @@ describe("cursor pi tool bridge flags and snapshots", () => {
 		}
 	});
 
+	it("wraps Windows bridge bash abort markers without breaking compound shell commands", () => {
+		const command = __testUtils.buildWindowsBridgeBashAbortCommandForTests("if true; then echo ok; fi", "bridge_call_1");
+
+		expect(command).toBe("export PI_CURSOR_BRIDGE_TOOL_CALL_ID=bridge_call_1; if true; then echo ok; fi");
+		expect(command).toContain("PI_CURSOR_BRIDGE_TOOL_CALL_ID=bridge_call_1");
+		expect(command).not.toMatch(/^PI_CURSOR_BRIDGE_TOOL_CALL_ID=bridge_call_1 if /);
+	});
+
 	it("uses stable collision-safe MCP names", () => {
 		const pi = createBridgePiHarness({
 			active: ["tool one", "tool_one"],
@@ -687,6 +695,51 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 				details: undefined,
 			});
 			expect(__testUtils.getActiveBridgeToolExecutionAbortCount()).toBe(0);
+		} finally {
+			await client.close().catch(() => undefined);
+			await transport.close().catch(() => undefined);
+			await run.dispose();
+		}
+	});
+
+	it("aborts active bridged pi tool execution when the tool context signal aborts", async () => {
+		const pi = createBridgePiHarness({
+			active: ["bash"],
+			tools: [createBuiltinToolInfo("bash", Type.Object({ command: Type.String() }), "Run shell commands")],
+		});
+		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";
+		const bridge = registerCursorPiToolBridge(pi);
+		const run = await bridge.createRun();
+		const { client, transport } = await connectClient(getCursorPiBridgeMcpUrl(run));
+		try {
+			const callPromise = client.callTool({ name: "pi__bash", arguments: { command: "sleep 30" } });
+			const observedCallError = callPromise.catch((error: unknown) => error);
+			const [request] = await waitForQueuedRequests(run);
+			const agentAbort = vi.fn();
+			const abortController = new AbortController();
+			const bashInput = request.args as { command: string };
+
+			await pi.runToolCall(
+				{
+					type: "tool_call",
+					toolCallId: request.piToolCallId,
+					toolName: "bash",
+					input: bashInput,
+				},
+				{
+					signal: abortController.signal,
+					abort: agentAbort,
+				},
+			);
+			expect(__testUtils.getActiveBridgeToolExecutionAbortCount()).toBe(1);
+
+			abortController.abort();
+
+			expect(agentAbort).toHaveBeenCalledOnce();
+			expect(__testUtils.getActiveBridgeToolExecutionAbortCount()).toBe(0);
+			const error = await observedCallError;
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).message).toMatch(/aborted|MCP error/i);
 		} finally {
 			await client.close().catch(() => undefined);
 			await transport.close().catch(() => undefined);

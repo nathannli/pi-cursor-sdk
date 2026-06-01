@@ -91,6 +91,7 @@ try {
 	});
 	term.open(terminalElement);
 	term.resize(${options.width}, ${options.height});
+	window.__piVisualSmokeTerminal = term;
 	term.write(ansi, () => {
 		document.body.setAttribute("data-render-ready", "true");
 	});
