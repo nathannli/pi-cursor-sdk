@@ -29,7 +29,8 @@ export type CursorAgentMode = AgentModeOption;
 const DEFAULT_CURSOR_AGENT_MODE: AgentModeOption = "agent";
 
 interface CursorFastEntryData {
-	baseModelId: string;
+	modelId?: string;
+	baseModelId?: string;
 	fast: boolean;
 }
 
@@ -71,7 +72,11 @@ export function parseCursorAgentMode(raw: unknown): AgentModeOption | undefined 
 function isCursorFastEntryData(value: unknown): value is CursorFastEntryData {
 	if (!value || typeof value !== "object") return false;
 	const data = value as Record<string, unknown>;
-	return typeof data.baseModelId === "string" && typeof data.fast === "boolean";
+	return (typeof data.modelId === "string" || typeof data.baseModelId === "string") && typeof data.fast === "boolean";
+}
+
+function getCursorFastEntryModelId(data: CursorFastEntryData): string {
+	return data.modelId ?? data.baseModelId ?? "";
 }
 
 function isCursorModeEntryData(value: unknown): value is CursorModeEntryData {
@@ -113,7 +118,8 @@ function restoreSessionFastPreferences(ctx: { sessionManager: Pick<ExtensionCont
 	for (const entry of ctx.sessionManager.getBranch()) {
 		if (entry.type !== "custom" || entry.customType !== FAST_ENTRY_TYPE) continue;
 		if (isCursorFastEntryData(entry.data)) {
-			sessionFastPreferences.set(entry.data.baseModelId, entry.data.fast);
+			const modelId = getCursorFastEntryModelId(entry.data);
+			if (modelId) sessionFastPreferences.set(modelId, entry.data.fast);
 		}
 	}
 }
@@ -128,12 +134,26 @@ function restoreSessionCursorMode(ctx: { sessionManager: Pick<ExtensionContext["
 	}
 }
 
-function getEffectiveFast(baseModelId: string, modelId: string): boolean | undefined {
+function getFastPreferenceModelId(metadata: NonNullable<ReturnType<typeof getCursorModelMetadata>>): string {
+	return metadata.selectionModelId || metadata.baseModelId;
+}
+
+function getStoredFastPreference(metadata: NonNullable<ReturnType<typeof getCursorModelMetadata>>): boolean | undefined {
+	const preferenceModelId = getFastPreferenceModelId(metadata);
+	return (
+		sessionFastPreferences.get(preferenceModelId) ??
+		globalFastPreferences.get(preferenceModelId) ??
+		(preferenceModelId !== metadata.baseModelId ? sessionFastPreferences.get(metadata.baseModelId) : undefined) ??
+		(preferenceModelId !== metadata.baseModelId ? globalFastPreferences.get(metadata.baseModelId) : undefined)
+	);
+}
+
+function getEffectiveFast(modelId: string): boolean | undefined {
 	const metadata = getCursorModelMetadata(modelId);
 	if (!metadata?.supportsFast) return undefined;
 	if (cliForceNoFast) return false;
 	if (cliForceFast) return true;
-	return sessionFastPreferences.get(baseModelId) ?? globalFastPreferences.get(baseModelId) ?? metadata.defaultFast;
+	return getStoredFastPreference(metadata) ?? metadata.defaultFast;
 }
 
 function formatInvalidCursorMode(raw: string): string {
@@ -168,7 +188,7 @@ function updateCursorStatus(ctx: Pick<ExtensionContext, "model" | "ui">, model =
 		return;
 	}
 	const metadata = getCursorModelMetadata(model.id);
-	const fast = metadata?.supportsFast ? getEffectiveFast(metadata.baseModelId, model.id) : undefined;
+	const fast = metadata?.supportsFast ? getEffectiveFast(model.id) : undefined;
 	ctx.ui.setStatus("cursor", formatCursorStatus(fast));
 }
 
@@ -186,19 +206,19 @@ function restoreMapValue(map: Map<string, boolean>, key: string, previous: boole
 	}
 }
 
-function persistFastPreference(pi: Pick<ExtensionAPI, "appendEntry">, baseModelId: string, fast: boolean): void {
-	const previousSession = sessionFastPreferences.get(baseModelId);
-	const previousGlobal = globalFastPreferences.get(baseModelId);
+function persistFastPreference(pi: Pick<ExtensionAPI, "appendEntry">, modelId: string, fast: boolean): void {
+	const previousSession = sessionFastPreferences.get(modelId);
+	const previousGlobal = globalFastPreferences.get(modelId);
 	let savedGlobal = false;
-	sessionFastPreferences.set(baseModelId, fast);
-	globalFastPreferences.set(baseModelId, fast);
+	sessionFastPreferences.set(modelId, fast);
+	globalFastPreferences.set(modelId, fast);
 	try {
 		saveGlobalFastPreferences();
 		savedGlobal = true;
-		pi.appendEntry<CursorFastEntryData>(FAST_ENTRY_TYPE, { baseModelId, fast });
+		pi.appendEntry<CursorFastEntryData>(FAST_ENTRY_TYPE, { modelId, fast });
 	} catch (error) {
-		restoreMapValue(sessionFastPreferences, baseModelId, previousSession);
-		restoreMapValue(globalFastPreferences, baseModelId, previousGlobal);
+		restoreMapValue(sessionFastPreferences, modelId, previousSession);
+		restoreMapValue(globalFastPreferences, modelId, previousGlobal);
 		if (savedGlobal) {
 			try {
 				saveGlobalFastPreferences();
@@ -285,9 +305,7 @@ function emitCursorToolsDebugReport(
 }
 
 export function getEffectiveFastForModelId(modelId: string): boolean | undefined {
-	const metadata = getCursorModelMetadata(modelId);
-	if (!metadata) return undefined;
-	return getEffectiveFast(metadata.baseModelId, modelId);
+	return getEffectiveFast(modelId);
 }
 
 export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtensionApi): void {
@@ -327,10 +345,11 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 				return;
 			}
 
-			const current = getEffectiveFast(metadata.baseModelId, metadata.piModelId) ?? false;
+			const preferenceModelId = getFastPreferenceModelId(metadata);
+			const current = getEffectiveFast(metadata.piModelId) ?? false;
 			const next = !current;
 			try {
-				persistFastPreference(pi, metadata.baseModelId, next);
+				persistFastPreference(pi, preferenceModelId, next);
 			} catch (error) {
 				updateCursorStatus(ctx);
 				ctx.ui.notify(`Failed to save Cursor fast preference: ${error instanceof Error ? error.message : String(error)}`, "error");

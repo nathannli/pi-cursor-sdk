@@ -9,6 +9,7 @@ import {
 	isCursorToolLifecycleEligible,
 } from "./cursor-tool-lifecycle.js";
 import { classifyCursorToolVisibility } from "./cursor-tool-visibility.js";
+import { getStartedToolCallFingerprint } from "./cursor-provider-turn-tool-ledger.js";
 
 function getNormalizedCursorToolName(toolCall: unknown): string {
 	return classifyCursorToolVisibility(toolCall).normalizedName;
@@ -32,6 +33,8 @@ export class CursorToolLifecycleEmitter {
 	private readonly isBridgeMcpToolCall: (toolCall: unknown) => boolean;
 	private readonly emittedLifecycleCallIds = new Set<string>();
 	private readonly lifecycleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly activeLifecycleFingerprintOwners = new Map<string, string>();
+	private readonly lifecycleFingerprintByCallId = new Map<string, string>();
 
 	constructor(options: CursorToolLifecycleEmitterOptions) {
 		this.liveRun = options.liveRun;
@@ -47,10 +50,27 @@ export class CursorToolLifecycleEmitter {
 		if (this.isBridgeMcpToolCall(toolCall)) return;
 		if (!isCursorToolLifecycleEligible(toolCall)) return;
 
+		const fingerprint = getStartedToolCallFingerprint(toolCall);
+		const existingOwner = this.activeLifecycleFingerprintOwners.get(fingerprint);
+		if (existingOwner && existingOwner !== callId) {
+			this.debugRecorder?.recordCoordinatorEvent("tool_lifecycle_skip", {
+				callId,
+				ownerCallId: existingOwner,
+				toolName: getNormalizedCursorToolName(toolCall),
+				reason: "duplicate-active-fingerprint",
+			});
+			return;
+		}
+
 		this.cancel(callId);
+		this.activeLifecycleFingerprintOwners.set(fingerprint, callId);
+		this.lifecycleFingerprintByCallId.set(callId, fingerprint);
 		const timer = setTimeout(() => {
 			this.lifecycleTimers.delete(callId);
-			if (!this.hasStartedToolCall(callId)) return;
+			if (!this.hasStartedToolCall(callId)) {
+				this.clearLifecycleIdentity(callId);
+				return;
+			}
 			if (this.emittedLifecycleCallIds.has(callId)) return;
 			this.emit(callId, toolCall);
 		}, CURSOR_TOOL_LIFECYCLE_DEFER_MS);
@@ -60,15 +80,27 @@ export class CursorToolLifecycleEmitter {
 
 	cancel(callId: string): void {
 		const timer = this.lifecycleTimers.get(callId);
-		if (!timer) return;
-		clearTimeout(timer);
-		this.lifecycleTimers.delete(callId);
+		if (timer) {
+			clearTimeout(timer);
+			this.lifecycleTimers.delete(callId);
+		}
+		this.clearLifecycleIdentity(callId);
 	}
 
 	clear(): void {
 		this.emittedLifecycleCallIds.clear();
 		for (const timer of this.lifecycleTimers.values()) clearTimeout(timer);
 		this.lifecycleTimers.clear();
+		this.activeLifecycleFingerprintOwners.clear();
+		this.lifecycleFingerprintByCallId.clear();
+	}
+
+	private clearLifecycleIdentity(callId: string): void {
+		const fingerprint = this.lifecycleFingerprintByCallId.get(callId);
+		if (fingerprint && this.activeLifecycleFingerprintOwners.get(fingerprint) === callId) {
+			this.activeLifecycleFingerprintOwners.delete(fingerprint);
+		}
+		this.lifecycleFingerprintByCallId.delete(callId);
 	}
 
 	private emit(callId: string, toolCall: unknown): void {

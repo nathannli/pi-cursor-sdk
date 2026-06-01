@@ -127,6 +127,95 @@ describe("streamCursor Cursor tool lifecycle", () => {
 		await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
 	});
 
+	it("deduplicates duplicate lifecycle starts while keeping completed shell results", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
+		const shellCall = { name: "shell", args: { command: "npm test" } };
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: shellCall, callId: "shell-1" } });
+			opts.onDelta({ update: { type: "tool-call-started", toolCall: shellCall, callId: "shell-duplicate" } });
+			await delayBeyondLifecycleDefer();
+			for (const callId of ["shell-1", "shell-duplicate"]) {
+				opts.onDelta({
+					update: {
+						type: "tool-call-completed",
+						toolCall: {
+							...shellCall,
+							result: { status: "success", value: { stdout: "ok\n", stderr: "", exitCode: 0 } },
+						},
+						callId,
+					},
+				});
+			}
+			opts.onDelta({ update: { type: "text-delta", text: "done" } });
+			return asMockCursorRun({
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			});
+		});
+		mockCreatedAgent({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const trace = collectThinkingDeltas(events);
+
+		expect(trace.match(/Cursor shell: shell/g)).toHaveLength(1);
+		expect(trace.match(/\$ npm test/g)).toHaveLength(2);
+	});
+
+	it("keeps lifecycle progress for distinct shell starts even when labels match", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
+		const shellCalls = [
+			{ callId: "shell-1", toolCall: { name: "shell", args: { command: "npm test" } } },
+			{ callId: "shell-2", toolCall: { name: "shell", args: { command: "git status" } } },
+		];
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			for (const { callId, toolCall } of shellCalls) {
+				opts.onDelta({ update: { type: "tool-call-started", toolCall, callId } });
+			}
+			await delayBeyondLifecycleDefer();
+			for (const { callId, toolCall } of shellCalls) {
+				opts.onDelta({
+					update: {
+						type: "tool-call-completed",
+						toolCall: {
+							...toolCall,
+							result: { status: "success", value: { stdout: "ok\n", stderr: "", exitCode: 0 } },
+						},
+						callId,
+					},
+				});
+			}
+			opts.onDelta({ update: { type: "text-delta", text: "done" } });
+			return asMockCursorRun({
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			});
+		});
+		mockCreatedAgent({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+
+		const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		const trace = collectThinkingDeltas(events);
+
+		expect(trace.match(/Cursor shell: shell/g)).toHaveLength(2);
+		expect(trace).toContain("$ npm test");
+		expect(trace).toContain("$ git status");
+	});
+
 	it("does not emit lifecycle progress for fast read completions", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
 		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {

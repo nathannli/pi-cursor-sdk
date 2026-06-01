@@ -168,7 +168,7 @@ pi --model cursor/gpt-5.5@272k:xhigh
 pi --model cursor/gpt-5.5@1m --thinking medium
 ```
 
-Cursor-only parameters are not encoded into pi model IDs. Cursor `context` becomes a pi-visible model variant because it changes pi's native `contextWindow`; Cursor `fast` and Cursor SDK conversation mode are extension state, not model identity. Alias model IDs still share Cursor-only state, such as fast defaults, with their underlying Cursor base model.
+Cursor-only parameters are not encoded into pi model IDs. Cursor `context` becomes a pi-visible model variant because it changes pi's native `contextWindow`; Cursor `fast` and Cursor SDK conversation mode are extension state, not model identity. Alias model IDs use their selected SDK ID for Cursor-only state such as fast defaults, with read fallback for older defaults keyed by the underlying Cursor base model.
 
 ## Thinking support
 
@@ -192,7 +192,7 @@ Some Cursor SDK models do not expose a `reasoning`, `effort`, or `thinking` para
 
 Use `/cursor-fast` to persistently toggle fast mode for the selected Cursor model when the model supports Cursor's `fast` parameter.
 
-Fast preferences are remembered per Cursor base model and stored:
+Fast preferences are remembered per selected Cursor SDK model ID or alias and stored:
 
 - in the current session with `pi.appendEntry()`
 - globally in `~/.pi/agent/cursor-sdk.json`
