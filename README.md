@@ -2,7 +2,27 @@
 
 A pi provider extension that lets pi use Cursor models through the local `@cursor/sdk` agent runtime.
 
-Use this extension if you want Cursor's model catalog inside pi while keeping pi's native model picker, thinking controls where the SDK exposes them, session restore, context display, and default footer UX.
+Use this extension if you primarily use Cursor models inside pi and want Cursor's local SDK agent loop preserved while pi adds native model selection, auth, thinking/context controls, session behavior, replay UI, and optional pi tool bridging.
+
+## Why use this instead of an OpenAI-compatible Cursor endpoint?
+
+Use `pi-cursor-sdk` when you primarily want to use Cursor models **inside pi**.
+
+This extension runs Cursor models through the local `@cursor/sdk` agent runtime and keeps Cursor's agent loop intact. pi integrates around that loop: model discovery, model selection, context-window variants, thinking controls where Cursor exposes them, fast/slow aliases, Cursor mode, session handling, native replay cards, and the optional pi tool bridge.
+
+OpenAI-compatible Cursor proxies are useful when you want a generic `/v1/chat/completions` or `/v1/responses` endpoint for many clients such as curl, the OpenAI SDK, OpenCode, or other tools. That compatibility comes from translating Cursor behavior into OpenAI-shaped requests, responses, and tool calls.
+
+For pi users, that translation is usually the wrong abstraction. `pi-cursor-sdk` is pi-specific on purpose: it lets Cursor remain Cursor while making it feel native in pi.
+
+| If you want... | Prefer |
+| --- | --- |
+| First-class Cursor usage inside pi | `pi-cursor-sdk` |
+| Cursor's local SDK agent loop preserved, not replaced by an OpenAI-shaped adapter | `pi-cursor-sdk` |
+| pi model picker, `/login`, `/model`, sessions, context display, footer/status UX | `pi-cursor-sdk` |
+| Cursor SDK local-agent tools, settings, MCP, and native replay surfaced in pi | `pi-cursor-sdk` |
+| pi extension tools exposed to Cursor through a local MCP bridge | `pi-cursor-sdk` |
+| A generic OpenAI-compatible localhost `/v1` API for non-pi clients | An OpenAI-compatible Cursor proxy |
+| One Cursor-ish endpoint shared across several unrelated tools | An OpenAI-compatible Cursor proxy |
 
 ## Quick start
 
