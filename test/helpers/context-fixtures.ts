@@ -80,6 +80,7 @@ function createMinimalExtensionContextInternal(overrides: ExtensionContextOverri
 	const cwd = overrides.cwd ?? process.cwd();
 	const base: ExtensionContext = {
 		ui: createMinimalExtensionUi(),
+		mode: "tui",
 		hasUI: true,
 		cwd,
 		sessionManager: createMinimalSessionManager(cwd, overrides.sessionManager),

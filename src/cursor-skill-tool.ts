@@ -197,19 +197,13 @@ export function registerCursorSkillTool(pi: CursorSkillToolExtensionApi): void {
 		async execute(_toolCallId, params) {
 			const requestedName = (params as CursorActivateSkillParams).name?.trim();
 			if (!requestedName) {
-				return {
-					content: [{ type: "text" as const, text: "No skill name was provided." }],
-					details: buildActivationDetails(undefined),
-					isError: true,
-				};
+				throw new Error("No skill name was provided.");
 			}
 			const skill = currentSkillsByName.get(requestedName);
 			if (!skill) {
-				return {
-					content: [{ type: "text" as const, text: `Skill not available: ${requestedName}. Available skills: ${getAvailableSkillNames().join(", ") || "none"}.` }],
-					details: buildActivationDetails(undefined),
-					isError: true,
-				};
+				throw new Error(
+					`Skill not available: ${requestedName}. Available skills: ${getAvailableSkillNames().join(", ") || "none"}.`,
+				);
 			}
 
 			try {
@@ -222,16 +216,9 @@ export function registerCursorSkillTool(pi: CursorSkillToolExtensionApi): void {
 					details: buildActivationDetails(skill, resources),
 				};
 			} catch (error) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `Failed to load skill ${requestedName} from ${skill.filePath}: ${error instanceof Error ? error.message : String(error)}`,
-						},
-					],
-					details: buildActivationDetails(skill),
-					isError: true,
-				};
+				throw new Error(
+					`Failed to load skill ${requestedName} from ${skill.filePath}: ${error instanceof Error ? error.message : String(error)}`,
+				);
 			}
 		},
 	});

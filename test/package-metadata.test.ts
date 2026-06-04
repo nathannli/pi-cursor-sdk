@@ -15,19 +15,16 @@ const PI_PACKAGES = [
 ] as const;
 
 describe("package metadata cutover baselines", () => {
-	it("pins Cursor SDK exactly and validates against pi 0.78.0", () => {
+	it("pins Cursor SDK exactly and validates against pi 0.78.1", () => {
 		expect(packageJson.dependencies["@cursor/sdk"]).toBe("1.0.17");
 		for (const packageName of PI_PACKAGES) {
-			expect(packageJson.devDependencies[packageName]).toBe("0.78.0");
+			expect(packageJson.devDependencies[packageName]).toBe("0.78.1");
 		}
 	});
 
-	it("keeps @earendil-works peer dependency ranges minimum-only with no upper bound", () => {
+	it("keeps @earendil-works peer dependency ranges unpinned per pi package guidance", () => {
 		for (const packageName of PI_PACKAGES) {
-			const range = packageJson.peerDependencies[packageName];
-			expect(range).toBe(">=0.76.0");
-			expect(range).toMatch(/^>=\d+\.\d+\.\d+$/);
-			expect(range).not.toMatch(/[<|~^]/);
+			expect(packageJson.peerDependencies[packageName]).toBe("*");
 		}
 	});
 });

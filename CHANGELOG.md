@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.1.34 - 2026-06-04
+
+### Changed
+
+- Update the local pi validation baseline to `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` `0.78.1` after reviewing the Pi 0.78.1 changelog and extension/provider docs. Pi core peer dependency ranges now follow current pi package guidance with `"*"` ranges, and docs call pi 0.78.1 the recommended validated baseline rather than a hard pin.
+- Gate Cursor native replay tool registration on Pi 0.78.1's precise `ctx.mode === "tui"` instead of treating all dialog-capable UI modes as safe for terminal replay rendering; RPC/JSON/print modes keep bridge/question tools without TUI-only replay wrappers.
+
+### Fixed
+
+- Align `cursor_ask_question` and `cursor_activate_skill` failure paths with Pi's current custom-tool contract by throwing on invalid input, unavailable UI, missing skills, and skill load failures instead of returning successful tool results with ignored `isError` fields.
+
 ## 0.1.33 - 2026-06-04
 
 ### Fixed

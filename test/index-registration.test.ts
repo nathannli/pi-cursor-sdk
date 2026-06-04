@@ -186,6 +186,22 @@ describe("extension registration and discovery", () => {
 		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 	});
 
+	it("does not register TUI native replay tools in non-TUI modes", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+
+		await pi.runSessionStart({ mode: "rpc", hasUI: true });
+		await pi.runBeforeAgentStart({ mode: "rpc", hasUI: true, model: makeModel("composer-2.5") });
+		await pi.runTurnStart({ mode: "rpc", hasUI: true, model: makeModel("composer-2.5") });
+
+		expect(pi._tools.map((tool) => tool.name)).toEqual([CURSOR_ASK_QUESTION_TOOL_NAME, CURSOR_ACTIVATE_SKILL_TOOL_NAME]);
+		expect(pi._activeToolNames()).toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
+		expect(pi._activeToolNames()).not.toContain("cursor");
+		expect(pi._activeToolNames()).not.toContain("grep");
+	});
+
 	it("asks Cursor questions through pi UI selection", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
 		mockedDiscover.mockResolvedValueOnce([]);

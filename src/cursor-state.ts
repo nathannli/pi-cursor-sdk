@@ -255,7 +255,7 @@ function persistCursorModePreference(pi: Pick<ExtensionAPI, "appendEntry">, mode
 	}
 }
 
-function restoreCliCursorMode(raw: boolean | string | undefined, hasUI: boolean, notify: ExtensionContext["ui"]["notify"]): void {
+function restoreCliCursorMode(raw: boolean | string | undefined, mode: ExtensionContext["mode"], notify: ExtensionContext["ui"]["notify"]): void {
 	cliCursorModeState = { kind: "unset" };
 	if (raw === undefined || raw === "" || raw === false) return;
 	const parsed = parseCursorAgentMode(raw);
@@ -266,7 +266,7 @@ function restoreCliCursorMode(raw: boolean | string | undefined, hasUI: boolean,
 	const rawText = String(raw);
 	const message = formatInvalidCursorMode(rawText);
 	cliCursorModeState = { kind: "invalid", raw: rawText, message };
-	if (hasUI) {
+	if (mode === "tui") {
 		notify(message, "error");
 		return;
 	}
@@ -435,7 +435,7 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		cliForceNoFast = pi.getFlag("cursor-no-fast") === true;
 		restoreSessionFastPreferences(ctx);
 		restoreSessionCursorMode(ctx);
-		restoreCliCursorMode(pi.getFlag("cursor-mode"), ctx.hasUI, ctx.ui.notify.bind(ctx.ui));
+		restoreCliCursorMode(pi.getFlag("cursor-mode"), ctx.mode, ctx.ui.notify.bind(ctx.ui));
 		updateCursorStatus(ctx);
 	});
 

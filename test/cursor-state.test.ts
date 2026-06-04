@@ -82,6 +82,8 @@ function createCursorRuntimeHarness(options: {
 	cursorFastFlag?: boolean;
 	cursorNoFastFlag?: boolean;
 	cursorModeFlag?: boolean | string;
+	mode?: ExtensionContext["mode"];
+	hasUI?: boolean;
 } = {}) {
 	const pi = createPiHarness({
 		flagValues: {
@@ -91,6 +93,8 @@ function createCursorRuntimeHarness(options: {
 		},
 	});
 	const ctx = createExtensionTestContext({
+		mode: options.mode ?? "tui",
+		hasUI: options.hasUI ?? true,
 		model: options.modelId
 			? {
 					...makeModel(options.modelId),
@@ -204,9 +208,26 @@ describe("Cursor runtime state", () => {
 		);
 	});
 
-	it("rejects invalid --cursor-mode values in non-UI sessions", async () => {
-		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m", cursorModeFlag: "review" });
-		ctx.hasUI = false;
+	it("rejects invalid --cursor-mode values in RPC sessions even though UI is available", async () => {
+		const { pi, ctx } = createCursorRuntimeHarness({
+			modelId: "gpt-5.5@1m",
+			cursorModeFlag: "review",
+			mode: "rpc",
+			hasUI: true,
+		});
+
+		await expect(
+			pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx),
+		).rejects.toThrow('Invalid --cursor-mode "review"');
+	});
+
+	it("rejects invalid --cursor-mode values in JSON sessions", async () => {
+		const { pi, ctx } = createCursorRuntimeHarness({
+			modelId: "gpt-5.5@1m",
+			cursorModeFlag: "review",
+			mode: "json",
+			hasUI: false,
+		});
 
 		await expect(
 			pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx),

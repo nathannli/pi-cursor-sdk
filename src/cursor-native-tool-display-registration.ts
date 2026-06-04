@@ -39,7 +39,9 @@ function hasNonBuiltinTool(pi: Pick<ExtensionAPI, "getAllTools">, toolName: Nati
 	return existingTool !== undefined && existingTool.sourceInfo.source !== "builtin";
 }
 
-type NativeRegistrationContext = { hasUI: boolean; ui: Pick<ExtensionContext["ui"], "notify">; model?: ExtensionContext["model"] };
+type NativeRegistrationContext = Pick<ExtensionContext, "mode" | "model"> & {
+	ui: Pick<ExtensionContext["ui"], "notify">;
+};
 
 function registerNativeCursorToolsFromSet(
 	pi: CursorNativeToolRegistryApi,
@@ -60,7 +62,7 @@ function registerNativeCursorToolsFromSet(
 }
 
 function notifySkippedNativeCursorToolsIfNeeded(ctx: NativeRegistrationContext, skippedToolNames: readonly NativeCursorToolName[]): void {
-	if (skippedToolNames.length === 0 || readBooleanEnv(NATIVE_CURSOR_TOOL_DISPLAY_ENV) !== true || !ctx.hasUI) return;
+	if (skippedToolNames.length === 0 || readBooleanEnv(NATIVE_CURSOR_TOOL_DISPLAY_ENV) !== true || ctx.mode !== "tui") return;
 	ctx.ui.notify(
 		`Cursor native tool replay skipped for ${skippedToolNames.join(", ")} because another extension already provides ${skippedToolNames.length === 1 ? "that tool" : "those tools"}. Cursor will use scrubbed activity transcripts for skipped tools.`,
 		"warning",
@@ -101,7 +103,7 @@ function ensureNativeCursorToolsRegisteredForModel(pi: CursorNativeToolRegistryA
 		skippedNativeToolNames.clear();
 		return;
 	}
-	if (!isCursorModel(ctx.model) || hasAttemptedNativeCursorToolRegistration()) return;
+	if (ctx.mode !== "tui" || !isCursorModel(ctx.model) || hasAttemptedNativeCursorToolRegistration()) return;
 
 	const nonCoreToolNames = NATIVE_CURSOR_TOOL_NAMES.filter((toolName) => !isCursorCorePiReplayToolName(toolName));
 	const skippedToolNames = [

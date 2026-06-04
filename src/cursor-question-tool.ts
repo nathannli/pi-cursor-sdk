@@ -204,23 +204,12 @@ export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const questions = normalizeQuestions(params as CursorAskQuestionParams);
 			if (questions.length === 0) {
-				return {
-					content: [{ type: "text" as const, text: "No valid question was provided." }],
-					details: buildDetails([], [], ctx.hasUI),
-					isError: true,
-				};
+				throw new Error("No valid question was provided.");
 			}
 			if (!ctx.hasUI) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: "Cannot ask the user because pi UI is unavailable. Make a reasonable default choice and state the assumption before proceeding.",
-						},
-					],
-					details: buildDetails(questions, [], false),
-					isError: true,
-				};
+				throw new Error(
+					"Cannot ask the user because pi UI is unavailable. Make a reasonable default choice and state the assumption before proceeding.",
+				);
 			}
 
 			const answers: CursorQuestionAnswer[] = [];
