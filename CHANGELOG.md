@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.33 - 2026-06-04
+
+### Fixed
+
+- Prevent connect-node-only Cursor SDK network resets such as `ConnectError: [aborted] read ECONNRESET` from escaping as process-level uncaught exceptions during active Cursor turns, while keeping provenance-free generic ConnectRPC errors unsuppressed (#121).
+- Suppress expected Cursor SDK abort `ConnectError` / `AbortError` shapes during abandoned live-run cancellation so idle-resume and interrupt cleanup paths keep pi alive for later prompts (#120).
+
 ## 0.1.32 - 2026-06-02
 
 ### Added
