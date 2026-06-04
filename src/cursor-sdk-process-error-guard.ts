@@ -13,7 +13,7 @@ type GenericProcessEmit = (event: string | symbol, ...args: unknown[]) => boolea
 
 // The local Cursor SDK can surface some ConnectRPC failures as process-level
 // uncaught exceptions/unhandled rejections even when run.wait()/run.cancel() is awaited.
-// Keep suppression scoped to active Cursor provider turns and tightly matched SDK shapes.
+// Keep suppression scoped to active Cursor provider turns and tightly matched ConnectRPC shapes.
 const activeProviderTurns = new Set<CursorSdkProcessErrorGuardToken>();
 let originalProcessEmit: GenericProcessEmit | undefined;
 let captureCallbackInstalled = false;
@@ -35,7 +35,9 @@ function shouldSuppressProcessError(event: string | symbol, args: readonly unkno
 	const classification = classifyCursorConnectError(error);
 	if (!classification) return false;
 	if (classification.kind === "abort") return hasActiveAbortSuppression();
-	return activeProviderTurns.size > 0 && isCursorProvenance(classification.source);
+	if (activeProviderTurns.size === 0) return false;
+	if (classification.kind === "network") return isCursorProvenance(classification.source) || classification.source === "connect-node-stack";
+	return isCursorProvenance(classification.source);
 }
 
 function installProcessEmitPatch(): void {

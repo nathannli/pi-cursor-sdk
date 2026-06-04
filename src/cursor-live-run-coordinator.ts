@@ -11,6 +11,7 @@ import type { CursorNativeToolDisplayItem } from "./cursor-native-tool-display.j
 import type { CursorPiBridgeToolRequest, CursorPiToolBridgeRun } from "./cursor-pi-tool-bridge.js";
 import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
+import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
 
 export class CursorLiveRunAbortError extends Error {
 	constructor() {
@@ -116,6 +117,17 @@ interface LeaseWaiter {
 	reject: (error: unknown) => void;
 	signal?: AbortSignal;
 	onAbort?: () => void;
+}
+
+async function cancelCursorLiveSdkRun(run: CursorLiveRun): Promise<void> {
+	if (!run.sdkRun) return;
+	const guard = installCursorSdkProcessErrorGuard();
+	guard.suppressAbortErrors();
+	try {
+		await run.sdkRun.cancel();
+	} finally {
+		guard.dispose();
+	}
 }
 
 interface CursorLiveRunPrivateState {
@@ -474,7 +486,7 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 				if (abandoned) {
 					if (!run.done) {
 						try {
-							await run.sdkRun?.cancel();
+							await cancelCursorLiveSdkRun(run);
 						} catch {
 							// cancellation failure should not block session-agent abandonment
 						}

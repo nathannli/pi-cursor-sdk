@@ -8,6 +8,7 @@ import {
 } from "../src/cursor-live-run-coordinator.js";
 import type { CursorNativeToolDisplayItem } from "../src/cursor-native-tool-display.js";
 import type { CursorPiToolBridgeRun } from "../src/cursor-pi-tool-bridge.js";
+import { __testUtils as cursorSdkProcessGuardTestUtils } from "../src/cursor-sdk-process-error-guard.js";
 
 function makeAgent(agentId = "agent-1"): SDKAgent {
 	return { agentId } as SDKAgent;
@@ -21,6 +22,24 @@ function makeToolDisplay(id: string): CursorNativeToolDisplayItem {
 		result: { content: [{ type: "text", text: "ok" }] },
 		isError: false,
 	};
+}
+
+function makeCursorSdkAbortConnectError(): Error & { rawMessage: string; code: number; cause: DOMException } {
+	const error = new Error("[canceled] This operation was aborted") as Error & {
+		rawMessage: string;
+		code: number;
+		cause: DOMException;
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "This operation was aborted";
+	error.code = 1;
+	error.cause = new DOMException("This operation was aborted", "AbortError");
+	error.stack =
+		"ConnectError: [canceled] This operation was aborted\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63\n" +
+		"    at file:///repo/node_modules/@cursor/sdk/dist/esm/index.js:8:1086456\n" +
+		"Caused by: AbortError";
+	return error;
 }
 
 function makeBridgeRun(id: string, pendingPiToolCallIds: string[] = []): CursorPiToolBridgeRun {
@@ -211,6 +230,33 @@ describe("cursor live run coordinator", () => {
 		expect(sdkCancel).toHaveBeenCalledTimes(1);
 		expect(abandonSessionAgent).toHaveBeenCalledOnce();
 		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-error");
+	});
+
+	it("suppresses process-level SDK abort errors while cancelling an abandoned live run", async () => {
+		const { coordinator, abandonSessionAgent } = makeCoordinator();
+		const run = startRun(coordinator, { scopeKey: "scope-abort" });
+		const sdkCancelError = makeCursorSdkAbortConnectError();
+		const sdkCancel = vi.fn().mockImplementation(async () => {
+			process.emit("uncaughtException", sdkCancelError, "uncaughtException");
+			throw sdkCancelError;
+		});
+		coordinator.attachSdkRun(run, { cancel: sdkCancel });
+		let listenerCalled = false;
+		const listener = () => {
+			listenerCalled = true;
+		};
+		process.once("uncaughtException", listener);
+
+		try {
+			await coordinator.release(run);
+		} finally {
+			process.removeListener("uncaughtException", listener);
+		}
+
+		expect(listenerCalled).toBe(false);
+		expect(sdkCancel).toHaveBeenCalledOnce();
+		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-abort");
+		expect(cursorSdkProcessGuardTestUtils.activeProviderTurnCount()).toBe(0);
 	});
 
 	it("matches bridge tool results when no native replay id is present", () => {

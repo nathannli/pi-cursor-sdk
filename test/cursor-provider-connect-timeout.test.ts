@@ -33,7 +33,7 @@ function makeConnectTimeoutError(): Error {
 	return error;
 }
 
-function makeCursorSdkNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
+function makeGenericConnectNodeNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = new Error("[aborted] read ECONNRESET") as Error & {
 		rawMessage: string;
 		code: number;
@@ -48,8 +48,9 @@ function makeCursorSdkNetworkConnectError(): Error & { rawMessage: string; code:
 	});
 	error.stack =
 		"ConnectError: [aborted] read ECONNRESET\n" +
-		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63\n" +
-		"    at file:///repo/node_modules/@cursor/sdk/dist/esm/index.js:8:1086456";
+		"    at file:///repo/node_modules/@connectrpc/connect/dist/esm/connect-error.js:71:20\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-error.js:52:29\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63";
 	return error;
 }
 
@@ -112,8 +113,8 @@ describe("streamCursor connect timeout boundary", () => {
 		}
 	});
 
-	it("suppresses duplicate process-level network ConnectError during an active provider turn", async () => {
-		const connectError = makeCursorSdkNetworkConnectError();
+	it("suppresses duplicate process-level generic connect-node network ConnectError during an active provider turn", async () => {
+		const connectError = makeGenericConnectNodeNetworkConnectError();
 		let processListenerCalled = false;
 		const processListener = () => {
 			processListenerCalled = true;

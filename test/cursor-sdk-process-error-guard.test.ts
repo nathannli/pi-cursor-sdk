@@ -103,11 +103,19 @@ function makeCursorBackendNetworkConnectError(): Error & {
 	return error;
 }
 
-function makeNonCursorNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
+function makeGenericConnectNodeNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = makeCursorSdkNetworkConnectError();
 	error.stack =
 		"ConnectError: [aborted] read ECONNRESET\n" +
 		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63";
+	return error;
+}
+
+function makeProvenanceFreeNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
+	const error = makeCursorSdkNetworkConnectError();
+	error.stack =
+		"ConnectError: [aborted] read ECONNRESET\n" +
+		"    at file:///repo/node_modules/some-other-connect-client/index.js:10:1";
 	return error;
 }
 
@@ -225,7 +233,7 @@ describe("Cursor SDK process error guard", () => {
 		}
 	});
 
-	it("does not suppress non-Cursor network ConnectErrors", () => {
+	it("suppresses generic connect-node network errors while a provider turn is active", () => {
 		const suppression = installCursorSdkProcessErrorGuard();
 		let listenerCalled = false;
 		const listener = () => {
@@ -233,7 +241,24 @@ describe("Cursor SDK process error guard", () => {
 		};
 		process.once("uncaughtException", listener);
 		try {
-			const emitted = process.emit("uncaughtException", makeNonCursorNetworkConnectError(), "uncaughtException");
+			const emitted = process.emit("uncaughtException", makeGenericConnectNodeNetworkConnectError(), "uncaughtException");
+			expect(emitted).toBe(true);
+			expect(listenerCalled).toBe(false);
+		} finally {
+			process.removeListener("uncaughtException", listener);
+			suppression.dispose();
+		}
+	});
+
+	it("does not suppress provenance-free network ConnectErrors during an active provider turn", () => {
+		const suppression = installCursorSdkProcessErrorGuard();
+		let listenerCalled = false;
+		const listener = () => {
+			listenerCalled = true;
+		};
+		process.once("uncaughtException", listener);
+		try {
+			const emitted = process.emit("uncaughtException", makeProvenanceFreeNetworkConnectError(), "uncaughtException");
 			expect(emitted).toBe(true);
 			expect(listenerCalled).toBe(true);
 		} finally {
@@ -242,7 +267,10 @@ describe("Cursor SDK process error guard", () => {
 		}
 	});
 
-	it("does not suppress Cursor network ConnectErrors after guard disposal", () => {
+	it.each([
+		["Cursor SDK stack", makeCursorSdkNetworkConnectError],
+		["generic connect-node stack", makeGenericConnectNodeNetworkConnectError],
+	])("does not suppress %s network ConnectErrors after guard disposal", (_name, makeError) => {
 		const suppression = installCursorSdkProcessErrorGuard();
 		suppression.dispose();
 		let listenerCalled = false;
@@ -251,7 +279,7 @@ describe("Cursor SDK process error guard", () => {
 		};
 		process.once("uncaughtException", listener);
 		try {
-			const emitted = process.emit("uncaughtException", makeCursorSdkNetworkConnectError(), "uncaughtException");
+			const emitted = process.emit("uncaughtException", makeError(), "uncaughtException");
 			expect(emitted).toBe(true);
 			expect(listenerCalled).toBe(true);
 		} finally {

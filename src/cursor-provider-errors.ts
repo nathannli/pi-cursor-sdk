@@ -60,13 +60,15 @@ function getCursorConnectSource(error: unknown, record: Record<string, unknown> 
 		const type = getErrorStringField(asRecord(detail), "type");
 		return typeof type === "string" && type.startsWith("aiserver.");
 	});
-	return hasCursorBackendDetails ? "cursor-backend-details" : "generic-connect";
+	if (hasCursorBackendDetails) return "cursor-backend-details";
+	return stack.includes("@connectrpc/connect-node") ? "connect-node-stack" : "generic-connect";
 }
 
 export type CursorConnectErrorSource =
 	| "cursor-sdk-stack"
 	| "cursor-extension-connect-stack"
 	| "cursor-backend-details"
+	| "connect-node-stack"
 	| "generic-connect";
 
 export type CursorConnectErrorClassification =

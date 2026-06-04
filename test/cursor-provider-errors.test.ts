@@ -45,6 +45,24 @@ function makeCursorExtensionNetworkConnectError(): Error & { rawMessage: string;
 	return error;
 }
 
+function makeGenericConnectNodeNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
+	const error = makeCursorSdkNetworkConnectError();
+	error.stack =
+		"ConnectError: [aborted] read ECONNRESET\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect/dist/esm/connect-error.js:71:20\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-error.js:52:29\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63";
+	return error;
+}
+
+function makeProvenanceFreeNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
+	const error = makeCursorSdkNetworkConnectError();
+	error.stack =
+		"ConnectError: [aborted] read ECONNRESET\n" +
+		"    at file:///repo/node_modules/some-other-connect-client/index.js:10:1";
+	return error;
+}
+
 describe("cursor-provider-errors", () => {
 	it("builds run metadata when SDK result text is the generic failure string", () => {
 		const detail = formatCursorSdkRunFailureDetail({
@@ -148,6 +166,17 @@ describe("cursor-provider-errors", () => {
 		expect(classifyCursorConnectError(makeCursorExtensionNetworkConnectError())).toEqual({
 			kind: "network",
 			source: "cursor-extension-connect-stack",
+		});
+	});
+
+	it("classifies connect-node-only ECONNRESET stacks separately from provenance-free generic network errors", () => {
+		expect(classifyCursorConnectError(makeGenericConnectNodeNetworkConnectError())).toEqual({
+			kind: "network",
+			source: "connect-node-stack",
+		});
+		expect(classifyCursorConnectError(makeProvenanceFreeNetworkConnectError())).toEqual({
+			kind: "network",
+			source: "generic-connect",
 		});
 	});
 
