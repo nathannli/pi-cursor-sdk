@@ -63,6 +63,26 @@ function makeProvenanceFreeNetworkConnectError(): Error & { rawMessage: string; 
 	return error;
 }
 
+function makeCursorBackendUnavailableConnectError(): Error & {
+	rawMessage: string;
+	code: number;
+	details: Array<{ type: string }>;
+} {
+	const error = new Error("[unavailable] Error") as Error & {
+		rawMessage: string;
+		code: number;
+		details: Array<{ type: string }>;
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "Error";
+	error.code = 14;
+	error.details = [{ type: "aiserver.v1.ErrorDetails" }];
+	error.stack =
+		"ConnectError: [unavailable] Error\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect/dist/esm/protocol-connect/error-json.js:53:19";
+	return error;
+}
+
 describe("cursor-provider-errors", () => {
 	it("builds run metadata when SDK result text is the generic failure string", () => {
 		const detail = formatCursorSdkRunFailureDetail({
@@ -141,9 +161,9 @@ describe("cursor-provider-errors", () => {
 		expect(message).not.toContain("Bearer");
 	});
 
-	it("maps connect-layer network timeouts to actionable retry guidance", () => {
+	it("maps connect-layer network failures to actionable retry guidance", () => {
 		expect(sanitizeCursorProviderError(new Error("ConnectError: [unavailable] read ETIMEDOUT"), "test-key")).toContain(
-			"timed out during network I/O",
+			"failed during network or service I/O",
 		);
 		expect(sanitizeCursorProviderError("ConnectError: read ETIMEDOUT", "test-key")).toContain("Check your connection and retry");
 		expect(sanitizeCursorProviderError(new Error("ConnectError: [unavailable] read ETIMEDOUT"), "test-key")).not.toContain(
@@ -157,9 +177,20 @@ describe("cursor-provider-errors", () => {
 		const message = sanitizeCursorProviderError(error, "test-key");
 
 		expect(classification).toEqual({ kind: "network", source: "cursor-sdk-stack" });
-		expect(message).toContain("timed out during network I/O");
+		expect(message).toContain("failed during network or service I/O");
 		expect(message).toContain("Check your connection and retry");
 		expect(message).not.toContain("ECONNRESET");
+	});
+
+	it("classifies Cursor backend unavailable ConnectErrors by code and details", () => {
+		const error = makeCursorBackendUnavailableConnectError();
+		const classification = classifyCursorConnectError(error);
+		const message = sanitizeCursorProviderError(error, "test-key");
+
+		expect(classification).toEqual({ kind: "network", source: "cursor-backend-details" });
+		expect(message).toContain("failed during network or service I/O");
+		expect(message).toContain("Check your connection and retry");
+		expect(message).not.toContain("[unavailable] Error");
 	});
 
 	it("recognizes extension-local connect-node network stacks as Cursor provenance", () => {

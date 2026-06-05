@@ -103,6 +103,26 @@ function makeCursorBackendNetworkConnectError(): Error & {
 	return error;
 }
 
+function makeCursorBackendUnavailableConnectError(): Error & {
+	rawMessage: string;
+	code: number;
+	details: Array<{ type: string }>;
+} {
+	const error = new Error("[unavailable] Error") as Error & {
+		rawMessage: string;
+		code: number;
+		details: Array<{ type: string }>;
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "Error";
+	error.code = 14;
+	error.stack =
+		"ConnectError: [unavailable] Error\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect/dist/esm/protocol-connect/error-json.js:53:19";
+	error.details = [{ type: "aiserver.v1.ErrorDetails" }];
+	return error;
+}
+
 function makeGenericConnectNodeNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = makeCursorSdkNetworkConnectError();
 	error.stack =
@@ -199,6 +219,7 @@ describe("Cursor SDK process error guard", () => {
 		["Cursor SDK stack", makeCursorSdkNetworkConnectError],
 		["extension-local connect-node stack", makeCursorExtensionNetworkConnectError],
 		["Cursor backend details", makeCursorBackendNetworkConnectError],
+		["Cursor backend unavailable details", makeCursorBackendUnavailableConnectError],
 	])("suppresses Cursor network process errors with %s while a provider turn is active", (_name, makeError) => {
 		const suppression = installCursorSdkProcessErrorGuard();
 		let listenerCalled = false;

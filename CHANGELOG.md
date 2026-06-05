@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.36 - 2026-06-05
+
+### Fixed
+
+- Classify Cursor backend `ConnectError: [unavailable] Error` failures with code 14 and `aiserver.v1.ErrorDetails` as recoverable network/service errors, preventing duplicate process-level uncaught exceptions from crashing pi while still surfacing scrubbed retry guidance.
+
 ## 0.1.35 - 2026-06-05
 
 ### Changed

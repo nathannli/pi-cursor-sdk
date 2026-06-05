@@ -33,6 +33,26 @@ function makeConnectTimeoutError(): Error {
 	return error;
 }
 
+function makeCursorBackendUnavailableConnectError(): Error & {
+	rawMessage: string;
+	code: number;
+	details: Array<{ type: string }>;
+} {
+	const error = new Error("[unavailable] Error") as Error & {
+		rawMessage: string;
+		code: number;
+		details: Array<{ type: string }>;
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "Error";
+	error.code = 14;
+	error.stack =
+		"ConnectError: [unavailable] Error\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect/dist/esm/protocol-connect/error-json.js:53:19";
+	error.details = [{ type: "aiserver.v1.ErrorDetails" }];
+	return error;
+}
+
 function makeGenericConnectNodeNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = new Error("[aborted] read ECONNRESET") as Error & {
 		rawMessage: string;
@@ -78,7 +98,7 @@ describe("streamCursor connect timeout boundary", () => {
 			const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
 			const error = getErrorEvent(events);
 			expect(error.reason).toBe("error");
-			expect(error.error.errorMessage).toContain("timed out during network I/O");
+			expect(error.error.errorMessage).toContain("failed during network or service I/O");
 			expect(error.error.errorMessage).toContain("Check your connection and retry");
 			expect(rejections).toEqual([]);
 		} finally {
@@ -106,7 +126,7 @@ describe("streamCursor connect timeout boundary", () => {
 			const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
 			const error = getErrorEvent(events);
 			expect(error.reason).toBe("error");
-			expect(error.error.errorMessage).toContain("timed out during network I/O");
+			expect(error.error.errorMessage).toContain("failed during network or service I/O");
 			expect(rejections).toEqual([]);
 		} finally {
 			restore();
@@ -140,7 +160,43 @@ describe("streamCursor connect timeout boundary", () => {
 
 			expect(errors).toHaveLength(1);
 			expect(errors[0].reason).toBe("error");
-			expect(errors[0].error.errorMessage).toContain("timed out during network I/O");
+			expect(errors[0].error.errorMessage).toContain("failed during network or service I/O");
+			expect(errors[0].error.errorMessage).toContain("Check your connection and retry");
+			expect(processListenerCalled).toBe(false);
+			expect(cursorSdkProcessGuardTestUtils.activeProviderTurnCount()).toBe(0);
+		} finally {
+			process.removeListener("uncaughtException", processListener);
+		}
+	});
+
+	it("suppresses duplicate process-level Cursor backend unavailable ConnectError during an active provider turn", async () => {
+		const connectError = makeCursorBackendUnavailableConnectError();
+		let processListenerCalled = false;
+		const processListener = () => {
+			processListenerCalled = true;
+		};
+		process.once("uncaughtException", processListener);
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-backend-unavailable",
+			agentId: "agent-1",
+			status: "running",
+			wait: vi.fn().mockImplementation(async () => {
+				process.emit("uncaughtException", connectError, "uncaughtException");
+				throw connectError;
+			}),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({ send: mockSend });
+
+		try {
+			const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+			const errors = getEventsOfType(events, "error");
+
+			expect(errors).toHaveLength(1);
+			expect(errors[0].reason).toBe("error");
+			expect(errors[0].error.errorMessage).toContain("failed during network or service I/O");
 			expect(errors[0].error.errorMessage).toContain("Check your connection and retry");
 			expect(processListenerCalled).toBe(false);
 			expect(cursorSdkProcessGuardTestUtils.activeProviderTurnCount()).toBe(0);

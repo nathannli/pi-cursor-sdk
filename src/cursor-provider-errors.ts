@@ -9,7 +9,7 @@ const GENERIC_CURSOR_SDK_ERROR_MESSAGE =
 const AUTH_CURSOR_SDK_ERROR_MESSAGE =
 	"Cursor SDK request failed because the Cursor SDK API key may be invalid or unauthorized. Cursor Agent CLI/Desktop login is not reused. Run /login -> Use an API key -> Cursor, verify CURSOR_API_KEY, or pass --api-key, then retry.";
 const NETWORK_CURSOR_SDK_ERROR_MESSAGE =
-	"Cursor SDK request timed out during network I/O. Check your connection and retry; if this keeps happening, try again later or verify Cursor service availability.";
+	"Cursor SDK request failed during network or service I/O. Check your connection and retry; if this keeps happening, try again later or verify Cursor service availability.";
 
 const GENERIC_CURSOR_RUN_FAILURE_TEXT = "cursor sdk run failed";
 
@@ -45,6 +45,10 @@ function isConnectError(error: unknown, record: Record<string, unknown> | undefi
 
 function isUnauthenticatedConnectCode(code: unknown): boolean {
 	return code === 16 || (typeof code === "string" && /^(?:16|unauthenticated)$/i.test(code));
+}
+
+function isUnavailableConnectCode(code: unknown): boolean {
+	return code === 14 || (typeof code === "string" && /^(?:14|unavailable)$/i.test(code));
 }
 
 function isCursorExtensionConnectStack(stack: string): boolean {
@@ -99,6 +103,10 @@ export function classifyCursorConnectError(error: unknown): CursorConnectErrorCl
 
 	if (isUnauthenticatedConnectCode(code) || isLikelyAuthError(`${message}\n${rawMessage}`)) {
 		return { kind: "unauthenticated", source: getCursorConnectSource(error, record) };
+	}
+
+	if (isUnavailableConnectCode(code)) {
+		return { kind: "network", source: getCursorConnectSource(error, record) };
 	}
 
 	const causeCode = getErrorStringField(cause, "code");
@@ -179,8 +187,9 @@ export function sanitizeCursorProviderError(error: unknown, apiKey?: string): st
 	const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
 	if (message === MISSING_CURSOR_API_KEY_MESSAGE) return MISSING_CURSOR_API_KEY_MESSAGE;
 	const scrubbed = scrubSensitiveText(message, apiKey).trim();
-	if (isUnauthenticatedConnectError(error) || isLikelyAuthError(scrubbed)) return AUTH_CURSOR_SDK_ERROR_MESSAGE;
+	const connectClassification = classifyCursorConnectError(error);
+	if (connectClassification?.kind === "unauthenticated" || isLikelyAuthError(scrubbed)) return AUTH_CURSOR_SDK_ERROR_MESSAGE;
+	if (connectClassification?.kind === "network" || isLikelyNetworkTimeout(scrubbed)) return NETWORK_CURSOR_SDK_ERROR_MESSAGE;
 	if (isGenericErrorMessage(scrubbed)) return GENERIC_CURSOR_SDK_ERROR_MESSAGE;
-	if (isLikelyNetworkTimeout(scrubbed)) return NETWORK_CURSOR_SDK_ERROR_MESSAGE;
 	return scrubbed || GENERIC_CURSOR_SDK_ERROR_MESSAGE;
 }
