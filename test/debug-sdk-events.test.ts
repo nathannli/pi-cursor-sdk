@@ -187,7 +187,7 @@ describe("debug-sdk-events maintainer probe", () => {
 			mkdirSync(join(packageRoot, "src"), { recursive: true });
 			cpSync("package.json", join(packageRoot, "package.json"));
 			cpSync(scriptPath, join(packageRoot, scriptPath));
-			for (const sharedFile of ["cursor-setting-sources.mjs", "cursor-sensitive-text.mjs"]) {
+			for (const sharedFile of ["cursor-setting-sources.mjs", "cursor-sensitive-text.mjs", "cursor-sdk-output-filter.mjs"]) {
 				cpSync(`shared/${sharedFile}`, join(packageRoot, "shared", sharedFile));
 			}
 			for (const libFile of [

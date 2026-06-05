@@ -48,12 +48,12 @@ Steps:
 1. read ./package.json and remember the package name.
 2. grep ./README.md for "pi-cursor-sdk".
 3. find README.md from repo root.
-4. find src/cursor-provider.ts from repo root.
+4. find src/cursor-provider.ts from repo root; this is the list=<yes/no> evidence.
 5. run shell: {{shellSmoke}}
 6. write .debug/platform-smoke/native.txt with alpha and beta.
 7. edit beta to gamma in that file.
 8. run shell and preserve the failure: {{shellFailure}}
-9. answer exactly:
+9. stop using tools and answer exactly:
 NATIVE_MATRIX_OK package=<name> grep=<yes/no> find=<yes/no> list=<yes/no> shell=<yes/no> shell_fail=<yes/no> write=<yes/no> edit=<yes/no>`,
 		finalMarker: "NATIVE_MATRIX_OK package=pi-cursor-sdk",
 		requiredCards: [

@@ -4,7 +4,6 @@ import {
 	buildCursorIncrementalPrompt,
 	computeCursorContextFingerprint,
 	shouldBootstrapCursorContext,
-	shouldBootstrapCursorSend,
 	CURSOR_IMAGE_TOKEN_ESTIMATE,
 	estimateCursorContextTokens,
 	estimateCursorPromptMessageTokens,
@@ -644,7 +643,6 @@ describe("cursor session prompt assembly", () => {
 		};
 
 		expect(shouldBootstrapCursorContext(sendState, editedContext)).toBe(true);
-		expect(shouldBootstrapCursorSend(sendState, editedContext)).toBe(true);
 		expect(planCursorSessionSend(sendState, editedContext).mode).toBe("bootstrap");
 	});
 

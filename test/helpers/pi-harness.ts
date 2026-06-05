@@ -16,7 +16,6 @@ export type {
 	PiHarnessOptions,
 	RegisteredCommandOptions,
 	RegisteredTool,
-	TestExtensionContext,
 } from "./pi-harness-types.js";
 export {
 	collectAssistantEvents,

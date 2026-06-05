@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CURSOR_SDK_STARTUP_NOISE_PATTERNS, installCursorSdkOutputFilter, isCursorSdkStartupNoise } from "../src/cursor-sdk-output-filter.js";
+import { installCursorSdkOutputFilter as installScriptCursorSdkOutputFilter } from "../scripts/lib/cursor-sdk-output-filter.mjs";
 
 describe("isCursorSdkStartupNoise", () => {
 	it.each(CURSOR_SDK_STARTUP_NOISE_PATTERNS)("filters startup noise containing %j", (pattern) => {
@@ -60,6 +61,32 @@ describe("isCursorSdkStartupNoise", () => {
 			process.stdout.write = originalStdoutWrite;
 			process.stderr.write = originalStderrWrite;
 			console.log = originalConsoleLog;
+		}
+	});
+
+	it("shares install state across provider and maintainer script wrappers", () => {
+		const originalStdoutWrite = process.stdout.write;
+		const originalStderrWrite = process.stderr.write;
+		const restoreProvider = installCursorSdkOutputFilter();
+		const filteredStdoutWrite = process.stdout.write;
+		const filteredStderrWrite = process.stderr.write;
+		const restoreScript = installScriptCursorSdkOutputFilter();
+		try {
+			expect(process.stdout.write).toBe(filteredStdoutWrite);
+			expect(process.stderr.write).toBe(filteredStderrWrite);
+
+			restoreProvider();
+			expect(process.stdout.write).toBe(filteredStdoutWrite);
+			expect(process.stderr.write).toBe(filteredStderrWrite);
+
+			restoreScript();
+			expect(process.stdout.write).toBe(originalStdoutWrite);
+			expect(process.stderr.write).toBe(originalStderrWrite);
+		} finally {
+			restoreProvider();
+			restoreScript();
+			process.stdout.write = originalStdoutWrite;
+			process.stderr.write = originalStderrWrite;
 		}
 	});
 });

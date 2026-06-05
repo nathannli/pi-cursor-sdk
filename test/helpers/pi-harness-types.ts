@@ -110,8 +110,6 @@ export type HarnessEventResultMap = {
 	session_before_tree: HarnessSessionBeforeTreeCombinedResult;
 };
 
-/** @deprecated Use ExtensionContextOverrides */
-export type TestExtensionContext = ExtensionContextOverrides;
 
 export type MockFn<T extends (...args: never[]) => unknown> = MockedFunction<T>;
 

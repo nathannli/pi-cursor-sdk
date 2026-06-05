@@ -20,12 +20,6 @@ import {
 	CURSOR_SDK_EVENT_DEBUG_ENV_NAMES as scriptSdkEventDebugEnvNames,
 	sealedNodePath,
 } from "../scripts/lib/cursor-smoke-env.mjs";
-import {
-	CURSOR_SETTING_SOURCES_ENV as sharedSettingSourcesEnv,
-	resolveCursorSettingSources as resolveSharedSettingSources,
-	serializeCursorSettingSources as serializeSharedSettingSources,
-} from "../shared/cursor-setting-sources.mjs";
-import { scrubSensitiveText as scrubSharedSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 import { CURSOR_SDK_EVENT_DEBUG_ENV_NAMES as sharedSdkEventDebugEnvNames } from "../shared/cursor-sdk-event-debug-env.mjs";
 import {
 	CURSOR_SETTING_SOURCES_ENV,
@@ -36,16 +30,15 @@ import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 import { createScriptFail } from "../scripts/lib/cursor-script-fail.mjs";
 
 describe("maintainer scripts shared lib", () => {
-	it("keeps shared helpers aligned with script re-exports and provider runtime", () => {
-		expect(sharedSettingSourcesEnv).toBe(CURSOR_SETTING_SOURCES_ENV);
+	it("keeps shared helpers aligned with provider runtime", () => {
+		expect(CURSOR_SETTING_SOURCES_ENV).toBe("PI_CURSOR_SETTING_SOURCES");
 		for (const raw of [undefined, "", "all", "none", "project,user", "OFF", "0"]) {
-			expect(resolveSharedSettingSources(raw)).toEqual(resolveCursorSettingSources(raw));
-			expect(resolveSharedSettingSources(raw)).toEqual(resolveProviderSettingSources(raw));
+			expect(resolveCursorSettingSources(raw)).toEqual(resolveProviderSettingSources(raw));
 		}
 		const leakedKey = "super-secret-cursor-key-12345";
 		const sample = `Bearer ${leakedKey} http://127.0.0.1:4242/cursor-pi-tool-bridge/abc/mcp`;
-		expect(scrubSharedSensitiveText(sample, leakedKey)).toBe(scrubSensitiveText(sample, leakedKey));
-		expect(serializeSharedSettingSources(["project", "user"])).toBe(serializeCursorSettingSources(["project", "user"]));
+		expect(scrubSensitiveText(sample, leakedKey)).not.toContain(leakedKey);
+		expect(serializeCursorSettingSources(["project", "user"])).toBe("project,user");
 	});
 
 	it("builds sealed smoke env without leaking debug or setting-source state", () => {

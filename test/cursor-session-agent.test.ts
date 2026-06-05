@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { shouldBootstrapCursorSend, computeCursorContextFingerprint } from "../src/context.js";
+import { computeCursorContextFingerprint, shouldBootstrapCursorContext } from "../src/context.js";
 import { createEventHarness, createExtensionTestContext, makeContext } from "./helpers/pi-harness.js";
 import { __testUtils as cursorSessionScopeTestUtils, registerCursorSessionScope } from "../src/cursor-session-scope.js";
 import {
@@ -536,7 +536,7 @@ describe("cursor-session-agent", () => {
 			{ role: "assistant", content: [{ type: "text", text: "Hi" }], api: "cursor-sdk", provider: "cursor", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: 2 },
 		]);
 
-		expect(shouldBootstrapCursorSend(sendState, context)).toBe(true);
+		expect(shouldBootstrapCursorContext(sendState, context)).toBe(true);
 	});
 
 	it("recreates the session agent when the API key identity changes", async () => {
