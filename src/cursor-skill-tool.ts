@@ -187,6 +187,7 @@ export function registerCursorSkillTool(pi: CursorSkillToolExtensionApi): void {
 		name: CURSOR_ACTIVATE_SKILL_TOOL_NAME,
 		label: "Cursor skill",
 		description: "Load full pi Agent Skill instructions for Cursor. Use with a skill name from the current <available_skills> catalog before applying that skill.",
+		promptSnippet: "Load full pi Agent Skill instructions for a listed skill before Cursor applies that skill",
 		parameters: Type.Object({
 			name: Type.String({ description: "Skill name from the current <available_skills> catalog" }),
 		}),

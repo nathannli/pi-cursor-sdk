@@ -612,6 +612,50 @@ describe("cursor-session-agent", () => {
 		expect(mockDispose).toHaveBeenCalledTimes(1);
 	});
 
+	it("allows reacquiring after terminal shutdown when fileless session id changes", async () => {
+		const mockDispose = vi.fn().mockResolvedValue(undefined);
+		const createAgent = vi.fn().mockImplementation(async () => ({
+			agentId: `agent-${createAgent.mock.calls.length + 1}`,
+			[Symbol.asyncDispose]: mockDispose,
+		}));
+		const pi = createEventHarness();
+
+		registerCursorSessionScope(pi);
+		registerCursorSessionAgent(pi);
+		const params = {
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+
+		await pi.runSessionStart({
+			cwd: "/tmp/project",
+			sessionManager: {
+				getSessionFile: () => undefined,
+				getSessionId: () => "ephemeral-a",
+			},
+		});
+		const first = await acquireSessionCursorAgent(params);
+		expect(first.scopeKey).toBe(`${cursorSessionScopeTestUtils.EPHEMERAL_SESSION_SCOPE_PREFIX}ephemeral-a`);
+
+		await pi.runSessionShutdown({ reason: "new" });
+		await pi.runSessionStart({
+			cwd: "/tmp/project",
+			sessionManager: {
+				getSessionFile: () => undefined,
+				getSessionId: () => "ephemeral-b",
+			},
+		});
+		const second = await acquireSessionCursorAgent(params);
+
+		expect(second.scopeKey).toBe(`${cursorSessionScopeTestUtils.EPHEMERAL_SESSION_SCOPE_PREFIX}ephemeral-b`);
+		expect(first.agent).not.toBe(second.agent);
+		expect(createAgent).toHaveBeenCalledTimes(2);
+		expect(mockDispose).toHaveBeenCalledTimes(1);
+	});
+
 	it("disposes the previous scope agent when the session file changes", async () => {
 		const mockDispose = vi.fn().mockResolvedValue(undefined);
 		const createAgent = vi.fn().mockResolvedValue({

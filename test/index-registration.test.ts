@@ -99,6 +99,8 @@ describe("extension registration and discovery", () => {
 			"edit",
 			"write",
 		]);
+		expect(pi._tools.find((tool) => tool.name === CURSOR_ASK_QUESTION_TOOL_NAME)?.promptSnippet).toContain("clarifying question");
+		expect(pi._tools.find((tool) => tool.name === CURSOR_ACTIVATE_SKILL_TOOL_NAME)?.promptSnippet).toContain("Agent Skill");
 		expect(pi.setActiveTools).toHaveBeenCalledWith([
 			"read",
 			"bash",

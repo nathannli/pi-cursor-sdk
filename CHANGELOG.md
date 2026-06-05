@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.1.35 - 2026-06-05
+
+### Changed
+
+- Share the Cursor SDK startup-output filter through one published `shared/` helper while preserving the existing provider and maintainer-script import paths.
+- Add prompt snippets for the Cursor bridge question and skill activation tools so their pi-native prompt metadata matches their existing schemas and guidelines.
+
+### Fixed
+
+- Scope fileless/in-memory Cursor session agents by pi session ID instead of the process-wide anonymous fallback, so terminal shutdown of one ephemeral session does not poison later no-session replacements.
+
 ## 0.1.34 - 2026-06-04
 
 ### Changed

@@ -5,12 +5,14 @@ interface CursorSessionScopeExtensionApi {
 }
 
 const ANONYMOUS_SESSION_SCOPE_KEY = "__anonymous__";
+const EPHEMERAL_SESSION_SCOPE_PREFIX = "__ephemeral__:";
 
 type CursorSessionScopeChangeHandler = (previousScopeKey: string) => void;
 
 const state = {
 	sessionCwd: process.cwd(),
 	sessionFile: undefined as string | undefined,
+	sessionId: undefined as string | undefined,
 };
 
 let scopeChangeHandler: CursorSessionScopeChangeHandler | undefined;
@@ -27,21 +29,25 @@ export function getCursorSessionFile(): string | undefined {
  * before the first session_start (tests and early startup).
  */
 export function getCursorSessionScopeKey(): string {
-	return state.sessionFile ?? ANONYMOUS_SESSION_SCOPE_KEY;
+	if (state.sessionFile) return state.sessionFile;
+	if (state.sessionId) return `${EPHEMERAL_SESSION_SCOPE_PREFIX}${state.sessionId}`;
+	return ANONYMOUS_SESSION_SCOPE_KEY;
 }
 
 export function getCursorSessionCwdFromScope(): string {
 	return state.sessionCwd;
 }
 
-function setCursorSessionScope(cwd: string, sessionFile: string | undefined): void {
+function setCursorSessionScope(cwd: string, sessionFile: string | undefined, sessionId?: string): void {
 	state.sessionCwd = cwd;
 	state.sessionFile = sessionFile;
+	state.sessionId = sessionId;
 }
 
 function resetCursorSessionScope(): void {
 	state.sessionCwd = process.cwd();
 	state.sessionFile = undefined;
+	state.sessionId = undefined;
 }
 
 export function onCursorSessionScopeKeyChange(handler: CursorSessionScopeChangeHandler): void {
@@ -51,7 +57,11 @@ export function onCursorSessionScopeKeyChange(handler: CursorSessionScopeChangeH
 export function registerCursorSessionScope(pi: CursorSessionScopeExtensionApi): void {
 	pi.on("session_start", (_event, ctx) => {
 		const previousScopeKey = getCursorSessionScopeKey();
-		setCursorSessionScope(ctx.cwd, ctx.sessionManager?.getSessionFile?.() ?? undefined);
+		setCursorSessionScope(
+			ctx.cwd,
+			ctx.sessionManager?.getSessionFile?.() ?? undefined,
+			ctx.sessionManager?.getSessionId?.() ?? undefined,
+		);
 		if (previousScopeKey !== getCursorSessionScopeKey()) {
 			scopeChangeHandler?.(previousScopeKey);
 		}
@@ -60,6 +70,7 @@ export function registerCursorSessionScope(pi: CursorSessionScopeExtensionApi): 
 
 export const __testUtils = {
 	ANONYMOUS_SESSION_SCOPE_KEY,
+	EPHEMERAL_SESSION_SCOPE_PREFIX,
 	set: setCursorSessionScope,
 	reset: resetCursorSessionScope,
 };
