@@ -603,10 +603,10 @@ async function main() {
 			const npmInstallPacked = runLogged(logDir, "workspace-npm-install-packed", commandName("npm"), ["install", "--no-save", tarballPath], { cwd: workspaceDir, timeout: 180_000 });
 			requireOk(npmInstallPacked, "workspace npm install packed tarball");
 		}
-		const install = runLogged(logDir, "pi-install", piCli, ["install", "-l", installPath], { cwd: workspaceDir, env: piEnv, timeout: 120_000 });
-		requireOk(install, "pi install packed package directory");
-		const list = runLogged(logDir, "pi-list", piCli, ["list"], { cwd: workspaceDir, env: piEnv, timeout: 60_000 });
-		requireOk(list, "pi list");
+		const install = runLogged(logDir, "pi-install", piCli, ["install", "--approve", "-l", installPath], { cwd: workspaceDir, env: piEnv, timeout: 120_000 });
+		requireOk(install, "pi install --approve packed package directory");
+		const list = runLogged(logDir, "pi-list", piCli, ["list", "--approve"], { cwd: workspaceDir, env: piEnv, timeout: 60_000 });
+		requireOk(list, "pi list --approve");
 
 		const suiteEnv = {
 			...process.env,
@@ -620,16 +620,17 @@ async function main() {
 		if (args.suite === "cursor-abort-cleanup") writeProcessSnapshot(logDir, "process-before", platform);
 		const prompt = renderPrompt(scenario, platform);
 		writeFileSync(join(artifactDir, "prompt.txt"), prompt);
+		const piArgs = ["--approve", "--cursor-no-fast", "--cursor-mode", "agent", "--model", args.model, "--session-dir", sessionDir, "--session-id", `platform-${args.suite}-${Date.now()}`];
 		writeFileSync(join(artifactDir, "pi-command.json"), JSON.stringify({
 			piCli,
-			args: ["--cursor-no-fast", "--cursor-mode", "agent", "--model", args.model, "--session-dir", sessionDir, "--session-id", `platform-${args.suite}-${Date.now()}`],
+			args: piArgs,
 			cwd: workspaceDir,
 			env: Object.fromEntries(Object.entries(suiteEnv).filter(([key]) => key.startsWith("PI_CURSOR_") || key === "PI_CODING_AGENT_DIR" || key === "TERM")),
 		}, null, 2));
 		const ptyResult = await runPtyPi({
 			artifactDir,
 			piCli,
-			piArgs: ["--cursor-no-fast", "--cursor-mode", "agent", "--model", args.model, "--session-dir", sessionDir, "--session-id", `platform-${args.suite}-${Date.now()}`],
+			piArgs,
 			env: suiteEnv,
 			cwd: workspaceDir,
 			sessionDir,

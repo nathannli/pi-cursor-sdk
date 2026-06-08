@@ -82,7 +82,7 @@ Never commit, log, or paste `auth.json` contents, API keys, or session JSONL wit
 
 Use isolated `/tmp` trees when validating:
 
-- packed tarball install (`npm pack` → extract → `pi install -l`)
+- packed tarball install (`npm pack` → extract → `pi install --approve -l`)
 - clean `HOME` with no inherited shell profile state
 - plan-mode-style tool stripping via a shim extension
 - JSONL replay-error scans independent of stdout
@@ -178,7 +178,7 @@ Simulate plan-mode execute stripping with the repo fixture:
 It sets active tools to `read`, `bash`, `edit`, `write` on each `turn_start`. Run pi with:
 
 ```bash
-pi -e scripts/fixtures/plan-strip-shim --cursor-no-fast --model cursor/composer-2-5 \
+pi --approve -e scripts/fixtures/plan-strip-shim --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/plan-strip" \
   -p 'After reset, read README.md and answer PLAN_STRIP_OK=yes.'
 ```
@@ -243,7 +243,7 @@ The script writes timestamped artifacts under `--out` (default `/tmp/pi-cursor-s
 
 Stdout prints artifact paths and summary counts only. Raw payloads stay on disk and may contain local paths, project text, tool args/results, or secrets — do not commit or share them.
 
-Hard repo rule: Cursor SDK behavior claims must come from the installed `@cursor/sdk` package and/or https://cursor.com/docs/sdk/typescript, not from memory or ad-hoc probes alone. Current cutover validation targets exact `@cursor/sdk@1.0.17` and pi 0.78.1 local packages.
+Hard repo rule: Cursor SDK behavior claims must come from the installed `@cursor/sdk` package and/or https://cursor.com/docs/sdk/typescript, not from memory or ad-hoc probes alone. Current cutover validation targets exact `@cursor/sdk@1.0.17` and pi 0.79.0 local packages.
 
 ## Pi provider SDK event capture
 
@@ -294,7 +294,7 @@ Artifacts under `--out` (default `.debug/cursor-sdk-events/<timestamp>/` under `
 During any normal pi session you can also opt in with:
 
 ```bash
-PI_CURSOR_SDK_EVENT_DEBUG=1 pi -e . --model cursor/composer-2-5
+PI_CURSOR_SDK_EVENT_DEBUG=1 pi --approve -e . --model cursor/composer-2-5
 ```
 
 Multi-turn sessions group automatically by pi session file:
@@ -366,7 +366,7 @@ chmod 600 "$SMOKE_DIR/home/.pi/agent/auth.json"
 env -i HOME="$SMOKE_DIR/home" PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
   MISE_DISABLE=1 \
   PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1 \
-  pi -e . --cursor-no-fast --model cursor/composer-2-5 \
+  pi --approve -e . --cursor-no-fast --model cursor/composer-2-5 \
   --session-dir "$SMOKE_DIR/session" \
   -p '<exact reporter prompt>'
 ```

@@ -194,6 +194,7 @@ export async function runDebugProviderEvents(args, envInput = process.env) {
 	mkdirSync(sessionDir, { recursive: true });
 
 	const piArgs = [
+		"--approve",
 		"-e",
 		root,
 		"--cursor-no-fast",

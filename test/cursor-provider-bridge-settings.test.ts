@@ -48,7 +48,7 @@ import { join } from "node:path";
 describe("streamCursor bridge settings", () => {
 	beforeEach(resetCursorProviderTestState);
 
-it("loads all Cursor setting sources by default for ambient MCP/tools", async () => {
+	it("loads all Cursor setting sources by default for ambient MCP/tools", async () => {
 		const mockSend = vi.fn().mockResolvedValue({
 			id: "run-1",
 			agentId: "agent-1",

@@ -363,6 +363,7 @@ function buildLaunchPlan(options, commands, shell) {
 		...envAssignments.map(([name, value]) => `${name}=${shellQuote(value)}`),
 		"exec",
 		shellQuote(commands.pi),
+		"--approve",
 		"-e", shellQuote(options.ext),
 		"--cursor-no-fast",
 		"--cursor-mode", shellQuote(options.mode),

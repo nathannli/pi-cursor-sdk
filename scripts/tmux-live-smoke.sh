@@ -392,7 +392,7 @@ if [[ "$SHELL_BIN" != /* ]]; then
 	SHELL_BIN="$(smoke_resolve_cmd "$SHELL_BIN")"
 fi
 PI_BASE=(
-	"$PI_BIN" -e "$ROOT"
+	"$PI_BIN" --approve -e "$ROOT"
 	--cursor-no-fast
 	--model cursor/composer-2-5
 )

@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
 	CURSOR_SETTING_SOURCES_ENV,
+	DEFAULT_CURSOR_SETTING_SOURCES,
 	cursorSettingSourcesIncludes,
 	getEffectiveCursorSettingSources,
 	resolveCursorSettingSources,
 } from "../src/cursor-setting-sources.js";
 
 describe("resolveCursorSettingSources", () => {
-	it("defaults to all when unset", () => {
-		expect(resolveCursorSettingSources(undefined)).toEqual(["all"]);
-		expect(resolveCursorSettingSources("")).toEqual(["all"]);
+	it("defaults to all Cursor setting sources when unset", () => {
+		expect(DEFAULT_CURSOR_SETTING_SOURCES).toEqual(["all"]);
+		expect(resolveCursorSettingSources(undefined)).toEqual(DEFAULT_CURSOR_SETTING_SOURCES);
+		expect(resolveCursorSettingSources("")).toEqual(DEFAULT_CURSOR_SETTING_SOURCES);
 	});
 
 	it("maps disable aliases to undefined", () => {

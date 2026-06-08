@@ -51,10 +51,10 @@ If pi started without a key, run `/cursor-refresh-models` after `/login` to refr
 ## Requirements
 
 - Node.js 22.19+
-- pi 0.78.1 or newer recommended; pi core peer metadata is intentionally unpinned so newer pi releases are not blocked
+- pi 0.79.0 or newer recommended; pi core peer metadata is intentionally unpinned so newer pi releases are not blocked
 - a Cursor SDK API key saved through `/login`, available as `CURSOR_API_KEY`, or passed with pi's `--api-key`
 
-No global `@cursor/sdk` install is required. This package depends on exact `@cursor/sdk@1.0.17`, so normal package installation brings in the SDK version this extension was built and tested against. The Cursor SDK currently depends on `sqlite3@^5.1.7`, whose install path can print deprecated transitive `node-gyp@8` dependency warnings such as `inflight`, `rimraf`, `glob`, `npmlog`, `gauge`, `are-we-there-yet`, and `tar@6`. Those warnings are non-fatal and come from the closed-source Cursor SDK dependency boundary; this package cannot force npm overrides into consumer projects. If you install from a root `package.json` you control, you may choose a root-level override such as `"overrides": { "sqlite3": "6.0.1" }`; pi package installs will still follow npm's normal transitive dependency rules. This package follows pi package guidance by declaring pi core package peers with `"*"` ranges, so users who update pi before this extension is republished are not blocked by peer metadata. The current recommended and validated pi baseline is 0.78.1 plus Cursor SDK 1.0.17; older pi compatibility paths are best-effort and older Cursor SDK compatibility paths are not maintained.
+No global `@cursor/sdk` install is required. This package depends on exact `@cursor/sdk@1.0.17`, so normal package installation brings in the SDK version this extension was built and tested against. The Cursor SDK currently depends on `sqlite3@^5.1.7`, whose install path can print deprecated transitive `node-gyp@8` dependency warnings such as `inflight`, `rimraf`, `glob`, `npmlog`, `gauge`, `are-we-there-yet`, and `tar@6`. Those warnings are non-fatal and come from the closed-source Cursor SDK dependency boundary; this package cannot force npm overrides into consumer projects. If you install from a root `package.json` you control, you may choose a root-level override such as `"overrides": { "sqlite3": "6.0.1" }`; pi package installs will still follow npm's normal transitive dependency rules. This package follows pi package guidance by declaring pi core package peers with `"*"` ranges, so users who update pi before this extension is republished are not blocked by peer metadata. The current recommended and validated pi baseline is 0.79.0 plus Cursor SDK 1.0.17; older pi compatibility paths are best-effort and older Cursor SDK compatibility paths are not maintained.
 
 ## Install
 
@@ -84,7 +84,7 @@ For development from this repository:
 
 ```bash
 npm install
-pi -e . --model cursor/composer-2-5
+pi --approve -e . --model cursor/composer-2-5
 ```
 
 ## Configure your Cursor SDK API key
@@ -324,7 +324,7 @@ On bootstrap sends, a compact **callable tool surfaces** block is injected into 
 
 For Cursor provider/runtime changes, the canonical release and pre-commit gate is the local platform smoke gate in [Platform smoke](docs/platform-smoke.md): run `npm run smoke:platform:all`, which runs doctor before the target matrix. The gate validates macOS, Ubuntu, and Windows native through Crabbox using packed installs, PTY/ConPTY ANSI capture, host-rendered xterm/PNG evidence, JSONL assertions, bridge diagnostics, usage/cache checks, abort cleanup, artifact manifests, and redaction scans. Do not mark a release ready with optional, deferred, mostly-passing, or unobserved platform smoke checks outstanding.
 
-The older live smoke helpers remain useful for inner-loop debugging and focused visual audits, not as the release gate. Use [Cursor live smoke checklist](docs/cursor-live-smoke-checklist.md), `npm run smoke:visual`, `npm run smoke:live`, or direct `pi -e . --cursor-no-fast --model cursor/composer-2-5` runs when iterating on a specific TUI/card/runtime issue before the full platform gate. `npm run smoke:visual` captures an offscreen PTY rendered through browser/xterm and saved as PNG screenshots with Playwright, or with `agent_browser` from the generated HTML when available. Its default matrix is native replay only: native replay registration is forced on, Cursor setting sources are disabled, the pi bridge is off, overlapping built-in pi tools are not exposed, and inherited Cursor SDK event-debug artifact env is cleared; `--event-debug` writes to a deterministic debug directory under the visual output directory. The visible TUI/output, rendered screenshots, scrubbed diagnostics, and persisted JSONL must agree. See [Cursor testing lessons](docs/cursor-testing-lessons.md) for auth.json seeding, isolated `/tmp` harness layout, JSONL replay-error scans, and other regression traps.
+The older live smoke helpers remain useful for inner-loop debugging and focused visual audits, not as the release gate. Use [Cursor live smoke checklist](docs/cursor-live-smoke-checklist.md), `npm run smoke:visual`, `npm run smoke:live`, or direct `pi --approve -e . --cursor-no-fast --model cursor/composer-2-5` runs when iterating on a specific TUI/card/runtime issue before the full platform gate. `npm run smoke:visual` captures an offscreen PTY rendered through browser/xterm and saved as PNG screenshots with Playwright, or with `agent_browser` from the generated HTML when available. Its default matrix is native replay only: native replay registration is forced on, Cursor setting sources are disabled, the pi bridge is off, overlapping built-in pi tools are not exposed, and inherited Cursor SDK event-debug artifact env is cleared; `--event-debug` writes to a deterministic debug directory under the visual output directory. The visible TUI/output, rendered screenshots, scrubbed diagnostics, and persisted JSONL must agree. See [Cursor testing lessons](docs/cursor-testing-lessons.md) for auth.json seeding, isolated `/tmp` harness layout, JSONL replay-error scans, and other regression traps.
 
 ### Maintainer Cursor SDK event capture
 
@@ -508,7 +508,7 @@ Local development run:
 
 ```bash
 npm install
-CURSOR_API_KEY="your-key" pi -e . --model cursor/composer-2-5
+CURSOR_API_KEY="your-key" pi --approve -e . --model cursor/composer-2-5
 ```
 
 Maintainer design notes live in [`docs/cursor-model-ux-spec.md`](docs/cursor-model-ux-spec.md).

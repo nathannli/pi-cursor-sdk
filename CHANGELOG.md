@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.40 - 2026-06-08
+
+### Changed
+
+- Update the local pi validation baseline to `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` `0.79.0` after reviewing current Pi extension, package, SDK/RPC, model/provider, and project-trust docs. Runtime Cursor setting-source defaults remain risk-on and unchanged: unset `PI_CURSOR_SETTING_SOURCES` still loads `all` Cursor setting sources.
+- Make maintainer smoke/debug scripts pass Pi 0.79 `--approve` explicitly when they must load project-local package settings, extensions, or instructions in noninteractive release automation.
+
 ### Fixed
 
 - Prune old local platform-smoke artifact run directories before new matrix runs so `.artifacts/platform-smoke` does not grow without bound while preserving recent and manual evidence directories.

@@ -322,6 +322,7 @@ describe("registerCursorAgentsContextDedup", () => {
 	const cursorModelOverrides = { model: makeModel("composer-2.5") };
 
 	it("strips via before_agent_start for cursor models with overlapping setting sources", async () => {
+		process.env[CURSOR_SETTING_SOURCES_ENV] = "all";
 		const pi = createEventHarness();
 		registerCursorAgentsContextDedup(pi);
 
@@ -359,6 +360,26 @@ describe("registerCursorAgentsContextDedup", () => {
 		expect(result).toBeUndefined();
 	});
 
+	it("does not modify project prompt when setting sources omit project", async () => {
+		process.env[CURSOR_SETTING_SOURCES_ENV] = "plugins,user";
+		const pi = createEventHarness();
+		registerCursorAgentsContextDedup(pi);
+
+		const prompt = buildPiSystemPromptWithContextFiles([PROJECT_FILE]);
+		const result = await pi.invokeEvent(
+			"before_agent_start",
+			{
+				type: "before_agent_start",
+				prompt: "hello",
+				systemPrompt: prompt,
+				systemPromptOptions: makeSystemPromptOptions([PROJECT_FILE]),
+			},
+			cursorModelOverrides,
+		);
+
+		expect(result).toBeUndefined();
+	});
+
 	it("does not modify prompt when setting sources are none", async () => {
 		process.env[CURSOR_SETTING_SOURCES_ENV] = "none";
 		const pi = createEventHarness();
@@ -380,6 +401,7 @@ describe("registerCursorAgentsContextDedup", () => {
 	});
 
 	it("feeds deduped system prompt from before_agent_start into buildCursorPrompt", async () => {
+		process.env[CURSOR_SETTING_SOURCES_ENV] = "all";
 		const pi = createEventHarness();
 		registerCursorAgentsContextDedup(pi);
 

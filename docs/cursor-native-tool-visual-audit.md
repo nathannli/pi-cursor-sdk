@@ -6,16 +6,16 @@ This workflow is the canonical repo path for verifying Cursor SDK tool replay th
 
 Use it before accepting replay-card commits or PRs, and for every Cursor provider/runtime release where TUI card/color behavior could regress. Text logs and JSONL are necessary, but they are not enough when the claim is visual parity: always keep PNGs for the exact prompt, and keep before/after PNGs when reviewing a rendering change.
 
-Current validation baseline: pi 0.78.1, exact `@cursor/sdk@1.0.17`, local validation packages `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` at 0.78.1. Published pi core peer dependencies use `"*"` ranges per current pi package guidance, so newer pi installs can try the extension before a matching validation release exists.
+Current validation baseline: pi 0.79.0, exact `@cursor/sdk@1.0.17`, local validation packages `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` at 0.79.0. Published pi core peer dependencies use `"*"` ranges per current pi package guidance, so newer pi installs can try the extension before a matching validation release exists.
 
-## Cursor SDK 1.0.17 / pi 0.78.1 cutover visual record
+## Cursor SDK 1.0.17 / pi 0.79.0 cutover visual record
 
 Record the required cutover validation here or in the final release handoff. The default matrix is native replay only: the runner forces native replay registration on, forces Cursor setting sources off, disables the pi bridge, disables overlapping built-in pi tool exposure, and clears inherited Cursor SDK event-debug artifact env. With `--event-debug`, debug capture writes to a deterministic directory under the visual output directory. Do not commit raw ANSI logs, screenshots, terminal recordings, debug artifacts, or `.debug/visual-smoke` scratch files.
 
 | Field | Required value / evidence |
 | --- | --- |
 | Command/session used | `npm run smoke:visual -- --ext "$PWD" --cwd "$PWD" --mode plan --out-dir <fresh /tmp dir> --label <matrix label> --prompt <matrix prompt>` with default native-replay isolation |
-| Baseline versions | `pi --version` = 0.78.1; `npm ls` = `@cursor/sdk@1.0.17` and local `@earendil-works/*@0.78.1` |
+| Baseline versions | `pi --version` = 0.79.0; `npm ls` = `@cursor/sdk@1.0.17` and local `@earendil-works/*@0.79.0` |
 | Card categories checked | Claim only categories proven by both PNG and JSONL. Required cutover categories are read, grep/search, find/glob, shell success, write, edit/diff, and true read failure. Direct `ls`/list is tracked as excluded from the current one-prompt platform matrix because composer-2-5 does not route it through native `ls` reliably; source-enumeration coverage is gated through find/glob. Neutral Cursor plan/todo/task/mode activity is optional/opportunistic and only counts when JSONL contains a completed Cursor workflow event. |
 | Observed status/card colors | Confirm native-looking cards use native pi styling; neutral Cursor activity is not red; true errors are distinct; diff previews show red/green; plan status is readable |
 | Screenshot/ANSI evidence location | External path only, for example `/tmp/pi-cursor-sdk-1016-visual.*/read-package.{ansi,txt,html,png,jsonl.path}` |
@@ -82,7 +82,7 @@ npx playwright install chromium
 
 `scripts/visual-tui-smoke.mjs` is the durable source of truth for this workflow. It must keep supporting:
 
-- fixed-size tmux PTY execution of the parent-resolved `pi -e <extension-dir> --model cursor/composer-2-5`
+- fixed-size tmux PTY execution of the parent-resolved `pi --approve -e <extension-dir> --model cursor/composer-2-5`
 - parent-resolved `pi` and `tmux` command paths reused in tmux-launched runs, with `process.execPath`'s directory prepended for prereq checks and tmux launches so Node shims use the validated Node
 - `PI_CURSOR_NATIVE_TOOL_DISPLAY=1`
 - `PI_CURSOR_REGISTER_NATIVE_TOOLS=1` by default

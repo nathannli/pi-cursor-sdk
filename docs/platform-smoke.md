@@ -123,7 +123,7 @@ Runtime budget is part of the contract:
 - `smoke:platform:doctor` never calls Cursor.
 - `platform-build` runs once per target and is the only suite that performs the full local CI/build/typecheck/package gate.
 - Live suites reuse the target checkout and prepared `node_modules` when run after `platform-build`; they do not repeat `npm ci` in a target-session release run.
-- Live suites share one target-local packed-install prep directory per target-session release run. The first live suite runs `npm pack` and `npm install --no-save <tarball>` once, then each suite still performs its own `pi install -l <packed package path>`, `pi list`, fresh `--session-dir`, suite `PI_CODING_AGENT_DIR`, workspace fixture, JSONL, visual, bridge, and abort assertions.
+- Live suites share one target-local packed-install prep directory per target-session release run. The first live suite runs `npm pack` and `npm install --no-save <tarball>` once, then each suite still performs its own `pi install --approve -l <packed package path>`, `pi list --approve`, fresh `--session-dir`, suite `PI_CODING_AGENT_DIR`, workspace fixture, JSONL, visual, bridge, and abort assertions.
 - Visual coverage is batched into one native prompt, one bridge prompt, and one abort/cleanup prompt per target. Do not split these into one prompt per card.
 - The gate is fail-fast by target to avoid burning Cursor calls after a platform has already failed.
 
@@ -268,12 +268,12 @@ Definitions:
 - `piProjectRoot`: target-local pi project where platform-build proves packed install.
 - `livePrepRoot`: target-local shared live-suite prep where the first live suite installs the packed tarball once for reuse by later live suites in the same target session.
 
-Live suites run in a suite-local `testWorkspaceRoot`. The extension loaded by pi is the packed tarball package path from `livePrepRoot`, installed into that suite-local workspace with `pi install -l`; no live suite uses `pi -e .`.
+Live suites run in a suite-local `testWorkspaceRoot`. The extension loaded by pi is the packed tarball package path from `livePrepRoot`, installed into that suite-local workspace with `pi install --approve -l`; no live suite uses `pi -e .`.
 
 The runner must prove this by recording:
 
 - packed tarball path;
-- `pi list` output from the suite-local project after `pi install -l <packed package path>`;
+- `pi list --approve` output from the suite-local project after `pi install --approve -l <packed package path>`;
 - command line showing no `-e .`;
 - live suite cwd as `testWorkspaceRoot`.
 
@@ -393,8 +393,8 @@ Per target, `platform-build` must:
 6. Run `npm pack`.
 7. Create `testWorkspaceRoot` with deterministic fixture files copied from the repo.
 8. Create `piProjectRoot`.
-9. Install the packed tarball into `piProjectRoot` with `pi install -l <tarball>`.
-10. Run `pi list` and assert the installed package points at the packed tarball/install, not `-e .`.
+9. Install the packed tarball into `piProjectRoot` with `pi install --approve -l <tarball>`.
+10. Run `pi list --approve` and assert the installed package points at the packed tarball/install, not `-e .`.
 
 ## Required suites
 
@@ -408,7 +408,7 @@ Purpose:
 - fail before spending Cursor tokens;
 - produce the packed extension used by later suites.
 
-The host `smoke:platform:all` entrypoint enforces doctor first before running targets. Required artifacts include `node-version.txt`, `npm-version.txt`, stdout/stderr for `npm ci`, `npm run check:platform-smoke`, `npm test`, `npm run typecheck`, `npm pack`, packed npm install, `pi install`, and `pi list`, plus `packed-tarball.txt`, `summary.json`, `artifact-manifest.json`, `assertions.json`, and `failures.md` on failed assertions.
+The host `smoke:platform:all` entrypoint enforces doctor first before running targets. Required artifacts include `node-version.txt`, `npm-version.txt`, stdout/stderr for `npm ci`, `npm run check:platform-smoke`, `npm test`, `npm run typecheck`, `npm pack`, packed npm install, `pi install --approve`, and `pi list --approve`, plus `packed-tarball.txt`, `summary.json`, `artifact-manifest.json`, `assertions.json`, and `failures.md` on failed assertions.
 
 ### `cursor-native-visual-matrix`
 
