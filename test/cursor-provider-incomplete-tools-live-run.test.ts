@@ -170,6 +170,85 @@ describe("streamCursor incomplete native replay tools", () => {
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 	});
 
+	it("does not replay a stale incomplete edit after the completed edit used a different delta id", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+
+		let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+		const runWait = vi.fn(
+			() =>
+				new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+		);
+		const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+			opts.onDelta({
+				update: {
+					type: "tool-call-started",
+					toolCall: { name: "edit_file", args: { path: ".scratchpad.md" } },
+					callId: "started-edit",
+				},
+			});
+			opts.onDelta({
+				update: {
+					type: "tool-call-completed",
+					toolCall: {
+						name: "edit_file",
+						args: { path: ".scratchpad.md" },
+						result: { status: "success", value: { diff: "+done" } },
+					},
+					callId: "completed-edit",
+				},
+			});
+			opts.onDelta({ update: { type: "text-delta", text: "daily refresh complete" } });
+			return {
+				id: "run-1",
+				agentId: "agent-1",
+				status: "running",
+				wait: runWait,
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			};
+		});
+		mockCreatedAgent({ send: mockSend });
+
+		const firstEventsPromise = collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+		await vi.waitFor(() => expect(mockSend).toHaveBeenCalled());
+		resolveRun({ id: "run-1", status: "finished", result: "daily refresh complete" });
+		const firstDone = getDoneEvent(await firstEventsPromise);
+		const completedToolCall = firstDone.message.content.find(isToolCallBlock);
+
+		expect(firstDone.reason).toBe("toolUse");
+		expect(completedToolCall).toMatchObject({
+			name: "cursor",
+			arguments: { activityTitle: "Cursor edit", activitySummary: ".scratchpad.md" },
+		});
+
+		const replayContext = makeContext();
+		replayContext.messages = [
+			...replayContext.messages,
+			firstDone.message,
+			{
+				role: "toolResult" as const,
+				toolCallId: completedToolCall!.id,
+				toolName: "cursor",
+				content: [{ type: "text" as const, text: "edit .scratchpad.md" }],
+				isError: false,
+				timestamp: 2,
+			},
+		];
+		const finalEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
+		const finalDone = getDoneEvent(finalEvents);
+
+		expect(finalDone.reason).toBe("stop");
+		expect(collectTextDeltas(finalEvents)).toBe("daily refresh complete");
+		expect(finalDone.message.content.find(isToolCallBlock)).toBeUndefined();
+		expect(nativeToolDisplayTestUtils.nativeToolResultCount()).toBe(0);
+		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+	});
+
 	it("suppresses incomplete fast local Cursor glob tools when the run finishes with text", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		const registeredTools: RegisteredTool[] = [];

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.1.38 - 2026-06-07
+
+### Changed
+
+- Simplify Cursor replay result readers, tool presentation ownership, session scope/display ownership, and lifecycle registration paths while preserving native replay and pi session behavior.
+- Defer Cursor runtime startup imports so extension registration stays side-effect-light until the provider is invoked.
+
+### Fixed
+
+- Clear started Cursor tool calls when a completed delta reports the same tool under a different SDK call id, preventing stale native replay edit starts from surfacing as `Cursor edit did not complete` after successful final text.
+- Keep Cursor agents-context dedup registration in a tracked module so clean package builds resolve `src/index.ts` imports.
+- Accept Windows-rendered absolute `README.md` paths in platform-smoke grep-card detection without weakening prompt false-positive checks.
+
 ## 0.1.37 - 2026-06-06
 
 ### Changed

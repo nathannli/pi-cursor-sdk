@@ -63,15 +63,22 @@ export function resolveCursorToolCompletion(options: ResolveCursorToolCompletion
 		const callId = options.callId;
 		identity = typeof callId === "string" ? `cursor-tool:${callId}` : undefined;
 		resolvedToolCall = mergeCursorToolCalls(options.startedToolCall, options.toolCall);
-		if (typeof callId === "string") {
+		if (typeof callId === "string" && options.ledger.hasStartedToolCall(callId)) {
 			options.onClearStartedCallId?.(callId);
 			options.ledger.clearStartedToolCall(callId);
+		} else {
+			matchedStartedCallId = options.ledger.removeStartedToolCallForStep(options.toolCall, callId);
+			if (matchedStartedCallId) options.onClearStartedCallId?.(matchedStartedCallId);
 		}
 		resolvedToolCall = mergeShellOutputDeltasIntoCursorToolCall(
 			resolvedToolCall,
-			typeof callId === "string" ? options.shellOutput.takeDeltasForCall(callId) : undefined,
+			matchedStartedCallId
+				? options.shellOutput.takeDeltasForCall(matchedStartedCallId)
+				: typeof callId === "string"
+					? options.shellOutput.takeDeltasForCall(callId)
+					: undefined,
 		);
-		source = identity ? "started" : "fallback";
+		source = identity || matchedStartedCallId ? "started" : "fallback";
 	} else {
 		matchedStartedCallId = options.ledger.removeStartedToolCallForStep(options.toolCall, options.callId);
 		if (matchedStartedCallId) {
@@ -93,7 +100,7 @@ export function resolveCursorToolCompletion(options: ResolveCursorToolCompletion
 	}
 
 	if (options.source === "delta") {
-		return { action: "handle", toolCall: resolvedToolCall, identity, source };
+		return { action: "handle", toolCall: resolvedToolCall, identity, source, matchedStartedCallId };
 	}
 	return {
 		action: "handle",

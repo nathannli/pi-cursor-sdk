@@ -203,6 +203,9 @@ export class CursorSdkTurnCoordinator {
 				identity: resolution.identity,
 				source: resolution.source,
 			});
+			if (resolution.matchedStartedCallId && resolution.matchedStartedCallId !== update.callId) {
+				this.ledger.recordCompletedIdentity(`cursor-tool:${resolution.matchedStartedCallId}`);
+			}
 			return;
 		}
 		if (update.type === "shell-output-delta") {
