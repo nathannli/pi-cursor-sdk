@@ -24,11 +24,9 @@ import {
 } from "./cursor-replay-summary-args.js";
 import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 import {
-	buildCollapsedReplayDetailFields,
 	buildCreatePlanReplaySummaryArgs,
 	buildDeleteReplayDetailFields,
 	buildDeleteReplaySummaryArgs,
-	buildEmptyReplayDetailFields,
 	buildGenerateImageReplayDetailFields,
 	buildGenerateImageReplaySummaryArgs,
 	buildMcpReplaySummaryArgs,
@@ -48,6 +46,9 @@ import type {
 } from "./cursor-replay-tool-details.js";
 
 export const CURSOR_REPLAY_ACTIVITY_TOOL_NAME = "cursor" as const;
+
+const EMPTY_REPLAY_DETAIL_FIELDS = (): Record<string, never> => ({});
+const COLLAPSED_REPLAY_DETAIL_FIELDS = (): { collapseDetailsByDefault: true } => ({ collapseDetailsByDefault: true });
 
 export type CursorWebToolKind = "webSearch" | "webFetch";
 
@@ -181,7 +182,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		replayCallSummary: withActivitySummaryFallback(summarizeReplayReadLints),
 		activityReplay: {
 			buildActivityArgs: buildReadLintsReplaySummaryArgs,
-			buildDetails: buildEmptyReplayDetailFields,
+			buildDetails: EMPTY_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -192,7 +193,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		replayCallSummary: withActivitySummaryFallback(summarizeReplayTodoCount),
 		activityReplay: {
 			buildActivityArgs: ({ args, result }) => buildTodoReplaySummaryArgs(args, result),
-			buildDetails: buildEmptyReplayDetailFields,
+			buildDetails: EMPTY_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -203,7 +204,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		replayCallSummary: withActivitySummaryFallback(summarizeReplayPlan),
 		activityReplay: {
 			buildActivityArgs: buildCreatePlanReplaySummaryArgs,
-			buildDetails: buildEmptyReplayDetailFields,
+			buildDetails: EMPTY_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -214,7 +215,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		replayCallSummary: withActivitySummaryFallback(summarizeReplayTask),
 		activityReplay: {
 			buildActivityArgs: buildTaskReplaySummaryArgs,
-			buildDetails: buildEmptyReplayDetailFields,
+			buildDetails: EMPTY_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -238,7 +239,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		replayCallSummary: withActivitySummaryFallback(summarizeReplayMcp),
 		activityReplay: {
 			buildActivityArgs: buildMcpReplaySummaryArgs,
-			buildDetails: buildEmptyReplayDetailFields,
+			buildDetails: EMPTY_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -249,7 +250,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		replayCallSummary: withActivitySummaryFallback(formatReplaySemSearchQuery),
 		activityReplay: {
 			buildActivityArgs: buildSemSearchReplaySummaryArgs,
-			buildDetails: buildEmptyReplayDetailFields,
+			buildDetails: EMPTY_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -260,7 +261,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		replayCallSummary: withActivitySummaryFallback(summarizeReplayRecordScreen),
 		activityReplay: {
 			buildActivityArgs: buildRecordScreenReplaySummaryArgs,
-			buildDetails: buildEmptyReplayDetailFields,
+			buildDetails: EMPTY_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -276,7 +277,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		),
 		activityReplay: {
 			buildActivityArgs: buildWebSearchReplaySummaryArgs,
-			buildDetails: buildCollapsedReplayDetailFields,
+			buildDetails: COLLAPSED_REPLAY_DETAIL_FIELDS,
 		},
 	},
 	{
@@ -292,7 +293,7 @@ export const CURSOR_TOOL_PRESENTATION_SPECS = [
 		),
 		activityReplay: {
 			buildActivityArgs: buildWebFetchReplaySummaryArgs,
-			buildDetails: buildCollapsedReplayDetailFields,
+			buildDetails: COLLAPSED_REPLAY_DETAIL_FIELDS,
 		},
 	},
 ] as const satisfies readonly CursorToolPresentationSpec[];

@@ -1,4 +1,4 @@
-import type { CursorPiToolDisplay } from "./cursor-tool-transcript.js";
+import type { CursorPiToolDisplay } from "./cursor-transcript-utils.js";
 import { parseOptionalEnvBoolean } from "./cursor-env-boolean.js";
 
 export interface CursorNativeToolDisplayItem extends CursorPiToolDisplay {

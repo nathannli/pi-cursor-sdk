@@ -17,7 +17,6 @@ import type {
 	CursorProviderTurnSendResult,
 } from "./cursor-provider-turn-types.js";
 
-export { resolveCursorApiKey } from "./cursor-api-key.js";
 export type { CursorProviderTurnRunnerParams } from "./cursor-provider-turn-types.js";
 
 export class CursorProviderTurnRunner {
@@ -32,13 +31,6 @@ export class CursorProviderTurnRunner {
 
 	private throwIfAborted(): void {
 		if (this.options?.signal?.aborted) throw new CursorLiveRunAbortError();
-	}
-
-	private discardIncompleteTools(
-		prepared: CursorProviderTurnPrepareResult | undefined,
-		outcome: import("./cursor-incomplete-tool-visibility.js").IncompleteCursorToolRunOutcomeInput,
-	): void {
-		discardIncompleteToolsFromPrepared(prepared, outcome);
 	}
 
 	async run(sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>): Promise<void> {
@@ -94,13 +86,13 @@ export class CursorProviderTurnRunner {
 					send,
 					prepared,
 					modelId: model.id,
-					discardIncompleteTools: (outcome) => this.discardIncompleteTools(prepared, outcome),
+					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(prepared, outcome),
 				});
 				await emitCursorLiveTurn({
 					params: this.params,
 					prepared,
 					sdkEventDebug: this.sdkEventDebug,
-					discardIncompleteTools: (outcome) => this.discardIncompleteTools(prepared, outcome),
+					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(prepared, outcome),
 				});
 				return;
 			}

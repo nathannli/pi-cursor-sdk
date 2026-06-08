@@ -8,7 +8,8 @@ import {
 	resetSessionCursorAgent,
 } from "./cursor-session-agent.js";
 import type { CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
-import { estimateCursorPromptInputTokens, getCursorPromptOptions } from "./cursor-usage-accounting.js";
+import { estimateCursorPromptTokens } from "./context.js";
+import { getCursorPromptOptions } from "./cursor-usage-accounting.js";
 import { getActiveContextToolNames } from "./cursor-context-tools.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import {
@@ -16,7 +17,7 @@ import {
 	createCursorNativeReplayId,
 	cursorLiveRuns,
 } from "./cursor-provider-live-run-drain.js";
-import { getEffectiveCursorAgentMode, getEffectiveFastForModelId } from "./cursor-state.js";
+import { getCursorProviderAgentModeOrThrow, getEffectiveFastForModelId } from "./cursor-state.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-snapshot.js";
@@ -56,7 +57,7 @@ export async function prepareCursorProviderTurn(
 
 	try {
 		const fastEnabled = getEffectiveFastForModelId(model.id);
-		const agentMode = getEffectiveCursorAgentMode();
+		const agentMode = getCursorProviderAgentModeOrThrow();
 		const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
 		const settingSources = getEffectiveCursorSettingSources();
 		const { Agent } = await loadCursorSdk();
@@ -119,7 +120,7 @@ export async function prepareCursorProviderTurn(
 			images: prompt.images.length > 0 ? prompt.images : undefined,
 		};
 		const sessionBridgeRun = bridgeRun;
-		const promptInputTokens = estimateCursorPromptInputTokens(prompt, promptOptions);
+		const promptInputTokens = estimateCursorPromptTokens(prompt, promptOptions);
 		const useNativeToolReplay = isCursorNativeToolDisplayRuntimeEnabled();
 		const activeToolNames = getActiveContextToolNames(context);
 		sdkEventDebug?.recordProviderMeta({

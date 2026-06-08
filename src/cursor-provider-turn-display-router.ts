@@ -10,7 +10,11 @@ import {
 	type IncompleteCursorToolDiscardReason,
 } from "./cursor-incomplete-tool-visibility.js";
 import { scrubPiToolDisplay, scrubSensitiveText } from "./cursor-sensitive-text.js";
-import { buildCursorPiToolDisplay, formatCursorToolTranscript, getCursorCreatePlanText } from "./cursor-tool-transcript.js";
+import {
+	buildCursorPiToolDisplay,
+	formatCursorToolTranscript,
+	getCursorCreatePlanText,
+} from "./cursor-tool-transcript.js";
 import { getToolName } from "./cursor-transcript-utils.js";
 import type { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
 import type { CursorToolDisplaySource } from "./cursor-provider-turn-tool-ledger.js";

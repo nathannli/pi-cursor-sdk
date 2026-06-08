@@ -1,4 +1,8 @@
-import { getCursorReplayActivityTitle, getCursorToolVisibilityPolicy, normalizeCursorToolName as normalizeToolName } from "./cursor-tool-presentation-registry.js";
+import {
+	getCursorReplayActivityTitle,
+	getCursorToolVisibilityPolicy,
+	normalizeCursorToolName as normalizeToolName,
+} from "./cursor-tool-presentation-registry.js";
 import { getToolArgs, getToolName } from "./cursor-transcript-utils.js";
 import { resolveTranscriptToolName } from "./cursor-web-tool-activity.js";
 
@@ -12,6 +16,10 @@ export interface CursorToolVisibility {
 	lifecycleTitle?: string;
 	lifecycleEligible: boolean;
 	fastLocalDiscovery: boolean;
+}
+
+export function getNormalizedCursorToolName(toolCall: unknown): string {
+	return classifyCursorToolVisibility(toolCall).normalizedName;
 }
 
 export function classifyCursorToolVisibility(toolCall: unknown): CursorToolVisibility {

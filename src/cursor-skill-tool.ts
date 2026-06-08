@@ -2,18 +2,14 @@ import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import type {
-	BeforeAgentStartEvent,
-	BeforeAgentStartEventResult,
 	BuildSystemPromptOptions,
 	ExtensionAPI,
 	ExtensionContext,
-	ExtensionHandler,
-	SessionStartEvent,
 	Skill,
-	TurnStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { isCursorModel } from "./cursor-model.js";
+import { registerCursorModelLifecycle, type CursorModelLifecycleExtensionApi } from "./cursor-model-lifecycle.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-snapshot.js";
 
 export const CURSOR_ACTIVATE_SKILL_TOOL_NAME = "cursor_activate_skill";
@@ -23,12 +19,7 @@ const AVAILABLE_SKILLS_SECTION_PATTERN = /\n\nThe following skills provide speci
 const MAX_SKILL_RESOURCES = 80;
 const RESOURCE_DIR_NAMES = ["scripts", "references", "assets"] as const;
 
-type CursorSkillToolExtensionApi = Pick<ExtensionAPI, "getActiveTools" | "registerTool" | "setActiveTools"> & {
-	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
-	on(event: "before_agent_start", handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>): void;
-	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): void;
-	on(event: "model_select", handler: (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => Promise<void> | void): void;
-};
+type CursorSkillToolExtensionApi = Pick<ExtensionAPI, "getActiveTools" | "registerTool" | "setActiveTools"> & CursorModelLifecycleExtensionApi;
 
 type CursorActivateSkillParams = {
 	name?: string;
@@ -229,26 +220,22 @@ export function registerCursorSkillTool(pi: CursorSkillToolExtensionApi): void {
 		syncCursorSkillToolForModel(pi, model);
 	};
 
-	pi.on("session_start", (_event, ctx) => {
-		clearSkillsAndSync(ctx.model);
-	});
-	pi.on("model_select", (event) => {
-		clearSkillsAndSync(event.model);
-	});
-	pi.on("turn_start", (_event, ctx) => {
-		if (!isCursorModel(ctx.model)) setCurrentSkills([]);
-		syncCursorSkillToolForModel(pi, ctx.model);
-	});
-	pi.on("before_agent_start", (event, ctx) => {
-		if (isCursorModel(ctx.model)) {
-			setCurrentSkills(event.systemPromptOptions?.skills);
-		} else {
-			setCurrentSkills([]);
-		}
-		syncCursorSkillToolForModel(pi, ctx.model);
-		const resolved = resolveCursorSkillSystemPrompt(event.systemPrompt, ctx.model, event.systemPromptOptions);
-		if (resolved === event.systemPrompt) return undefined;
-		return { systemPrompt: resolved };
+	registerCursorModelLifecycle(pi, {
+		sync: (ctx) => {
+			clearSkillsAndSync(ctx.model);
+		},
+		includeBeforeAgentStartInSync: false,
+		beforeAgentStart: (event, ctx) => {
+			if (isCursorModel(ctx.model)) {
+				setCurrentSkills(event.systemPromptOptions?.skills);
+			} else {
+				setCurrentSkills([]);
+			}
+			syncCursorSkillToolForModel(pi, ctx.model);
+			const resolved = resolveCursorSkillSystemPrompt(event.systemPrompt, ctx.model, event.systemPromptOptions);
+			if (resolved === event.systemPrompt) return undefined;
+			return { systemPrompt: resolved };
+		},
 	});
 }
 

@@ -20,7 +20,8 @@ import { disposeAllSessionCursorAgents } from "./cursor-session-agent.js";
 import { attachCursorSdkEventDebugPiStreamTap, type CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
 import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
-import { CursorProviderTurnRunner, resolveCursorApiKey } from "./cursor-provider-turn-runner.js";
+import { resolveCursorApiKey } from "./cursor-api-key.js";
+import { CursorProviderTurnRunner } from "./cursor-provider-turn-runner.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
 	return {

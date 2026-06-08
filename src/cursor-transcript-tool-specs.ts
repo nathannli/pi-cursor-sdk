@@ -15,14 +15,12 @@ import {
 	CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME,
 	type CursorReplayToolDetails,
 } from "./cursor-replay-tool-details.js";
+import { asRecord, getNumber, getString } from "./cursor-record-utils.js";
 import {
-	asRecord,
 	firstNonEmptyLine,
 	formatDisplayPath,
 	formatDiffString,
 	formatError,
-	getNumber,
-	getString,
 	limitText,
 	truncateArg,
 	type CursorPiToolDisplay,
@@ -65,8 +63,6 @@ import {
 	getShellOutput,
 	usesLocalReadPreview,
 } from "./cursor-transcript-tool-formatters.js";
-import type { CursorReplaySummaryArgs } from "./cursor-replay-summary-args.js";
-
 export interface ToolDisplayContext {
 	rawName: string;
 	name: string;
@@ -97,13 +93,6 @@ function buildCursorActivityDisplayArgs(
 		activityTitle,
 		...(trimmedSummary ? { activitySummary: trimmedSummary } : {}),
 	};
-}
-
-function buildRegistryReplaySummary(
-	sourceToolName: CursorReplayActivityToolName,
-	args: CursorReplaySummaryArgs,
-): string | undefined {
-	return getCursorReplayCallSummary(sourceToolName, args);
 }
 
 function buildReplaySummaryDisplay(
@@ -137,7 +126,7 @@ function buildActivityReplayDisplay(
 	if (!activity) throw new Error(`Missing activity replay spec for ${sourceToolName}`);
 	const activityTitle = getCursorToolActivityTitle(sourceToolName);
 	const replayArgs = activity.buildActivityArgs(context);
-	const activitySummary = buildRegistryReplaySummary(sourceToolName, replayArgs);
+	const activitySummary = getCursorReplayCallSummary(sourceToolName, replayArgs);
 	const activityArgs = buildCursorActivityDisplayArgs({ ...replayArgs }, activityTitle, activitySummary);
 	const contentText = spec.formatTranscript(context).trimEnd();
 	const activityFields = activity.buildDetails(context, contentText);
@@ -158,7 +147,7 @@ function buildGenerateImageReplayDisplay(context: ToolDisplayContext): CursorPiT
 	if (!replay) throw new Error("Missing generate image replay spec");
 	const activityTitle = getCursorToolActivityTitle("generateImage");
 	const replayArgs = replay.buildActivityArgs(context);
-	const activitySummary = buildRegistryReplaySummary("generateImage", replayArgs);
+	const activitySummary = getCursorReplayCallSummary("generateImage", replayArgs);
 	const activityArgs = buildCursorActivityDisplayArgs({ ...replayArgs }, activityTitle, activitySummary);
 	const contentText = spec.formatTranscript(context).trimEnd();
 	const details = assembleCursorReplayGenerateImageDetails(

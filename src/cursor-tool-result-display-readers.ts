@@ -1,14 +1,6 @@
+import { asRecord, getArray, getNumber, getRecord, getString, stringifyUnknown } from "./cursor-record-utils.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
-import {
-	asRecord,
-	firstNonEmptyLine,
-	formatDisplayPath,
-	getArray,
-	getNumber,
-	getRecord,
-	getString,
-	truncateArg,
-} from "./cursor-transcript-utils.js";
+import { firstNonEmptyLine, formatDisplayPath, truncateArg } from "./cursor-transcript-utils.js";
 
 export interface CursorToolResultLike {
 	status: string | undefined;
@@ -128,7 +120,7 @@ export function inferImageMimeType(path: string | undefined): string | undefined
 	return undefined;
 }
 
-export function getMcpContentText(entry: unknown): string | undefined {
+function getMcpContentText(entry: unknown): string | undefined {
 	const record = asRecord(entry);
 	const directText = getString(record, "text");
 	if (directText) return directText;
@@ -136,7 +128,7 @@ export function getMcpContentText(entry: unknown): string | undefined {
 	return getString(nestedText, "text");
 }
 
-export function describeNonTextMcpContent(entry: unknown): string {
+function describeNonTextMcpContent(entry: unknown): string {
 	const record = asRecord(entry);
 	const type = getString(record, "type") ?? "content";
 	if (type === "image") {
@@ -148,19 +140,46 @@ export function describeNonTextMcpContent(entry: unknown): string {
 	return `[${type} omitted]`;
 }
 
-export function getMcpResultPreview(result: CursorToolResultLike): string | undefined {
-	if (result.status === "error") return undefined;
+export interface McpDisplayResult {
+	isToolError: boolean;
+	text: string;
+	nonTextSummary: string;
+	body: string;
+	preview?: string;
+}
+
+export function readMcpDisplayResult(result: CursorToolResultLike): McpDisplayResult {
+	if (result.status === "error") {
+		return { isToolError: false, text: "", nonTextSummary: "", body: "" };
+	}
+
 	const value = asRecord(result.value);
+	const isToolError = value?.isError === true;
 	const content = getArray(value, "content") ?? [];
+	const textParts: string[] = [];
+	const nonTextParts: string[] = [];
+	let preview: string | undefined;
+
 	for (const entry of content) {
 		const text = getMcpContentText(entry);
-		if (!text) continue;
-		const line = firstNonEmptyLine(text);
-		if (line) return truncateArg(scrubSensitiveText(line), 120);
+		if (text) {
+			textParts.push(text);
+			const line = firstNonEmptyLine(text);
+			if (!preview && line) preview = truncateArg(scrubSensitiveText(line), 120);
+			continue;
+		}
+		nonTextParts.push(describeNonTextMcpContent(entry));
 	}
-	for (const entry of content) {
-		const summary = describeNonTextMcpContent(entry);
-		if (summary) return summary;
-	}
-	return undefined;
+
+	if (!preview) preview = nonTextParts[0];
+	const text = textParts.join("\n");
+	const nonTextSummary = nonTextParts.join("\n");
+	const body = text || nonTextSummary || scrubSensitiveText(stringifyUnknown(result.value), undefined);
+	return {
+		isToolError,
+		text,
+		nonTextSummary,
+		body: `${isToolError ? "[tool error]\n" : ""}${body}`.trim(),
+		...(preview ? { preview } : {}),
+	};
 }

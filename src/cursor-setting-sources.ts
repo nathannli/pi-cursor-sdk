@@ -11,7 +11,9 @@ export function resolveCursorSettingSources(raw?: string): SettingSource[] | und
 	return resolveCursorSettingSourcesJs(raw) as SettingSource[] | undefined;
 }
 
-export function getEffectiveCursorSettingSources(raw: string | undefined = process.env[CURSOR_SETTING_SOURCES_ENV]): SettingSource[] | undefined {
+export function getEffectiveCursorSettingSources(
+	raw: string | undefined = process.env[CURSOR_SETTING_SOURCES_ENV],
+): SettingSource[] | undefined {
 	return resolveCursorSettingSources(raw);
 }
 

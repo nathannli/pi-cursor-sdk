@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	registerCursorRuntimeControls,
 	getEffectiveFastForModelId,
-	getEffectiveCursorAgentMode,
+	getCursorProviderAgentModeOrThrow,
+	getStoredCursorAgentMode,
+	resolveCursorAgentMode,
 	formatCursorToolsDebugReport,
 	__testUtils,
 } from "../src/cursor-state.js";
@@ -78,6 +80,7 @@ const modelItems: ModelListItem[] = [
 function createCursorRuntimeHarness(options: {
 	modelId?: string;
 	provider?: string;
+	api?: string;
 	branch?: SessionEntry[];
 	cursorFastFlag?: boolean;
 	cursorNoFastFlag?: boolean;
@@ -99,7 +102,7 @@ function createCursorRuntimeHarness(options: {
 			? {
 					...makeModel(options.modelId),
 					provider: options.provider ?? "cursor",
-					api: "cursor-sdk",
+					api: (options.api ?? "cursor-sdk") as "cursor-sdk",
 				}
 			: undefined,
 		sessionManager: {
@@ -142,7 +145,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(getEffectiveCursorAgentMode()).toBe("agent");
+		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "agent" });
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", undefined);
 	});
 
@@ -151,7 +154,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(getEffectiveCursorAgentMode()).toBe("plan");
+		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "plan" });
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor plan");
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -174,7 +177,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(getEffectiveCursorAgentMode()).toBe("agent");
+		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "agent" });
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", undefined);
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -186,7 +189,30 @@ describe("Cursor runtime state", () => {
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith('Invalid --cursor-mode "review". Use "agent" or "plan".', "error");
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor mode invalid");
-		expect(() => getEffectiveCursorAgentMode()).toThrow('Invalid --cursor-mode "review"');
+		expect(resolveCursorAgentMode()).toEqual({
+			kind: "invalid",
+			raw: "review",
+			message: 'Invalid --cursor-mode "review". Use "agent" or "plan".',
+		});
+		expect(getStoredCursorAgentMode()).toBe("agent");
+		expect(() => getCursorProviderAgentModeOrThrow()).toThrow('Invalid --cursor-mode "review"');
+	});
+
+	it("reports invalid --cursor-mode from /cursor-mode status instead of soft defaulting", async () => {
+		const { pi, ctx, commandCtx, commands } = createCursorRuntimeHarness({
+			modelId: "gpt-5.5@1m",
+			cursorModeFlag: "review",
+		});
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+		vi.mocked(ctx.ui.notify).mockClear();
+
+		await commands.get("cursor-mode")!.handler("", commandCtx);
+
+		expect(ctx.ui.notify).toHaveBeenCalledWith(
+			'Invalid --cursor-mode "review". Use "agent" or "plan". Usage: /cursor-mode agent|plan',
+			"error",
+		);
+		expect(ctx.ui.notify).not.toHaveBeenCalledWith("Cursor mode is agent. Usage: /cursor-mode agent|plan", "info");
 	});
 
 	it("allows /cursor-mode to recover an interactive session from invalid --cursor-mode", async () => {
@@ -195,12 +221,12 @@ describe("Cursor runtime state", () => {
 			cursorModeFlag: "review",
 		});
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(() => getEffectiveCursorAgentMode()).toThrow('Invalid --cursor-mode "review"');
+		expect(() => getCursorProviderAgentModeOrThrow()).toThrow('Invalid --cursor-mode "review"');
 
 		await commands.get("cursor-mode")!.handler("plan", commandCtx);
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.MODE_ENTRY_TYPE, { mode: "plan" });
-		expect(getEffectiveCursorAgentMode()).toBe("plan");
+		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "plan" });
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor plan");
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
 			"Cursor mode set to plan; cleared invalid --cursor-mode override",
@@ -208,30 +234,84 @@ describe("Cursor runtime state", () => {
 		);
 	});
 
-	it("rejects invalid --cursor-mode values in RPC sessions even though UI is available", async () => {
+	it("does not abort non-Cursor RPC sessions for invalid --cursor-mode", async () => {
 		const { pi, ctx } = createCursorRuntimeHarness({
-			modelId: "gpt-5.5@1m",
+			provider: "anthropic",
+			api: "anthropic-messages",
+			modelId: "claude-sonnet-4-5",
 			cursorModeFlag: "review",
 			mode: "rpc",
 			hasUI: true,
 		});
 
-		await expect(
-			pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx),
-		).rejects.toThrow('Invalid --cursor-mode "review"');
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.notify).not.toHaveBeenCalled();
+		expect(resolveCursorAgentMode()).toEqual({
+			kind: "invalid",
+			raw: "review",
+			message: 'Invalid --cursor-mode "review". Use "agent" or "plan".',
+		});
+		expect(getStoredCursorAgentMode()).toBe("agent");
 	});
 
-	it("rejects invalid --cursor-mode values in JSON sessions", async () => {
+	it("does not abort non-Cursor JSON sessions for invalid --cursor-mode", async () => {
 		const { pi, ctx } = createCursorRuntimeHarness({
-			modelId: "gpt-5.5@1m",
+			provider: "anthropic",
+			api: "anthropic-messages",
+			modelId: "claude-sonnet-4-5",
 			cursorModeFlag: "review",
 			mode: "json",
 			hasUI: false,
 		});
 
-		await expect(
-			pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx),
-		).rejects.toThrow('Invalid --cursor-mode "review"');
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(resolveCursorAgentMode()).toEqual({
+			kind: "invalid",
+			raw: "review",
+			message: 'Invalid --cursor-mode "review". Use "agent" or "plan".',
+		});
+		expect(getStoredCursorAgentMode()).toBe("agent");
+	});
+
+	it("reports invalid --cursor-mode when a non-Cursor session later selects a Cursor model", async () => {
+		const { pi, ctx } = createCursorRuntimeHarness({
+			provider: "anthropic",
+			api: "anthropic-messages",
+			modelId: "claude-sonnet-4-5",
+			cursorModeFlag: "review",
+		});
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+		expect(ctx.ui.notify).not.toHaveBeenCalled();
+
+		await pi.invokeEventWithContext(
+			"model_select",
+			{
+				type: "model_select",
+				model: { ...makeModel("composer-2"), provider: "cursor", api: "cursor-sdk" },
+				previousModel: ctx.model!,
+				source: "set",
+			},
+			ctx,
+		);
+
+		expect(ctx.ui.notify).toHaveBeenCalledWith('Invalid --cursor-mode "review". Use "agent" or "plan".', "error");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor fast · mode invalid");
+	});
+
+	it("rejects invalid --cursor-mode for Cursor provider runs", async () => {
+		const { pi, ctx } = createCursorRuntimeHarness({
+			modelId: "composer-2",
+			cursorModeFlag: "review",
+			mode: "rpc",
+			hasUI: true,
+		});
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(() => getCursorProviderAgentModeOrThrow()).toThrow('Invalid --cursor-mode "review"');
 	});
 
 	it("persists /cursor-mode plan as session mode", async () => {
@@ -241,7 +321,7 @@ describe("Cursor runtime state", () => {
 		await commands.get("cursor-mode")!.handler("plan", commandCtx);
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.MODE_ENTRY_TYPE, { mode: "plan" });
-		expect(getEffectiveCursorAgentMode()).toBe("plan");
+		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "plan" });
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor plan");
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor mode set to plan", "info");
 	});
@@ -261,12 +341,12 @@ describe("Cursor runtime state", () => {
 			],
 		});
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(getEffectiveCursorAgentMode()).toBe("plan");
+		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "plan" });
 
 		await commands.get("cursor-mode")!.handler("agent", commandCtx);
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.MODE_ENTRY_TYPE, { mode: "agent" });
-		expect(getEffectiveCursorAgentMode()).toBe("agent");
+		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "agent" });
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", undefined);
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor mode set to agent", "info");
 	});
@@ -631,7 +711,11 @@ describe("Cursor runtime state", () => {
 	});
 
 	it("clears Cursor status for non-cursor models", async () => {
-		const { pi, ctx } = createCursorRuntimeHarness({ provider: "anthropic", modelId: "claude-sonnet-4-5" });
+		const { pi, ctx } = createCursorRuntimeHarness({
+			provider: "anthropic",
+			api: "anthropic-messages",
+			modelId: "claude-sonnet-4-5",
+		});
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CURSOR_REPLAY_ACTIVITY_TOOL_NAME } from "../src/cursor-tool-presentation-registry.js";
 import { buildCursorPiToolDisplay, formatCursorToolTranscript } from "../src/cursor-tool-transcript.js";
+import { readMcpDisplayResult } from "../src/cursor-tool-result-display-readers.js";
 import { getCursorDisplayDetailSummary } from "./helpers/cursor-display-details.js";
 
 
@@ -79,6 +80,51 @@ describe("formatCursorToolTranscript MCP and web", () => {
 		expect(display.result.content[0].text).not.toContain("raw-resource-payload");
 		expect(transcript).toContain("[image image/png omitted]");
 		expect(transcript).not.toContain("base64-image-data");
+	});
+
+	it("uses one MCP display model for mixed text and non-text body/preview", () => {
+		const result = {
+			status: "success" as const,
+			value: {
+				content: [
+					{ type: "image", mimeType: "image/png", data: "raw-image" },
+					{ text: { text: "first line\nsecond line" } },
+				],
+			},
+		};
+
+		expect(readMcpDisplayResult(result)).toMatchObject({
+			isToolError: false,
+			text: "first line\nsecond line",
+			nonTextSummary: "[image image/png omitted]",
+			body: "first line\nsecond line",
+			preview: "first line",
+		});
+		expect(formatCursorToolTranscript({ name: "mcp", args: { toolName: "mixed" }, result })).toContain("first line\nsecond line");
+	});
+
+	it("uses one MCP display model for empty content fallback", () => {
+		const result = { status: "success" as const, value: { content: [] } };
+
+		expect(readMcpDisplayResult(result)).toMatchObject({
+			isToolError: false,
+			text: "",
+			nonTextSummary: "",
+			body: '{"content":[]}',
+		});
+		expect(readMcpDisplayResult(result).preview).toBeUndefined();
+		expect(formatCursorToolTranscript({ name: "mcp", args: { toolName: "empty" }, result })).toContain('{"content":[]}');
+	});
+
+	it("uses one MCP display model for tool-level isError", () => {
+		const result = { status: "success" as const, value: { isError: true, content: [{ text: "failed remotely" }] } };
+
+		expect(readMcpDisplayResult(result)).toMatchObject({
+			isToolError: true,
+			body: "[tool error]\nfailed remotely",
+			preview: "failed remotely",
+		});
+		expect(formatCursorToolTranscript({ name: "mcp", args: { toolName: "remote" }, result })).toContain("[tool error]\nfailed remotely");
 	});
 
 	it("labels completed Cursor web search MCP activity instead of generic Cursor MCP", () => {

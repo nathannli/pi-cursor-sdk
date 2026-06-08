@@ -39,7 +39,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-agents-context.ts` owns Cursor-model suppression of pi `<project_context>` / `AGENTS.md` duplication and `PI_CURSOR_PRESERVE_PI_AGENTS_MD`.
 - `src/cursor-sdk-output-filter.ts` suppresses Cursor SDK integrator bootstrap noise from pi's TUI.
 - `src/cursor-edit-diff.ts` owns canonical edit diff fallback resolution for replay/display paths.
-- `src/cursor-record-utils.ts` owns shared record/string-key parsing helpers used across bridge and transcript layers.
+- `src/cursor-record-utils.ts` owns shared record/string-key parsing and neutral unknown-value stringification helpers used across bridge and transcript layers.
 - `src/cursor-partial-content-emitter.ts` owns shared thinking/text block emission for live-run drain and turn coordinator paths.
 - `shared/cursor-sensitive-text.mjs` owns canonical secret scrubbing; `src/cursor-sensitive-text.ts` and `scripts/lib/cursor-sensitive-text.mjs` consume it for provider errors, native replay display, and maintainer scripts.
 - `shared/cursor-setting-sources.mjs` owns canonical `PI_CURSOR_SETTING_SOURCES` parsing/serialization; `src/cursor-setting-sources.ts` and `scripts/lib/cursor-setting-sources.mjs` consume it for provider runtime and maintainer scripts.
@@ -56,6 +56,8 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-pi-tool-bridge-abort.ts` owns bridge pi tool execution abort tracking and process signal handling.
 - `src/cursor-pi-tool-bridge-diagnostics.ts` owns bridge debug diagnostics serialization and stderr logging.
 - `src/cursor-pi-tool-bridge-mcp.ts` owns MCP name/schema conversion and pi-to-MCP content helpers for the bridge.
+- `src/cursor-model-lifecycle.ts` owns the canonical effective Cursor model lifecycle/sync helper for `session_start`, `before_agent_start`, `model_select` with event-model override, and `turn_start`; callers keep Cursor-only filtering explicit.
+- `src/cursor-fallback-warning.ts` owns per-session Cursor fallback catalog warning activation.
 - `src/cursor-question-tool.ts` owns the bridge-exposed `cursor_ask_question` pi UI tool.
 - `src/cursor-native-tool-display-registration.ts` owns native replay tool registration and model-scoped activation.
 - `src/cursor-native-replay-routing.ts` owns canonical native replay disposition (`queue_replay` / `inactive_trace` / `transcript_trace`) and context-tool partitioning for drain.
@@ -65,7 +67,8 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-native-tool-display-replay.ts` owns replay card rendering and diff/preview formatting.
 - `src/cursor-native-tool-display-tools.ts` owns native/replay tool definition factories and replay execute wrappers.
 - `src/cursor-native-tool-display-state.ts` owns native replay display state, env gating, and record/consume helpers.
-- `src/cursor-tool-transcript.ts`, `src/cursor-transcript-utils.ts`, and `src/cursor-transcript-tool-formatters.ts` handle display-only Cursor native tool replay and transcript labels.
+- `src/cursor-tool-result-display-readers.ts` owns canonical result readers shared by transcript/replay paths, including MCP-like content display normalization.
+- `src/cursor-tool-transcript.ts` owns the raw `unknown toolCall -> transcript/display` façade; `src/cursor-transcript-tool-specs.ts`, `src/cursor-transcript-utils.ts`, and `src/cursor-transcript-tool-formatters.ts` implement spec dispatch and formatting.
 - `src/cursor-mcp-timeout-override.ts` owns Cursor SDK MCP timeout overrides: 3600s default for `callTool`, 10s default for verified initialize/listTools paths on first send, and SDK-default behavior for unknown MCP protocol stacks.
 - `src/cursor-state.ts` owns Cursor runtime controls: `/cursor-fast`, `--cursor-fast`, `--cursor-no-fast`, `/cursor-mode`, `--cursor-mode`, `/cursor-tools`, session state, and global fast defaults.
 - `src/context.ts`, `src/context-window-cache.ts`, and `src/bundled-context-windows.ts` handle prompt conversion and context-window caches.

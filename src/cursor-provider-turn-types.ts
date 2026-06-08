@@ -61,7 +61,7 @@ export type CursorProviderTurnRuntime = DirectCursorProviderTurnRuntime | LiveCu
  * Send, finalize, and cleanup phases receive this immutable object instead of
  * keeping parallel liveRun/turnCoordinator/resource bags in sync by convention.
  */
-export interface PreparedCursorProviderTurn {
+export interface CursorProviderTurnPrepareResult {
 	agent: SDKAgent;
 	cwd: string;
 	payload: CursorProviderTurnSendPayload;
@@ -73,8 +73,6 @@ export interface PreparedCursorProviderTurn {
 	restoreCursorSdkOutputFilter: () => void;
 	runtime: CursorProviderTurnRuntime;
 }
-
-export type CursorProviderTurnPrepareResult = PreparedCursorProviderTurn;
 
 export interface CursorProviderTurnSend {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CURSOR_REPLAY_UNREGISTERED_ACTIVITY_TOOL_NAME } from "../src/cursor-replay-tool-details.js";
 import { CURSOR_REPLAY_ACTIVITY_TOOL_NAME } from "../src/cursor-tool-presentation-registry.js";
-import { buildCursorPiToolDisplay, formatCursorToolTranscript, mergeCursorToolCalls } from "../src/cursor-tool-transcript.js";
+import { buildCursorPiToolDisplay, formatCursorToolTranscript } from "../src/cursor-tool-transcript.js";
 import { getCursorDisplayDetailSummary } from "./helpers/cursor-display-details.js";
 
 
@@ -254,15 +254,6 @@ describe("formatCursorToolTranscript bounds and aliases", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
-	});
-
-	it("keeps started tool args when the completed Cursor update only contains a result", () => {
-		const merged = mergeCursorToolCalls(
-			{ name: "read", args: { path: "src/index.ts" } },
-			{ name: "read", result: { status: "success", value: { content: "export default" } } },
-		);
-
-		expect(formatCursorToolTranscript(merged)).toContain("read src/index.ts");
 	});
 
 	it("maps common Cursor aliases to pi-like command names", () => {

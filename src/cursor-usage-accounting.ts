@@ -3,9 +3,7 @@ import {
 	CURSOR_APPROX_CHARS_PER_TOKEN,
 	CURSOR_IMAGE_TOKEN_ESTIMATE,
 	estimateCursorContextTokens,
-	estimateCursorPromptTokens,
 	estimateCursorTextTokens,
-	type CursorPrompt,
 	type CursorPromptOptions,
 } from "./context.js";
 
@@ -26,10 +24,6 @@ export function getCursorPromptOptions(model: Model<Api>): CursorUsagePromptOpti
 		charsPerToken: CURSOR_APPROX_CHARS_PER_TOKEN,
 		imageTokenEstimate: CURSOR_IMAGE_TOKEN_ESTIMATE,
 	};
-}
-
-export function estimateCursorPromptInputTokens(prompt: CursorPrompt, options: Pick<CursorPromptOptions, "charsPerToken" | "imageTokenEstimate">): number {
-	return estimateCursorPromptTokens(prompt, options);
 }
 
 function stringifyUsageValue(value: unknown): string {

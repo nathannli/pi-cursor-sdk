@@ -12,20 +12,13 @@ import type {
 	CursorReplayWebSearchSummaryArgs,
 } from "./cursor-replay-summary-args.js";
 import type { CursorReplayGenerateImageDetailFields } from "./cursor-replay-tool-details.js";
-import { asRecord } from "./cursor-record-utils.js";
-import {
-	firstNonEmptyLine,
-	formatDisplayPath,
-	getArray,
-	getNumber,
-	getString,
-	truncateArg,
-} from "./cursor-transcript-utils.js";
+import { asRecord, getArray, getNumber, getString } from "./cursor-record-utils.js";
+import { firstNonEmptyLine, formatDisplayPath, truncateArg } from "./cursor-transcript-utils.js";
 import {
 	collectTaskText,
 	getGenerateImageDisplayPath,
 	getGenerateImagePath,
-	getMcpResultPreview,
+	readMcpDisplayResult,
 	getReadLintDiagnostics,
 	getReadLintPaths,
 	getTaskDescription,
@@ -56,14 +49,6 @@ export function buildDeleteReplayDetailFields({ args, result, options }: CursorR
 		path: displayPath,
 		fileSize: getNumber(value, "fileSize"),
 	};
-}
-
-export function buildEmptyReplayDetailFields(): Record<string, never> {
-	return {};
-}
-
-export function buildCollapsedReplayDetailFields(): { collapseDetailsByDefault: true } {
-	return { collapseDetailsByDefault: true };
 }
 
 export function buildReadLintsReplaySummaryArgs({
@@ -127,7 +112,7 @@ export function buildGenerateImageReplaySummaryArgs({
 
 export function buildMcpReplaySummaryArgs({ args, result }: CursorReplayActivityBuildContext): CursorReplayMcpSummaryArgs {
 	const toolName = getString(args, "toolName") ?? "mcp";
-	const preview = getMcpResultPreview(result);
+	const preview = readMcpDisplayResult(result).preview;
 	return {
 		toolName: truncateArg(toolName),
 		...(preview ? { preview } : {}),

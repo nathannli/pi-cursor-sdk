@@ -1,4 +1,4 @@
-import type { CursorPiToolDisplay } from "./cursor-tool-transcript.js";
+import type { CursorPiToolDisplay } from "./cursor-transcript-utils.js";
 import { asRecord } from "./cursor-record-utils.js";
 import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 

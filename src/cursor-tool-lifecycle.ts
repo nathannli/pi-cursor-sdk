@@ -2,8 +2,9 @@ import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
 import { getCursorToolLifecycleLabelKind } from "./cursor-tool-presentation-registry.js";
 import { extractWebSearchQuery } from "./cursor-web-tool-args.js";
-import { firstNonEmptyLine, getArray, getString, truncateArg } from "./cursor-transcript-utils.js";
-import { classifyCursorToolVisibility } from "./cursor-tool-visibility.js";
+import { getArray, getString } from "./cursor-record-utils.js";
+import { firstNonEmptyLine, truncateArg } from "./cursor-transcript-utils.js";
+import { classifyCursorToolVisibility, type CursorToolVisibility } from "./cursor-tool-visibility.js";
 
 /** Defer pending lifecycle lines so fast start+complete pairs coalesce into the completed replay card only. */
 export const CURSOR_TOOL_LIFECYCLE_DEFER_MS = 75;
@@ -12,8 +13,7 @@ export function isCursorToolLifecycleEligible(toolCall: unknown): boolean {
 	return classifyCursorToolVisibility(toolCall).lifecycleEligible;
 }
 
-function getCursorToolLifecycleTitle(toolCall: unknown): string {
-	const visibility = classifyCursorToolVisibility(toolCall);
+function getCursorToolLifecycleTitle(visibility: CursorToolVisibility): string {
 	return visibility.lifecycleTitle ?? `Cursor ${visibility.normalizedName}`;
 }
 
@@ -36,8 +36,10 @@ function scrubLifecycleDetail(value: string | undefined, apiKey?: string): strin
 	return scrubbed;
 }
 
-export function buildCursorToolLifecycleLabel(toolCall: unknown, apiKey?: string): string | undefined {
-	const visibility = classifyCursorToolVisibility(toolCall);
+function buildCursorToolLifecycleLabelFromVisibility(
+	visibility: CursorToolVisibility,
+	apiKey?: string,
+): string | undefined {
 	const args = visibility.args;
 
 	switch (getCursorToolLifecycleLabelKind(visibility.normalizedKey)) {
@@ -79,8 +81,13 @@ export function buildCursorToolLifecycleLabel(toolCall: unknown, apiKey?: string
 	}
 }
 
+export function buildCursorToolLifecycleLabel(toolCall: unknown, apiKey?: string): string | undefined {
+	return buildCursorToolLifecycleLabelFromVisibility(classifyCursorToolVisibility(toolCall), apiKey);
+}
+
 export function formatCursorToolLifecycleProgressText(toolCall: unknown, apiKey?: string): string | undefined {
-	const label = buildCursorToolLifecycleLabel(toolCall, apiKey);
+	const visibility = classifyCursorToolVisibility(toolCall);
+	const label = buildCursorToolLifecycleLabelFromVisibility(visibility, apiKey);
 	if (!label) return undefined;
-	return `${getCursorToolLifecycleTitle(toolCall)}: ${label}\n`;
+	return `${getCursorToolLifecycleTitle(visibility)}: ${label}\n`;
 }

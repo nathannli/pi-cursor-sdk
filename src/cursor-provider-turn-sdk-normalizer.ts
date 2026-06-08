@@ -1,4 +1,4 @@
-import { mergeCursorToolCalls } from "./cursor-tool-transcript.js";
+import { asRecord } from "./cursor-record-utils.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import {
 	mergeShellOutputDeltasIntoCursorToolCall,
@@ -7,6 +7,22 @@ import {
 import type { CursorToolCompletionLedger } from "./cursor-provider-turn-tool-ledger.js";
 
 export type CursorToolCompletionSource = "delta" | "step";
+
+function mergeCursorToolCalls(startedToolCall: unknown, completedToolCall: unknown): unknown {
+	const started = asRecord(startedToolCall);
+	const completed = asRecord(completedToolCall);
+	if (!started) return completedToolCall;
+	if (!completed) return startedToolCall;
+	return {
+		...started,
+		...completed,
+		name: completed.name ?? started.name,
+		type: completed.type ?? started.type,
+		args: completed.args ?? started.args,
+		input: completed.input ?? started.input,
+		result: completed.result ?? started.result,
+	};
+}
 
 export type ToolCompletionResolution =
 	| { action: "ignore-bridge"; identity?: string }

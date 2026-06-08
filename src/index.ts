@@ -11,6 +11,7 @@ import { registerCursorSessionAgent } from "./cursor-session-agent.js";
 import { prepareCursorSessionForCompaction } from "./cursor-session-compaction-prep.js";
 import { streamCursor } from "./cursor-provider.js";
 import { CURSOR_API_KEY_CONFIG_VALUE } from "./cursor-api-key.js";
+import { registerCursorFallbackIssueWarning } from "./cursor-fallback-warning.js";
 
 type CursorExtensionApi =
 	& Pick<ExtensionAPI, "registerProvider" | "registerCommand" | "on">
@@ -21,7 +22,8 @@ type CursorExtensionApi =
 	& Parameters<typeof registerCursorQuestionTool>[0]
 	& Parameters<typeof registerCursorSkillTool>[0]
 	& Parameters<typeof registerCursorPiToolBridge>[0]
-	& Parameters<typeof registerCursorAgentsContextDedup>[0];
+	& Parameters<typeof registerCursorAgentsContextDedup>[0]
+	& Parameters<typeof registerCursorFallbackIssueWarning>[0];
 
 function createCursorProviderConfig(models: ProviderModelConfig[]): ProviderConfig {
 	return {
@@ -59,10 +61,7 @@ export default async function (pi: CursorExtensionApi) {
 	});
 
 	if (fallbackIssue) {
-		const issue = fallbackIssue;
-		pi.on("session_start", async (_event, ctx) => {
-			if (ctx.hasUI) ctx.ui.notify(issue.message, "warning");
-		});
+		registerCursorFallbackIssueWarning(pi, fallbackIssue);
 	}
 
 	pi.registerCommand("cursor-refresh-models", {

@@ -1,4 +1,4 @@
-import { asRecord } from "./cursor-record-utils.js";
+import { asRecord, getBoolean, getNumber, getString } from "./cursor-record-utils.js";
 import { isCursorReplayActivitySourceName, type CursorReplayActivitySourceName } from "./cursor-replay-source-names.js";
 
 /** Replay detail variants keyed by replay card disposition, not SDK source tool alone. */
@@ -112,66 +112,51 @@ export type CursorReplayGenerateImageDetailFields = Pick<
 	"summary" | "expandedText" | "imagePath" | "imageDisplayPath" | "imageMimeType"
 >;
 
-function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
-	const value = record[key];
-	return typeof value === "string" ? value : undefined;
-}
-
-function readOptionalNumber(record: Record<string, unknown>, key: string): number | undefined {
-	const value = record[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function readOptionalBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
-	const value = record[key];
-	return typeof value === "boolean" ? value : undefined;
-}
-
 function readSourceToolName(record: Record<string, unknown>): string | undefined {
-	const sourceToolName = readOptionalString(record, "sourceToolName");
+	const sourceToolName = getString(record, "sourceToolName");
 	return sourceToolName?.trim() ? sourceToolName.trim() : undefined;
 }
 
 function readVariant(record: Record<string, unknown>): string | undefined {
-	const variant = readOptionalString(record, "variant");
+	const variant = getString(record, "variant");
 	return variant?.trim() ? variant.trim() : undefined;
 }
 
 function parseCursorReplayNativeEditDetails(record: Record<string, unknown>): CursorReplayNativeEditDetails {
 	return {
 		variant: "nativeEdit",
-		path: readOptionalString(record, "path"),
-		linesAdded: readOptionalNumber(record, "linesAdded"),
-		linesRemoved: readOptionalNumber(record, "linesRemoved"),
-		diffString: readOptionalString(record, "diffString"),
-		diff: readOptionalString(record, "diff"),
-		firstChangedLine: readOptionalNumber(record, "firstChangedLine"),
-		summary: readOptionalString(record, "summary"),
-		expandedText: readOptionalString(record, "expandedText"),
+		path: getString(record, "path"),
+		linesAdded: getNumber(record, "linesAdded"),
+		linesRemoved: getNumber(record, "linesRemoved"),
+		diffString: getString(record, "diffString"),
+		diff: getString(record, "diff"),
+		firstChangedLine: getNumber(record, "firstChangedLine"),
+		summary: getString(record, "summary"),
+		expandedText: getString(record, "expandedText"),
 	};
 }
 
 function parseCursorReplayNativeWriteDetails(record: Record<string, unknown>): CursorReplayNativeWriteDetails {
 	return {
 		variant: "nativeWrite",
-		path: readOptionalString(record, "path"),
-		linesCreated: readOptionalNumber(record, "linesCreated"),
-		fileSize: readOptionalNumber(record, "fileSize"),
-		fileContentAfterWrite: readOptionalString(record, "fileContentAfterWrite"),
-		expandedText: readOptionalString(record, "expandedText"),
-		summary: readOptionalString(record, "summary"),
+		path: getString(record, "path"),
+		linesCreated: getNumber(record, "linesCreated"),
+		fileSize: getNumber(record, "fileSize"),
+		fileContentAfterWrite: getString(record, "fileContentAfterWrite"),
+		expandedText: getString(record, "expandedText"),
+		summary: getString(record, "summary"),
 	};
 }
 
 function parseCursorReplayGenerateImageDetails(record: Record<string, unknown>): CursorReplayGenerateImageDetails {
-	const collapseDetailsByDefault = readOptionalBoolean(record, "collapseDetailsByDefault");
+	const collapseDetailsByDefault = getBoolean(record, "collapseDetailsByDefault");
 	return {
 		variant: "generateImage",
-		imagePath: readOptionalString(record, "imagePath"),
-		imageDisplayPath: readOptionalString(record, "imageDisplayPath"),
-		imageMimeType: readOptionalString(record, "imageMimeType"),
-		summary: readOptionalString(record, "summary"),
-		expandedText: readOptionalString(record, "expandedText"),
+		imagePath: getString(record, "imagePath"),
+		imageDisplayPath: getString(record, "imageDisplayPath"),
+		imageMimeType: getString(record, "imageMimeType"),
+		summary: getString(record, "summary"),
+		expandedText: getString(record, "expandedText"),
 		...(collapseDetailsByDefault !== undefined ? { collapseDetailsByDefault } : {}),
 	};
 }
@@ -185,16 +170,16 @@ function parseCursorReplayActivityDetails(
 		variant: "activity",
 		sourceToolName,
 		title,
-		summary: readOptionalString(record, "summary"),
-		expandedText: readOptionalString(record, "expandedText"),
-		collapseDetailsByDefault: readOptionalBoolean(record, "collapseDetailsByDefault"),
-		path: readOptionalString(record, "path"),
-		fileSize: readOptionalNumber(record, "fileSize"),
-		diffString: readOptionalString(record, "diffString"),
-		diff: readOptionalString(record, "diff"),
-		linesAdded: readOptionalNumber(record, "linesAdded"),
-		linesRemoved: readOptionalNumber(record, "linesRemoved"),
-		fileContentAfterWrite: readOptionalString(record, "fileContentAfterWrite"),
+		summary: getString(record, "summary"),
+		expandedText: getString(record, "expandedText"),
+		collapseDetailsByDefault: getBoolean(record, "collapseDetailsByDefault"),
+		path: getString(record, "path"),
+		fileSize: getNumber(record, "fileSize"),
+		diffString: getString(record, "diffString"),
+		diff: getString(record, "diff"),
+		linesAdded: getNumber(record, "linesAdded"),
+		linesRemoved: getNumber(record, "linesRemoved"),
+		fileContentAfterWrite: getString(record, "fileContentAfterWrite"),
 	};
 }
 
@@ -209,8 +194,8 @@ function parseCursorReplayGenericFallbackDetails(
 	return {
 		variant: "genericFallback",
 		sourceToolName: brandCursorReplayUnknownSourceToolName(sourceToolName),
-		summary: readOptionalString(record, "summary"),
-		expandedText: readOptionalString(record, "expandedText"),
+		summary: getString(record, "summary"),
+		expandedText: getString(record, "expandedText"),
 	};
 }
 
@@ -235,7 +220,7 @@ export function resolveIncompleteReplayActivitySourceToolName(
 }
 
 function parseActivityVariantDetails(record: Record<string, unknown>): CursorReplayActivityDetails | undefined {
-	const title = readOptionalString(record, "title")?.trim();
+	const title = getString(record, "title")?.trim();
 	if (!title) return undefined;
 	return parseCursorReplayActivityDetails(
 		record,

@@ -8,12 +8,8 @@ import {
 	formatCursorToolLifecycleProgressText,
 	isCursorToolLifecycleEligible,
 } from "./cursor-tool-lifecycle.js";
-import { classifyCursorToolVisibility } from "./cursor-tool-visibility.js";
+import { getNormalizedCursorToolName } from "./cursor-tool-visibility.js";
 import { getStartedToolCallFingerprint } from "./cursor-provider-turn-tool-ledger.js";
-
-function getNormalizedCursorToolName(toolCall: unknown): string {
-	return classifyCursorToolVisibility(toolCall).normalizedName;
-}
 
 export interface CursorToolLifecycleEmitterOptions {
 	liveRun?: CursorLiveRun;

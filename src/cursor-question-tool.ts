@@ -1,7 +1,8 @@
-import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext, ExtensionHandler, SessionStartEvent, TurnStartEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { isCursorModel } from "./cursor-model.js";
+import { registerCursorModelLifecycle, type CursorModelLifecycleExtensionApi } from "./cursor-model-lifecycle.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge.js";
 
 export const CURSOR_ASK_QUESTION_TOOL_NAME = "cursor_ask_question";
@@ -35,12 +36,7 @@ interface CursorQuestionDetails {
 	cancelled: boolean;
 }
 
-interface CursorQuestionToolExtensionApi extends Pick<ExtensionAPI, "getActiveTools" | "registerTool" | "setActiveTools"> {
-	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
-	on(event: "before_agent_start", handler: ExtensionHandler<BeforeAgentStartEvent>): void;
-	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): void;
-	on(event: "model_select", handler: (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => Promise<void> | void): void;
-}
+interface CursorQuestionToolExtensionApi extends Pick<ExtensionAPI, "getActiveTools" | "registerTool" | "setActiveTools">, CursorModelLifecycleExtensionApi {}
 
 type RawQuestionOption = string | { label?: string; value?: string; description?: string };
 
@@ -232,16 +228,7 @@ export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): 
 		},
 	});
 
-	pi.on("session_start", (_event, ctx) => {
+	registerCursorModelLifecycle(pi, (ctx) => {
 		syncCursorQuestionToolForModel(pi, ctx.model);
-	});
-	pi.on("before_agent_start", (_event, ctx) => {
-		syncCursorQuestionToolForModel(pi, ctx.model);
-	});
-	pi.on("turn_start", (_event, ctx) => {
-		syncCursorQuestionToolForModel(pi, ctx.model);
-	});
-	pi.on("model_select", (event) => {
-		syncCursorQuestionToolForModel(pi, event.model);
 	});
 }

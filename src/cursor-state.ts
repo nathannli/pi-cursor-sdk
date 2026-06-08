@@ -15,10 +15,12 @@ import {
 } from "./cursor-pi-tool-bridge-snapshot.js";
 import {
 	CURSOR_SETTING_SOURCES_ENV,
-	getEffectiveCursorSettingSources,
+	resolveCursorSettingSources,
 } from "./cursor-setting-sources.js";
 import { isCursorModel } from "./cursor-model.js";
+import { registerCursorModelLifecycle } from "./cursor-model-lifecycle.js";
 import { asRecord } from "./cursor-record-utils.js";
+import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 import { getCursorModelMetadata } from "./model-discovery.js";
 
 const FAST_ENTRY_TYPE = "cursor-fast-state";
@@ -59,6 +61,7 @@ let cliForceFast = false;
 let cliForceNoFast = false;
 let sessionCursorAgentMode: AgentModeOption | undefined;
 let cliCursorModeState: CursorCliModeState = { kind: "unset" };
+const invalidCursorModeNotifiedSessionScopeKeys = new Set<string>();
 
 export function isCursorAgentMode(value: unknown): value is AgentModeOption {
 	return value === "agent" || value === "plan";
@@ -174,23 +177,38 @@ function formatInvalidCursorMode(raw: string): string {
 	return `Invalid --cursor-mode "${raw}". Use "agent" or "plan".`;
 }
 
-export function getEffectiveCursorAgentMode(): AgentModeOption {
+export type CursorAgentModeResolution =
+	| { kind: "valid"; mode: AgentModeOption }
+	| { kind: "invalid"; raw: string; message: string };
+
+export function getStoredCursorAgentMode(): AgentModeOption {
+	return sessionCursorAgentMode ?? DEFAULT_CURSOR_AGENT_MODE;
+}
+
+export function resolveCursorAgentMode(): CursorAgentModeResolution {
 	switch (cliCursorModeState.kind) {
 		case "valid":
-			return cliCursorModeState.mode;
+			return { kind: "valid", mode: cliCursorModeState.mode };
 		case "invalid":
-			throw new Error(cliCursorModeState.message);
+			return { kind: "invalid", raw: cliCursorModeState.raw, message: cliCursorModeState.message };
 		case "unset":
-			return sessionCursorAgentMode ?? DEFAULT_CURSOR_AGENT_MODE;
+			return { kind: "valid", mode: getStoredCursorAgentMode() };
 	}
+}
+
+export function getCursorProviderAgentModeOrThrow(): AgentModeOption {
+	const resolution = resolveCursorAgentMode();
+	if (resolution.kind === "invalid") throw new Error(resolution.message);
+	return resolution.mode;
 }
 
 function formatCursorStatus(fast: boolean | undefined): string | undefined {
 	const parts: string[] = [];
+	const modeResolution = resolveCursorAgentMode();
 	if (fast === true) parts.push("fast");
-	if (cliCursorModeState.kind === "invalid") {
+	if (modeResolution.kind === "invalid") {
 		parts.push("mode invalid");
-	} else if (getEffectiveCursorAgentMode() === "plan") {
+	} else if (modeResolution.mode === "plan") {
 		parts.push("plan");
 	}
 	return parts.length > 0 ? `cursor ${parts.join(" · ")}` : undefined;
@@ -255,7 +273,7 @@ function persistCursorModePreference(pi: Pick<ExtensionAPI, "appendEntry">, mode
 	}
 }
 
-function restoreCliCursorMode(raw: boolean | string | undefined, mode: ExtensionContext["mode"], notify: ExtensionContext["ui"]["notify"]): void {
+function restoreCliCursorMode(raw: boolean | string | undefined): void {
 	cliCursorModeState = { kind: "unset" };
 	if (raw === undefined || raw === "" || raw === false) return;
 	const parsed = parseCursorAgentMode(raw);
@@ -266,15 +284,19 @@ function restoreCliCursorMode(raw: boolean | string | undefined, mode: Extension
 	const rawText = String(raw);
 	const message = formatInvalidCursorMode(rawText);
 	cliCursorModeState = { kind: "invalid", raw: rawText, message };
-	if (mode === "tui") {
-		notify(message, "error");
-		return;
-	}
-	throw new Error(message);
+}
+
+function notifyInvalidCursorModeIfCursorActive(ctx: Pick<ExtensionContext, "hasUI" | "mode" | "ui">): void {
+	const modeResolution = resolveCursorAgentMode();
+	if (modeResolution.kind !== "invalid" || !ctx.hasUI || ctx.mode !== "tui") return;
+	const scopeKey = getCursorSessionScopeKey();
+	if (invalidCursorModeNotifiedSessionScopeKeys.has(scopeKey)) return;
+	invalidCursorModeNotifiedSessionScopeKeys.add(scopeKey);
+	ctx.ui.notify(modeResolution.message, "error");
 }
 
 function formatEffectiveCursorSettingSourcesLabel(raw: string | undefined = process.env[CURSOR_SETTING_SOURCES_ENV]): string {
-	const effective = getEffectiveCursorSettingSources(raw);
+	const effective = resolveCursorSettingSources(raw);
 	const effectiveLabel = effective === undefined ? "none" : effective.join(",");
 	const rawLabel = raw?.trim() ? raw.trim() : "(unset → all)";
 	return `${rawLabel} (effective: ${effectiveLabel})`;
@@ -395,10 +417,11 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			const usage = "Usage: /cursor-mode agent|plan";
 			const mode = parseCursorAgentMode(args);
 			if (!args.trim()) {
-				try {
-					ctx.ui.notify(`Cursor mode is ${getEffectiveCursorAgentMode()}. ${usage}`, "info");
-				} catch (error) {
-					ctx.ui.notify(`${error instanceof Error ? error.message : String(error)} ${usage}`, "error");
+				const modeResolution = resolveCursorAgentMode();
+				if (modeResolution.kind === "invalid") {
+					ctx.ui.notify(`${modeResolution.message} ${usage}`, "error");
+				} else {
+					ctx.ui.notify(`Cursor mode is ${modeResolution.mode}. ${usage}`, "info");
 				}
 				return;
 			}
@@ -429,28 +452,26 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		},
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
-		globalFastPreferences = loadGlobalFastPreferences();
-		cliForceFast = pi.getFlag("cursor-fast") === true;
-		cliForceNoFast = pi.getFlag("cursor-no-fast") === true;
-		restoreSessionFastPreferences(ctx);
-		restoreSessionCursorMode(ctx);
-		restoreCliCursorMode(pi.getFlag("cursor-mode"), ctx.mode, ctx.ui.notify.bind(ctx.ui));
-		updateCursorStatus(ctx);
-	});
-
-	pi.on("model_select", async (event, ctx) => {
-		updateCursorStatus(ctx, event.model);
-	});
-
-	pi.on("turn_start", async (_event, ctx) => {
-		updateCursorStatus(ctx);
+	registerCursorModelLifecycle(pi, {
+		sessionStart: (_event, ctx) => {
+			globalFastPreferences = loadGlobalFastPreferences();
+			cliForceFast = pi.getFlag("cursor-fast") === true;
+			cliForceNoFast = pi.getFlag("cursor-no-fast") === true;
+			restoreSessionFastPreferences(ctx);
+			restoreSessionCursorMode(ctx);
+			restoreCliCursorMode(pi.getFlag("cursor-mode"));
+		},
+		sync: (ctx) => {
+			if (isCursorModel(ctx.model)) notifyInvalidCursorModeIfCursorActive(ctx);
+			updateCursorStatus(ctx);
+		},
 	});
 }
 
 function resetCursorModeStateForTests(): void {
 	sessionCursorAgentMode = undefined;
 	cliCursorModeState = { kind: "unset" };
+	invalidCursorModeNotifiedSessionScopeKeys.clear();
 }
 
 export const __testUtils = {

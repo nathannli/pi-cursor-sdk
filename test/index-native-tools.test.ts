@@ -1,10 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resetCapabilitiesCache, setCapabilities } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import {
+	createEditToolDefinition,
+	createReadToolDefinition,
+	createWriteToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import {
 	createBuiltinToolInfo,
 	createExtensionTestContext,
@@ -574,6 +579,63 @@ describe("extension native Cursor tool replay", () => {
 		expect(pi._activeToolNames()).toContain("read");
 		expect(canRenderCursorToolNatively("cursor")).toBe(true);
 		expect(canRenderCursorToolNatively("read")).toBe(true);
+	});
+
+	it("core native Cursor wrappers delegate ordinary non-Cursor execution and rendering after model switch", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		mockedDiscover.mockResolvedValueOnce([]);
+		const dir = mkdtempSync(join(tmpdir(), "pi-cursor-native-cross-model-"));
+		try {
+			writeFileSync(join(dir, "input.txt"), "before\n");
+			const pi = createExtensionPi();
+			await extensionFactory(pi);
+			await pi.runSessionStart({ cwd: dir, model: makeModel("composer-2.5") });
+			await pi.runModelSelect(makeHarnessModel("openai-codex", "openai-codex-responses", "gpt-5.5"), { cwd: dir });
+
+			expect(pi._activeToolNames()).toEqual(["read", "bash", "edit", "write"]);
+			expect(pi._activeToolNames()).not.toContain("cursor");
+			expect(canRenderCursorToolNatively("read")).toBe(true);
+
+			const context = createExtensionTestContext({ cwd: dir, model: makeHarnessModel("openai-codex", "openai-codex-responses", "gpt-5.5") });
+			const readTool = getHarnessRegisteredTool(pi._tools, "read");
+			const bashTool = getHarnessRegisteredTool(pi._tools, "bash");
+			const editTool = getHarnessRegisteredTool(pi._tools, "edit");
+			const writeTool = getHarnessRegisteredTool(pi._tools, "write");
+
+			await expect(readTool.execute("ordinary-read", { path: "input.txt" }, undefined, undefined, context)).resolves.toMatchObject({
+				content: [{ type: "text", text: "before\n" }],
+			});
+			const bashResult = await bashTool.execute("ordinary-bash", { command: "printf ok" }, undefined, undefined, context);
+			expect(bashResult.content.map((entry) => (entry.type === "text" ? entry.text : "")).join("\n")).toContain("ok");
+			await writeTool.execute("ordinary-write", { path: "created.txt", content: "created\n" }, undefined, undefined, context);
+			expect(readFileSync(join(dir, "created.txt"), "utf8")).toBe("created\n");
+			await editTool.execute(
+				"ordinary-edit",
+				{ path: "input.txt", edits: [{ oldText: "before\n", newText: "after\n" }] },
+				undefined,
+				undefined,
+				context,
+			);
+			expect(readFileSync(join(dir, "input.txt"), "utf8")).toBe("after\n");
+
+			const theme = createRenderTheme({ bg: (_style: string, text: string) => text });
+			const renderCall = (tool: { renderCall?: (...args: any[]) => { render(width: number): string[] } }, args: Record<string, unknown>) =>
+				stripVTControlCharacters(
+					tool.renderCall?.(
+						args,
+						theme,
+						createRenderContext({ isPartial: false, toolCallId: "ordinary-tool-call", state: {}, args }),
+					)?.render(120).join("\n") ?? "",
+				);
+			expect(renderCall(readTool, { path: "input.txt" })).toBe(renderCall(createReadToolDefinition(dir), { path: "input.txt" }));
+			const editArgs = { path: "input.txt", edits: [{ oldText: "after\n", newText: "again\n" }] };
+			expect(renderCall(editTool, editArgs)).toBe(renderCall(createEditToolDefinition(dir), editArgs));
+			expect(renderCall(writeTool, { path: "created.txt", content: "created\n" })).toBe(
+				renderCall(createWriteToolDefinition(dir), { path: "created.txt", content: "created\n" }),
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("warns once for conflicting native Cursor tool wrappers across turn lifecycle hooks", async () => {

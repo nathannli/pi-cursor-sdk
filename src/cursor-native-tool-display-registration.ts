@@ -1,4 +1,4 @@
-import type { BeforeAgentStartEvent, ExtensionAPI, ExtensionContext, ExtensionHandler, SessionStartEvent, TurnStartEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	CURSOR_MODEL_ACTIVE_REPLAY_TOOL_NAMES,
 	isNativeCursorToolName,
@@ -7,6 +7,7 @@ import {
 	type NativeCursorToolName,
 } from "./cursor-native-tool-display-tools.js";
 import { isCursorModel } from "./cursor-model.js";
+import { registerCursorModelLifecycle, type CursorModelLifecycleExtensionApi } from "./cursor-model-lifecycle.js";
 import {
 	isCursorNativeToolDisplayRequested,
 	isCursorNativeToolRegistrationRequested,
@@ -27,12 +28,7 @@ function isCursorCorePiReplayToolName(toolName: string): toolName is (typeof CUR
 type CursorNativeToolActivationApi = Pick<ExtensionAPI, "getActiveTools" | "setActiveTools">;
 type CursorNativeToolRegistryApi = CursorNativeToolActivationApi & Pick<ExtensionAPI, "getAllTools" | "registerTool">;
 
-export interface CursorNativeToolDisplayExtensionApi extends CursorNativeToolRegistryApi {
-	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
-	on(event: "before_agent_start", handler: ExtensionHandler<BeforeAgentStartEvent>): void;
-	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): void;
-	on(event: "model_select", handler: (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => Promise<void> | void): void;
-}
+export interface CursorNativeToolDisplayExtensionApi extends CursorNativeToolRegistryApi, CursorModelLifecycleExtensionApi {}
 
 function hasNonBuiltinTool(pi: Pick<ExtensionAPI, "getAllTools">, toolName: NativeCursorToolName): boolean {
 	const existingTool = pi.getAllTools().find((tool) => tool.name === toolName);
@@ -121,17 +117,8 @@ function ensureThenSyncNativeCursorToolsForModel(pi: CursorNativeToolRegistryApi
 }
 
 export function registerCursorNativeToolDisplay(pi: CursorNativeToolDisplayExtensionApi): void {
-	pi.on("session_start", (_event, ctx) => {
+	registerCursorModelLifecycle(pi, (ctx) => {
 		ensureThenSyncNativeCursorToolsForModel(pi, ctx);
-	});
-	pi.on("before_agent_start", (_event, ctx) => {
-		ensureThenSyncNativeCursorToolsForModel(pi, ctx);
-	});
-	pi.on("turn_start", (_event, ctx) => {
-		ensureThenSyncNativeCursorToolsForModel(pi, ctx);
-	});
-	pi.on("model_select", (event, ctx) => {
-		ensureThenSyncNativeCursorToolsForModel(pi, { ...ctx, model: event.model });
 	});
 }
 

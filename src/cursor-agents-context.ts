@@ -1,17 +1,15 @@
 import type {
-	BeforeAgentStartEvent,
-	BeforeAgentStartEventResult,
 	BuildSystemPromptOptions,
-	ExtensionAPI,
 	ExtensionContext,
-	ExtensionHandler,
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parseEnvBoolean } from "./cursor-env-boolean.js";
 import { isCursorModel } from "./cursor-model.js";
+import { registerCursorModelLifecycle, type CursorModelLifecycleExtensionApi } from "./cursor-model-lifecycle.js";
 import {
 	cursorSettingSourcesIncludes,
 	getEffectiveCursorSettingSources,
+	resolveCursorSettingSources,
 } from "./cursor-setting-sources.js";
 import type { SettingSource } from "@cursor/sdk";
 
@@ -158,24 +156,28 @@ export function resolveCursorFacingSystemPrompt(
 ): string {
 	if (!systemPromptOptions) return systemPrompt;
 	const contextFiles = systemPromptOptions.contextFiles ?? [];
-	const settingSources = getEffectiveCursorSettingSources(settingSourcesRaw);
+	const settingSources =
+		settingSourcesRaw === undefined
+			? getEffectiveCursorSettingSources()
+			: resolveCursorSettingSources(settingSourcesRaw);
 	if (!shouldSuppressPiAgentsContext(model, contextFiles, settingSources, agentDir)) {
 		return systemPrompt;
 	}
 	return removePiAgentsContextFromSystemPrompt(systemPrompt, contextFiles, settingSources, agentDir);
 }
 
-type CursorAgentsContextExtensionApi = Pick<ExtensionAPI, "on">;
+type CursorAgentsContextExtensionApi = CursorModelLifecycleExtensionApi;
 
 export function registerCursorAgentsContextDedup(pi: CursorAgentsContextExtensionApi): void {
-	const handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> = (event, ctx) => {
-		const resolved = resolveCursorFacingSystemPrompt(
-			event.systemPrompt,
-			ctx.model,
-			event.systemPromptOptions,
-		);
-		if (resolved === event.systemPrompt) return;
-		return { systemPrompt: resolved };
-	};
-	pi.on("before_agent_start", handler);
+	registerCursorModelLifecycle(pi, {
+		beforeAgentStart: (event, ctx) => {
+			const resolved = resolveCursorFacingSystemPrompt(
+				event.systemPrompt,
+				ctx.model,
+				event.systemPromptOptions,
+			);
+			if (resolved === event.systemPrompt) return;
+			return { systemPrompt: resolved };
+		},
+	});
 }

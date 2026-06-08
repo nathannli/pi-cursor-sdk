@@ -1,8 +1,6 @@
 import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { asRecord } from "./cursor-record-utils.js";
-
-export { asRecord, getFirstStringByKeys } from "./cursor-record-utils.js";
+import { asRecord, getArray, getRecord, getString, stringifyUnknown as stringifyUnknownValue } from "./cursor-record-utils.js";
 
 export interface TranscriptOptions {
 	maxChars?: number;
@@ -47,30 +45,6 @@ export function isLocalReadPreviewContent(text: string): boolean {
 	return text.startsWith(LOCAL_READ_PREVIEW_NOTICE);
 }
 
-export function getString(record: Record<string, unknown> | undefined, key: string): string | undefined {
-	const value = record?.[key];
-	return typeof value === "string" ? value : undefined;
-}
-
-export function getNumber(record: Record<string, unknown> | undefined, key: string): number | undefined {
-	const value = record?.[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-export function getBoolean(record: Record<string, unknown> | undefined, key: string): boolean | undefined {
-	const value = record?.[key];
-	return typeof value === "boolean" ? value : undefined;
-}
-
-export function getRecord(record: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
-	return asRecord(record?.[key]);
-}
-
-export function getArray(record: Record<string, unknown> | undefined, key: string): unknown[] | undefined {
-	const value = record?.[key];
-	return Array.isArray(value) ? value : undefined;
-}
-
 export function getToolName(toolCall: unknown): string {
 	const record = asRecord(toolCall);
 	return getString(record, "name") ?? getString(record, "type") ?? getString(record, "toolName") ?? "unknown";
@@ -96,13 +70,7 @@ export function normalizeResult(result: unknown): NormalizedResult {
 }
 
 export function stringifyUnknown(value: unknown): string {
-	if (value === undefined) return "";
-	if (typeof value === "string") return value;
-	try {
-		return JSON.stringify(value, null, 2) ?? String(value);
-	} catch {
-		return String(value);
-	}
+	return stringifyUnknownValue(value, { pretty: true });
 }
 
 export function limitText(text: string, options: TranscriptOptions = {}, knownTotalLines?: number): string {

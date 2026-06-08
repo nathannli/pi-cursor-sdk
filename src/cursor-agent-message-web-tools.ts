@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@cursor/sdk";
-import { asRecord, getArray, getString, stringifyUnknown } from "./cursor-transcript-utils.js";
+import { asRecord, getArray, getString } from "./cursor-record-utils.js";
+import { stringifyUnknown } from "./cursor-transcript-utils.js";
 import { loadCursorSdk } from "./cursor-sdk-runtime.js";
 
 const CURSOR_AGENT_MESSAGE_PAGE_LIMIT = 8;

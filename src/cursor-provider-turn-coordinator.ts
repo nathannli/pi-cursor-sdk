@@ -13,7 +13,7 @@ import {
 	type IncompleteCursorToolRunOutcome,
 } from "./cursor-incomplete-tool-visibility.js";
 import { getToolName } from "./cursor-transcript-utils.js";
-import { classifyCursorToolVisibility } from "./cursor-tool-visibility.js";
+import { getNormalizedCursorToolName } from "./cursor-tool-visibility.js";
 import { buildCursorPiToolDisplay } from "./cursor-tool-transcript.js";
 import { getField } from "./cursor-record-utils.js";
 import { CursorTurnDisplayRouter } from "./cursor-provider-turn-display-router.js";
@@ -31,10 +31,6 @@ import {
 	CursorToolCompletionLedger,
 	getToolFingerprint,
 } from "./cursor-provider-turn-tool-ledger.js";
-
-function getNormalizedCursorToolName(toolCall: unknown): string {
-	return classifyCursorToolVisibility(toolCall).normalizedName;
-}
 
 export interface CursorSdkTurnCoordinatorOptions {
 	stream: AssistantMessageEventStream;

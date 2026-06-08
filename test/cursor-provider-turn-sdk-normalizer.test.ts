@@ -4,6 +4,39 @@ import { CursorShellOutputTracker } from "../src/cursor-provider-turn-shell-outp
 import { CursorToolCompletionLedger } from "../src/cursor-provider-turn-tool-ledger.js";
 
 describe("resolveCursorToolCompletion", () => {
+	it("keeps started tool args when the completed Cursor update only contains a result", () => {
+		const ledger = new CursorToolCompletionLedger();
+		const shellOutput = new CursorShellOutputTracker();
+		ledger.registerStartedToolCall("read-1", {
+			name: "read",
+			args: { path: "src/index.ts" },
+		});
+
+		const resolution = resolveCursorToolCompletion({
+			source: "delta",
+			callId: "read-1",
+			toolCall: {
+				name: "read",
+				result: { status: "success", value: { content: "export default" } },
+			},
+			startedToolCall: ledger.getStartedToolCall("read-1"),
+			ledger,
+			shellOutput,
+		});
+
+		expect(resolution).toMatchObject({
+			action: "handle",
+			identity: "cursor-tool:read-1",
+			source: "started",
+		});
+		if (resolution.action !== "handle") return;
+		expect(resolution.toolCall).toMatchObject({
+			name: "read",
+			args: { path: "src/index.ts" },
+			result: { status: "success", value: { content: "export default" } },
+		});
+	});
+
 	it("merges shell-output deltas into delta completions", () => {
 		const ledger = new CursorToolCompletionLedger();
 		const shellOutput = new CursorShellOutputTracker();

@@ -348,6 +348,7 @@ describe("extension registration and discovery", () => {
 		const notify = vi.fn();
 		await pi.runSessionStart({
 			hasUI: true,
+			model: makeHarnessModel("cursor", "cursor-sdk", "composer-2"),
 			ui: { notify, setStatus: vi.fn() },
 			sessionManager: { getBranch: vi.fn(() => []) },
 		});
@@ -356,6 +357,96 @@ describe("extension registration and discovery", () => {
 			"Cursor model discovery needs an API key from /login (Use an API key -> Cursor), CURSOR_API_KEY, or --api-key with a Cursor SDK API key; Cursor Agent CLI/Desktop login is not reused. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
 			"warning",
 		);
+	});
+
+	it("does not notify fallback discovery issues for non-Cursor sessions", async () => {
+		mockedDiscover.mockImplementationOnce(async (options: DiscoverOptions) => {
+			options?.onFallback?.({
+				reason: "empty-model-list",
+				message: "Cursor model discovery returned no models; using fallback Cursor model list.",
+			});
+			return [];
+		});
+
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+
+		const notify = vi.fn();
+		await pi.runSessionStart({
+			hasUI: true,
+			model: makeHarnessModel("anthropic", "anthropic-messages", "claude-sonnet-4-5"),
+			ui: { notify, setStatus: vi.fn() },
+			sessionManager: { getBranch: vi.fn(() => []) },
+		});
+
+		expect(notify).not.toHaveBeenCalled();
+	});
+
+	it("notifies fallback discovery issues after delayed Cursor model selection", async () => {
+		mockedDiscover.mockImplementationOnce(async (options: DiscoverOptions) => {
+			options?.onFallback?.({
+				reason: "missing-api-key",
+				message: "missing key; using fallback models",
+			});
+			return [makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" })];
+		});
+
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+
+		const notify = vi.fn();
+		await pi.runSessionStart({
+			hasUI: true,
+			model: makeHarnessModel("anthropic", "anthropic-messages", "claude-sonnet-4-5"),
+			ui: { notify, setStatus: vi.fn() },
+			sessionManager: { getBranch: vi.fn(() => []) },
+		});
+		expect(notify).not.toHaveBeenCalled();
+
+		await pi.runModelSelect(makeHarnessModel("cursor", "cursor-sdk", "composer-2"), {
+			hasUI: true,
+			ui: { notify, setStatus: vi.fn() },
+		});
+
+		expect(notify).toHaveBeenCalledWith("missing key; using fallback models", "warning");
+	});
+
+	it("notifies fallback discovery issues once per Cursor session scope", async () => {
+		mockedDiscover.mockImplementationOnce(async (options: DiscoverOptions) => {
+			options?.onFallback?.({
+				reason: "missing-api-key",
+				message: "missing key; using fallback models",
+			});
+			return [makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" })];
+		});
+
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+
+		const notify = vi.fn();
+		const cursorModel = makeHarnessModel("cursor", "cursor-sdk", "composer-2");
+		await pi.runSessionStart({
+			hasUI: true,
+			model: cursorModel,
+			ui: { notify, setStatus: vi.fn() },
+			sessionManager: { getSessionFile: vi.fn(() => "/tmp/session-one.jsonl"), getBranch: vi.fn(() => []) },
+		});
+		await pi.runTurnStart({
+			hasUI: true,
+			model: cursorModel,
+			ui: { notify, setStatus: vi.fn() },
+			sessionManager: { getSessionFile: vi.fn(() => "/tmp/session-one.jsonl"), getBranch: vi.fn(() => []) },
+		});
+		await pi.runSessionStart({
+			hasUI: true,
+			model: cursorModel,
+			ui: { notify, setStatus: vi.fn() },
+			sessionManager: { getSessionFile: vi.fn(() => "/tmp/session-two.jsonl"), getBranch: vi.fn(() => []) },
+		});
+
+		expect(notify).toHaveBeenCalledTimes(2);
+		expect(notify).toHaveBeenNthCalledWith(1, "missing key; using fallback models", "warning");
+		expect(notify).toHaveBeenNthCalledWith(2, "missing key; using fallback models", "warning");
 	});
 
 	it("does not notify fallback discovery issues without UI", async () => {

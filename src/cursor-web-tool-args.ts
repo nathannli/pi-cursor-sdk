@@ -1,15 +1,7 @@
-import { asRecord } from "./cursor-record-utils.js";
+import { asRecord, firstNonEmptyString } from "./cursor-record-utils.js";
 
 function getNestedMcpArgs(args: Record<string, unknown>): Record<string, unknown> {
 	return asRecord(args.args) ?? {};
-}
-
-function firstNonEmptyString(...values: Array<string | undefined>): string | undefined {
-	for (const value of values) {
-		const trimmed = value?.trim();
-		if (trimmed) return trimmed;
-	}
-	return undefined;
 }
 
 export function extractWebSearchQuery(args: Record<string, unknown>): string | undefined {

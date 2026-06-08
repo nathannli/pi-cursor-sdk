@@ -1,11 +1,18 @@
 import { resolveCursorEditDiff } from "./cursor-edit-diff.js";
 import { extractWebFetchTarget, extractWebSearchQuery } from "./cursor-web-tool-args.js";
-import { getFirstStringByKeys } from "./cursor-record-utils.js";
+import {
+	asRecord,
+	getArray,
+	getBoolean,
+	getFirstStringByKeys,
+	getNumber,
+	getRecord,
+	getString,
+} from "./cursor-record-utils.js";
 import {
 	collectTaskText,
-	describeNonTextMcpContent,
 	getGenerateImageDisplayPath,
-	getMcpContentText,
+	readMcpDisplayResult,
 	getReadLintDiagnostics,
 	getReadLintPaths,
 	getTaskDescription,
@@ -13,16 +20,10 @@ import {
 } from "./cursor-tool-result-display-readers.js";
 
 import {
-	asRecord,
 	formatDisplayPath,
 	formatDiffString,
 	formatError,
 	formatPathArg,
-	getArray,
-	getBoolean,
-	getNumber,
-	getRecord,
-	getString,
 	joinSections,
 	limitItems,
 	limitText,
@@ -575,16 +576,7 @@ function formatWebToolBody(
 	options: TranscriptOptions,
 ): string {
 	if (result.status === "error") return joinSections(toolLabel, formatError(result.error));
-	const value = asRecord(result.value);
-	const isError = getBoolean(value, "isError");
-	const content = getArray(value, "content") ?? [];
-	const text = content
-		.map((entry) => getMcpContentText(entry))
-		.filter((entry): entry is string => Boolean(entry))
-		.join("\n");
-	const contentSummary = content.length > 0 ? content.map(describeNonTextMcpContent).join("\n") : stringifyUnknown(result.value);
-	const body = `${isError ? "[tool error]\n" : ""}${text || contentSummary}`;
-	return joinSections(toolLabel, limitText(body.trim(), options));
+	return joinSections(toolLabel, limitText(readMcpDisplayResult(result).body, options));
 }
 
 export function formatWebSearch(args: Record<string, unknown>, result: NormalizedResult, options: TranscriptOptions): string {
@@ -602,17 +594,7 @@ export function formatWebFetch(args: Record<string, unknown>, result: Normalized
 export function formatMcp(args: Record<string, unknown>, result: NormalizedResult, options: TranscriptOptions): string {
 	const toolName = typeof args.toolName === "string" ? args.toolName : "mcp";
 	if (result.status === "error") return joinSections(toolName, formatError(result.error));
-
-	const value = asRecord(result.value);
-	const isError = getBoolean(value, "isError");
-	const content = getArray(value, "content") ?? [];
-	const text = content
-		.map((entry) => getMcpContentText(entry))
-		.filter((entry): entry is string => Boolean(entry))
-		.join("\n");
-	const contentSummary = content.length > 0 ? content.map(describeNonTextMcpContent).join("\n") : stringifyUnknown(result.value);
-	const body = `${isError ? "[tool error]\n" : ""}${text || contentSummary}`;
-	return joinSections(toolName, limitText(body, options));
+	return joinSections(toolName, limitText(readMcpDisplayResult(result).body, options));
 }
 
 const UNKNOWN_TOOL_FALLBACK_MAX_ARGS = 8;

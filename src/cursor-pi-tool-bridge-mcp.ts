@@ -3,7 +3,7 @@ import type { Context, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { buildCursorPiBridgeMcpToolDescription, CURSOR_PI_BRIDGE_MCP_TOOL_PREFIX } from "./cursor-bridge-contract.js";
 import type { CursorPiBridgeToolDefinition, CursorPiMcpInputSchema } from "./cursor-pi-tool-bridge-types.js";
-import { asRecord } from "./cursor-record-utils.js";
+import { asRecord, stringifyUnknown } from "./cursor-record-utils.js";
 
 export function normalizeMcpInputSchema(schema: unknown): CursorPiMcpInputSchema {
 	const record = asRecord(schema);
@@ -71,7 +71,7 @@ export function snapshotToolToMcpTool(tool: CursorPiBridgeToolDefinition): Tool 
 
 export function convertPiContentToMcpContent(content: unknown): CallToolResult["content"] {
 	if (!Array.isArray(content)) {
-		return [{ type: "text", text: typeof content === "string" ? content : JSON.stringify(content) }];
+		return [{ type: "text", text: stringifyUnknown(content) }];
 	}
 
 	const mcpContent: CallToolResult["content"] = [];
@@ -85,7 +85,7 @@ export function convertPiContentToMcpContent(content: unknown): CallToolResult["
 			mcpContent.push({ type: "image", data: record.data, mimeType: record.mimeType });
 			continue;
 		}
-		mcpContent.push({ type: "text", text: JSON.stringify(block) ?? "" });
+		mcpContent.push({ type: "text", text: stringifyUnknown(block) });
 	}
 
 	return mcpContent.length > 0 ? mcpContent : [{ type: "text", text: "" }];

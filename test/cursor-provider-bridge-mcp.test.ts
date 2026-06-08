@@ -47,10 +47,22 @@ import { convertPiContentToMcpContent } from "../src/cursor-pi-tool-bridge-mcp.j
 describe("streamCursor bridge MCP", () => {
 	beforeEach(resetCursorProviderTestState);
 
-	it("preserves unknown array content blocks as text fallbacks", () => {
-		expect(convertPiContentToMcpContent([["unexpected", "block"]])).toEqual([
+	it("preserves unknown array and object content blocks as text fallbacks", () => {
+		expect(convertPiContentToMcpContent([["unexpected", "block"], { custom: true }])).toEqual([
 			{ type: "text", text: '["unexpected","block"]' },
+			{ type: "text", text: '{"custom":true}' },
 		]);
+	});
+
+	it("safely stringifies non-array MCP content fallbacks", () => {
+		const circular: Record<string, unknown> = {};
+		circular.self = circular;
+		const throwing = { toJSON: () => { throw new Error("boom"); } };
+
+		expect(convertPiContentToMcpContent(undefined)).toEqual([{ type: "text", text: "" }]);
+		expect(convertPiContentToMcpContent(BigInt(1))).toEqual([{ type: "text", text: "1" }]);
+		expect(convertPiContentToMcpContent(circular)).toEqual([{ type: "text", text: "[object Object]" }]);
+		expect(convertPiContentToMcpContent(throwing)).toEqual([{ type: "text", text: "[object Object]" }]);
 	});
 
 	it("surfaces empty live-run error status with run metadata", async () => {
