@@ -169,6 +169,52 @@ if (result.windowsVm !== "pi-extension-windows-template" || result.windowsSnapsh
 		expect(result.stdout).toContain('"windowsVm":"pi-extension-windows-template"');
 	});
 
+	it("prunes old platform smoke run artifacts without touching recent or non-run directories", () => {
+		const code = String.raw`
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { basename, join } from "node:path";
+import { tmpdir } from "node:os";
+import { prunePlatformSmokeArtifacts } from "./scripts/platform-smoke/artifacts.mjs";
+const root = mkdtempSync(join(tmpdir(), "platform-smoke-prune-test-"));
+const nowMs = 2_000_000_000_000;
+const hourMs = 60 * 60 * 1000;
+function runDir(ageHours, suffix) {
+  const dir = join(root, "run-" + (nowMs - ageHours * hourMs) + "-" + suffix);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+const staleByAge = runDir(24 * 20, "staleage");
+const staleByCount = runDir(24 * 5, "stalecount");
+const keepOlder = runDir(24 * 4, "keepolder");
+const keepNewest = runDir(24 * 3, "keepnewest");
+const keepRecent = runDir(1, "keeprecent");
+const ignored = join(root, "manual-notes");
+mkdirSync(ignored);
+try {
+  const pruned = prunePlatformSmokeArtifacts(root, { maxRunDirs: 3, maxAgeDays: 14, preserveRecentHours: 24 }, { nowMs });
+  const removed = pruned.removed.map((name) => basename(name));
+  const result = {
+    removed,
+    staleByAgeGone: !existsSync(staleByAge),
+    staleByCountGone: !existsSync(staleByCount),
+    keepOlderExists: existsSync(keepOlder),
+    keepNewestExists: existsSync(keepNewest),
+    keepRecentExists: existsSync(keepRecent),
+    ignoredExists: existsSync(ignored),
+  };
+  console.log(JSON.stringify(result));
+  if (!result.staleByAgeGone || !result.staleByCountGone || !result.keepOlderExists || !result.keepNewestExists || !result.keepRecentExists || !result.ignoredExists) process.exit(1);
+} finally {
+  rmSync(root, { recursive: true, force: true });
+}
+`;
+		const result = run(process.execPath, ["--input-type=module", "-e", code]);
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('"staleByAgeGone":true');
+		expect(result.stdout).toContain('"staleByCountGone":true');
+		expect(result.stdout).toContain('"keepRecentExists":true');
+	});
+
 	it("fails suite artifacts when required manifests or lease cleanup are missing", () => {
 		const code = String.raw`
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

@@ -5,6 +5,11 @@ export default {
 	packageName: "pi-cursor-sdk",
 	cursorModel: "cursor/composer-2-5",
 	artifactRoot: ".artifacts/platform-smoke",
+	artifactRetention: {
+		maxRunDirs: 18,
+		maxAgeDays: 14,
+		preserveRecentHours: 24,
+	},
 	requiredTargets: ["macos", "ubuntu", "windows-native"],
 	requiredSuites: [
 		"platform-build",

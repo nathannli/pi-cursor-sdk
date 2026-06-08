@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Prune old local platform-smoke artifact run directories before new matrix runs so `.artifacts/platform-smoke` does not grow without bound while preserving recent and manual evidence directories.
+
 ## 0.1.39 - 2026-06-08
 
 ### Fixed

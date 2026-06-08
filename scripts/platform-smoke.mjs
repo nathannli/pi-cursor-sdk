@@ -5,6 +5,8 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { accessSync, constants } from "node:fs";
 
+import { prunePlatformSmokeArtifacts } from "./platform-smoke/artifacts.mjs";
+
 // ── helpers ────────────────────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -170,6 +172,11 @@ async function main() {
 		} catch (err) {
 			console.error(err.message);
 			process.exit(2);
+		}
+
+		const pruneResult = prunePlatformSmokeArtifacts(config.artifactRoot, config.artifactRetention);
+		if (pruneResult.removed.length > 0) {
+			console.log(`Pruned ${pruneResult.removed.length} old platform smoke artifact run(s) from ${pruneResult.root}`);
 		}
 
 		const targetRuns = targets.map(async (targetName) => {

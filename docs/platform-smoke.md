@@ -186,6 +186,11 @@ export default {
   packageName: "pi-cursor-sdk",
   cursorModel: "cursor/composer-2-5",
   artifactRoot: ".artifacts/platform-smoke",
+  artifactRetention: {
+    maxRunDirs: 18,
+    maxAgeDays: 14,
+    preserveRecentHours: 24,
+  },
   requiredTargets: ["macos", "ubuntu", "windows-native"],
   requiredSuites: [
     "platform-build",
@@ -210,6 +215,8 @@ export default {
 `ubuntuContainerImage` defaults the local-container Ubuntu target to an Ubuntu 24.04 Node 24 image with a current glibc baseline for native test dependencies; Crabbox still bootstraps SSH/Git/rsync/curl as needed. `nodeValidationMajor: 24` is the release-smoke validation baseline. It does not change the package engine by itself. A separate compatibility lane can test Node 22.19 later; this required gate validates Node 24 on every target.
 
 `windowsParallels` records this repo's default shared Windows template contract. Environment overrides may point at a temporary candidate template during infrastructure work, but release runs should use the shared `pi-extension-windows-template` / `crabbox-ready` baseline unless this document is updated.
+
+`artifactRetention` bounds local host evidence growth under `artifactRoot`. `smoke:platform:run` prunes only top-level directories named `run-<timestamp>-<suffix>` before starting a new matrix; it leaves non-run/manual directories untouched and preserves directories newer than `preserveRecentHours` to avoid deleting evidence from active or very recent runs. Doctor is read-only and does not prune artifacts.
 
 ## Required local environment
 

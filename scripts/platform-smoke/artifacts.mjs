@@ -2,8 +2,86 @@
  * Artifact management — directory layout, manifest, redaction scanning, packaging.
  */
 
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { resolve, relative, basename } from "node:path";
+
+const PLATFORM_SMOKE_RUN_DIR_PATTERN = /^run-(\d+)-[a-z0-9]+$/i;
+const HOURS_TO_MS = 60 * 60 * 1000;
+const DAYS_TO_MS = 24 * HOURS_TO_MS;
+
+function finiteNonNegativeNumber(value) {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function finiteNonNegativeInteger(value) {
+	return Number.isInteger(value) && value >= 0;
+}
+
+/** Prune old top-level platform-smoke run artifact directories. */
+export function prunePlatformSmokeArtifacts(artifactRoot, retention = {}, options = {}) {
+	const root = resolve(process.cwd(), artifactRoot);
+	const maxRunDirs = finiteNonNegativeInteger(retention.maxRunDirs) ? retention.maxRunDirs : undefined;
+	const maxAgeDays = finiteNonNegativeNumber(retention.maxAgeDays) ? retention.maxAgeDays : undefined;
+	const preserveRecentHours = finiteNonNegativeNumber(retention.preserveRecentHours) ? retention.preserveRecentHours : 24;
+	const enabled = retention.enabled !== false && (maxRunDirs !== undefined || maxAgeDays !== undefined);
+	const result = { root, enabled, removed: [], kept: [], ignored: [] };
+	if (!enabled || !existsSync(root)) return result;
+
+	const nowMs = finiteNonNegativeNumber(options.nowMs) ? options.nowMs : Date.now();
+	const preserveRecentMs = preserveRecentHours * HOURS_TO_MS;
+	const maxAgeMs = maxAgeDays === undefined ? undefined : maxAgeDays * DAYS_TO_MS;
+	const runDirs = [];
+
+	for (const entry of readdirSync(root, { withFileTypes: true })) {
+		if (!entry.isDirectory()) {
+			result.ignored.push(entry.name);
+			continue;
+		}
+		const match = PLATFORM_SMOKE_RUN_DIR_PATTERN.exec(entry.name);
+		if (!match) {
+			result.ignored.push(entry.name);
+			continue;
+		}
+		runDirs.push({ name: entry.name, path: resolve(root, entry.name), timestampMs: Number(match[1]) });
+	}
+
+	const recentCutoffMs = nowMs - preserveRecentMs;
+	const protectedRecent = new Set(runDirs.filter((dir) => dir.timestampMs > recentCutoffMs).map((dir) => dir.name));
+	const removeNames = new Set();
+
+	if (maxAgeMs !== undefined) {
+		const staleCutoffMs = nowMs - maxAgeMs;
+		for (const dir of runDirs) {
+			if (dir.timestampMs < staleCutoffMs) removeNames.add(dir.name);
+		}
+	}
+
+	if (maxRunDirs !== undefined && runDirs.length > maxRunDirs) {
+		const sortedNewestFirst = [...runDirs].sort((a, b) => b.timestampMs - a.timestampMs);
+		let remainingKeepSlots = maxRunDirs - protectedRecent.size;
+		for (const dir of sortedNewestFirst) {
+			if (protectedRecent.has(dir.name)) continue;
+			if (remainingKeepSlots > 0) {
+				remainingKeepSlots--;
+				continue;
+			}
+			removeNames.add(dir.name);
+		}
+	}
+
+	for (const dir of runDirs) {
+		if (!removeNames.has(dir.name)) {
+			result.kept.push(dir.name);
+			continue;
+		}
+		rmSync(dir.path, { recursive: true, force: true });
+		result.removed.push(dir.name);
+	}
+	result.kept.sort();
+	result.removed.sort();
+	result.ignored.sort();
+	return result;
+}
 
 /** Create a suite artifact directory. */
 export function createSuiteDir(artifactRoot, runId, targetName, suiteName) {
