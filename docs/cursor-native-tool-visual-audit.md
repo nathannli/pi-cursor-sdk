@@ -95,7 +95,7 @@ npx playwright install chromium
 - prompt paste plus carriage return into the interactive TUI
 - bounded post-prompt wait via `--wait-ms`
 - artifacts outside the repo by default
-- `<label>.ansi`, `<label>.txt`, `<label>.html`, `<label>.png`, and `<label>.jsonl.path`
+- `<label>.ansi`, `<label>.txt`, `<label>.html`, `<label>.png`, `<label>.jsonl.path`, and `<label>.manifest.json`
 - `--label`, `--ext`, `--cwd`, `--prompt`, `--prompt-file`, `--wait-ms`, and `--out-dir`
 - `--setting-sources` and `--bridge` opt-ins for non-default visual audits; `--expose-builtin-tools` is accepted only with `--bridge`
 - repeatable `--leftover-pattern` checks for prompts that can background work

@@ -215,6 +215,59 @@ try {
 		expect(result.stdout).toContain('"keepRecentExists":true');
 	});
 
+	it("writes an agent-readable latest platform smoke artifact index", () => {
+		const code = String.raw`
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { platformSmokeSuiteEvidence, writeLatestPlatformSmokeIndex } from "./scripts/platform-smoke/artifacts.mjs";
+const root = mkdtempSync(join(tmpdir(), "platform-smoke-latest-test-"));
+try {
+  const suiteDir = join(root, "run-2000-abc123", "macos", "cursor-native-visual-matrix");
+  mkdirSync(join(suiteDir, "artifacts"), { recursive: true });
+  mkdirSync(join(suiteDir, "cursor-sdk-events", "sessions", "s1"), { recursive: true });
+  writeFileSync(join(suiteDir, "target.json"), JSON.stringify({ targetName: "macos", runId: "run-2000-abc123" }));
+  writeFileSync(join(suiteDir, "suite.json"), JSON.stringify({ suiteName: "cursor-native-visual-matrix" }));
+  writeFileSync(join(suiteDir, "summary.json"), JSON.stringify({ ok: false, target: "macos", suite: "cursor-native-visual-matrix" }));
+  writeFileSync(join(suiteDir, "assertions.json"), JSON.stringify({ ok: false }));
+  writeFileSync(join(suiteDir, "failures.md"), "failed\n");
+  writeFileSync(join(suiteDir, "artifact-manifest.json"), "{}\n");
+  writeFileSync(join(suiteDir, "artifacts", "terminal.html"), "<html></html>");
+  writeFileSync(join(suiteDir, "artifacts", "terminal.full.png"), "png");
+  writeFileSync(join(suiteDir, "artifacts", "visual-evidence.json"), "{}\n");
+  writeFileSync(join(suiteDir, "artifacts", "session.jsonl"), "{}\n");
+  writeFileSync(join(suiteDir, "cursor-sdk-events", "sessions", "s1", "session.json"), "{}\n");
+  const latest = writeLatestPlatformSmokeIndex({ artifactRoot: root }, [{ targetName: "macos", result: { ok: false, results: [{ ok: false, suiteDir }] } }], {
+    startedAt: "start",
+    finishedAt: "finish",
+    command: { targets: ["macos"], suites: ["cursor-native-visual-matrix"] },
+  });
+  const index = JSON.parse(readFileSync(join(root, "latest.json"), "utf8"));
+  const evidence = platformSmokeSuiteEvidence({ ok: false, suiteDir }, root);
+  const errorLatest = writeLatestPlatformSmokeIndex({ artifactRoot: root }, [{ targetName: "ubuntu", result: { ok: false, error: "boom" } }], {});
+  const errorIndex = JSON.parse(readFileSync(errorLatest.path, "utf8"));
+  const result = {
+    latestPathEnds: latest.path.endsWith("latest.json"),
+    runId: index.runId,
+    timestamps: index.startedAt === "start" && index.finishedAt === "finish",
+    suitePath: index.targets[0].suites[0].paths.terminalHtml,
+    providerDebugCount: index.targets[0].suites[0].paths.providerDebugArtifacts.length,
+    providerDebugTotal: index.targets[0].suites[0].paths.providerDebugArtifactCount,
+    evidenceFailures: evidence.paths.failures,
+    targetError: errorIndex.targets[0].error,
+  };
+  console.log(JSON.stringify(result));
+  if (!result.latestPathEnds || result.runId !== "run-2000-abc123" || !result.timestamps || !result.suitePath.endsWith("terminal.html") || result.providerDebugCount !== 1 || result.providerDebugTotal !== 1 || !result.evidenceFailures.endsWith("failures.md") || result.targetError !== "boom") process.exit(1);
+} finally {
+  rmSync(root, { recursive: true, force: true });
+}
+`;
+		const result = run(process.execPath, ["--input-type=module", "-e", code]);
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain('"runId":"run-2000-abc123"');
+		expect(result.stdout).toContain('"providerDebugCount":1');
+	});
+
 	it("fails suite artifacts when required manifests or lease cleanup are missing", () => {
 		const code = String.raw`
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

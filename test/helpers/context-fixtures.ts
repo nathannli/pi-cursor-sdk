@@ -87,6 +87,7 @@ function createMinimalExtensionContextInternal(overrides: ExtensionContextOverri
 		modelRegistry: getSharedTestModelRegistry(),
 		model: makeModel("composer-2.5"),
 		isIdle: vi.fn(() => true),
+		isProjectTrusted: vi.fn(() => true),
 		signal: undefined,
 		abort: vi.fn(),
 		hasPendingMessages: vi.fn(() => false),

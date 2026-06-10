@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -71,6 +72,7 @@ Artifacts written:
   <label>.html                  Self-contained browser/xterm render.
   <label>.png                   Browser-rendered screenshot, unless --no-screenshot.
   <label>.jsonl.path            Latest persisted pi session JSONL path.
+  <label>.manifest.json         Agent-readable artifact index for this run.
 
 Prerequisites:
   - pi, node, tmux, and npm-installed dev dependencies on PATH / in node_modules.
@@ -317,6 +319,80 @@ function findLatestJsonl(root, { sinceMs = 0, previousMtimes = new Map() } = {})
 	return matches[0]?.path;
 }
 
+function redactedArgv(argv) {
+	const redacted = [];
+	let redactNext = false;
+	for (const arg of argv) {
+		if (redactNext) {
+			redacted.push("[redacted]");
+			redactNext = false;
+			continue;
+		}
+		if (arg === "--prompt" || arg === "--prompt-file") {
+			redacted.push(arg);
+			redactNext = true;
+			continue;
+		}
+		if (arg.startsWith("--prompt=") || arg.startsWith("--prompt-file=")) {
+			const [flag] = arg.split("=", 1);
+			redacted.push(`${flag}=[redacted]`);
+			continue;
+		}
+		redacted.push(arg);
+	}
+	return redacted;
+}
+
+function promptDigest(prompt) {
+	return createHash("sha256").update(prompt).digest("hex");
+}
+
+function manifestExistingPath(path) {
+	return path && existsSync(path) ? path : undefined;
+}
+
+function writeVisualManifest(path, options, artifacts, failure) {
+	const paths = {
+		ansi: manifestExistingPath(artifacts.ansiPath),
+		text: manifestExistingPath(artifacts.textPath),
+		html: manifestExistingPath(artifacts.htmlPath),
+		png: artifacts.pngWritten === true ? manifestExistingPath(artifacts.pngPath) : undefined,
+		jsonlPathFile: manifestExistingPath(artifacts.jsonlPathFile),
+		jsonl: manifestExistingPath(artifacts.jsonlPath),
+	};
+	for (const [key, value] of Object.entries(paths)) {
+		if (value === undefined) delete paths[key];
+	}
+	writeUtf8(path, `${JSON.stringify({
+		schemaVersion: 1,
+		kind: "visual-tui-smoke-manifest",
+		label: options.label,
+		safeLabel: options.safeLabel,
+		promptLength: options.prompt.length,
+		promptSha256: promptDigest(options.prompt),
+		width: options.width,
+		height: options.height,
+		model: options.model,
+		mode: options.mode,
+		cwd: options.cwd,
+		ext: options.ext,
+		outDir: options.outDir,
+		sessionDir: options.sessionDir,
+		sessionId: options.sessionId,
+		waitMs: options.waitMs,
+		startupMs: options.startupMs,
+		screenshot: options.screenshot,
+		paths,
+		command: {
+			argv: redactedArgv(process.argv.slice(2)),
+			cwd: process.cwd(),
+			pid: process.pid,
+		},
+		...(failure ? { failure } : {}),
+		writtenAt: new Date().toISOString(),
+	}, null, 2)}\n`);
+}
+
 function checkLeftovers(patterns) {
 	if (patterns.length === 0) return;
 	const result = run("ps", ["-axo", "pid,etime,command"]);
@@ -448,16 +524,22 @@ function runVisualSmoke(options) {
 		const htmlPath = `${base}.html`;
 		const pngPath = `${base}.png`;
 		const jsonlPathFile = `${base}.jsonl.path`;
+		const manifestPath = `${base}.manifest.json`;
 
 		writeUtf8(ansiPath, ansi);
 		writeUtf8(textPath, plain);
 		writeUtf8(htmlPath, buildTerminalHtml({ ansi, plain, options }));
 
+		const partialArtifacts = { ansiPath, textPath, htmlPath, pngPath, jsonlPathFile, manifestPath };
 		const jsonlPath = findLatestJsonl(options.sessionDir, { sinceMs: runStartedAtMs, previousMtimes: jsonlMtimesBeforeRun });
-		if (!jsonlPath) throw new Error(`no current-run persisted .jsonl found under ${options.sessionDir}`);
+		if (!jsonlPath) {
+			const message = `no current-run persisted .jsonl found under ${options.sessionDir}`;
+			writeVisualManifest(manifestPath, options, partialArtifacts, { message, writtenAt: new Date().toISOString() });
+			throw new Error(message);
+		}
 		writeUtf8(jsonlPathFile, `${jsonlPath}\n`);
 
-		return { ansiPath, textPath, htmlPath, pngPath, jsonlPathFile, jsonlPath };
+		return { ...partialArtifacts, jsonlPath };
 	} finally {
 		if (bufferLoaded) run(commands.tmux, ["delete-buffer", "-b", bufferName]);
 		if (sessionStarted) run(commands.tmux, ["kill-session", "-t", sessionName]);
@@ -631,6 +713,56 @@ function runSelfTest() {
 			if (originalPath === undefined) delete process.env.PATH;
 			else process.env.PATH = originalPath;
 		}
+
+		writeFileSync(
+			fakeTmux,
+			`#!/bin/sh
+case "$1" in
+  -V) echo 'tmux fake'; exit 0 ;;
+  new-session) exit 0 ;;
+  load-buffer) cat >/dev/null; exit 0 ;;
+  paste-buffer) exit 0 ;;
+  send-keys) exit 0 ;;
+  delete-buffer) exit 0 ;;
+  capture-pane) echo 'captured visual smoke output'; exit 0 ;;
+  kill-session) exit 0 ;;
+  *) echo "unexpected tmux command: $*" >&2; exit 64 ;;
+esac
+`,
+			"utf8",
+		);
+		chmodSync(fakeTmux, 0o755);
+		const noJsonlManifest = join(tempDir, "self-test-jsonl-missing.manifest.json");
+		try {
+			process.env.PATH = hostilePath;
+			let missingJsonlFailed = false;
+			let missingJsonlError = "";
+			try {
+				runVisualSmoke({
+					...baseOptions,
+					label: "self-test-jsonl-missing",
+					safeLabel: "self-test-jsonl-missing",
+					prompt: "jsonl failure prompt",
+					startupMs: 1,
+					waitMs: 1,
+					width: 80,
+					height: 24,
+					historyLines: 100,
+					sessionDir: join(tempDir, "missing-jsonl-session"),
+				});
+			} catch (error) {
+				missingJsonlError = error instanceof Error ? error.message : String(error);
+				missingJsonlFailed = /no current-run persisted \.jsonl/.test(missingJsonlError);
+			}
+			assertSelfTest(missingJsonlFailed, `missing JSONL should fail after partial visual artifacts are written: ${missingJsonlError || "no error"}`);
+			assertSelfTest(existsSync(noJsonlManifest), "missing JSONL should still write a failure manifest");
+			const manifest = JSON.parse(readFileSync(noJsonlManifest, "utf8"));
+			assertSelfTest(manifest.failure?.message?.includes("no current-run persisted .jsonl"), "failure manifest should record the missing JSONL reason");
+			assertSelfTest(manifest.paths?.html?.endsWith("self-test-jsonl-missing.html"), "failure manifest should point at partial HTML evidence");
+		} finally {
+			if (originalPath === undefined) delete process.env.PATH;
+			else process.env.PATH = originalPath;
+		}
 		console.log("[visual-smoke] self-test PASS");
 	} finally {
 		rmSync(tempDir, { recursive: true, force: true });
@@ -638,15 +770,19 @@ function runSelfTest() {
 }
 
 const options = parseArgs(process.argv.slice(2));
+let artifacts;
 try {
 	if (options.selfTest) {
 		runSelfTest();
 		process.exit(0);
 	}
-	const artifacts = runVisualSmoke(options);
+	artifacts = runVisualSmoke(options);
+	writeVisualManifest(artifacts.manifestPath, options, artifacts);
 	checkLeftovers(options.leftoverPatterns);
 	if (options.screenshot) {
 		await writeTerminalScreenshot(artifacts.htmlPath, artifacts.pngPath, options.width, options.height);
+		artifacts.pngWritten = true;
+		writeVisualManifest(artifacts.manifestPath, options, artifacts);
 	}
 	console.log("[visual-smoke] artifacts:");
 	console.log(`  ansi:       ${artifacts.ansiPath}`);
@@ -655,6 +791,15 @@ try {
 	if (options.screenshot) console.log(`  png:        ${artifacts.pngPath}`);
 	console.log(`  jsonl.path: ${artifacts.jsonlPathFile}`);
 	console.log(`  jsonl:      ${artifacts.jsonlPath}`);
+	console.log(`  manifest:  ${artifacts.manifestPath}`);
 } catch (error) {
-	fail(error instanceof Error ? error.message : String(error));
+	const message = error instanceof Error ? error.message : String(error);
+	if (artifacts?.manifestPath) {
+		try {
+			writeVisualManifest(artifacts.manifestPath, options, artifacts, { message, writtenAt: new Date().toISOString() });
+		} catch {
+			// Preserve the original failure.
+		}
+	}
+	fail(message);
 }

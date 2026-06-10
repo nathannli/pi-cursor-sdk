@@ -7,8 +7,9 @@
  */
 
 import { execSync, execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, writeFileSync, unlinkSync, rmSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { renderAll } from "./render-ansi.mjs";
 
 let failures = 0;
 
@@ -126,6 +127,41 @@ function disposableWindowsSshProbe(cbox, config = {}) {
 
 function hasBin(name) { return silent("which", [name]) !== null; }
 
+async function runRenderProbe(artifactRoot) {
+	const probeDir = resolve(artifactRoot, `.doctor-render-${process.pid}-${Date.now()}`);
+	try {
+		mkdirSync(probeDir, { recursive: true });
+		const ansiPath = resolve(probeDir, "terminal.ansi");
+		writeFileSync(ansiPath, "\u001b[32mplatform smoke render probe\u001b[0m\n");
+		const rendered = await renderAll(ansiPath, probeDir, {
+			label: "doctor-render-probe",
+			model: "doctor",
+			mode: "doctor",
+			cwd: process.cwd(),
+			sessionId: "doctor-render-probe",
+			width: 80,
+			height: 10,
+			historyLines: 100,
+		});
+		const pngPath = resolve(probeDir, "terminal.full.png");
+		const pngOk = rendered.pngOk && existsSync(pngPath) && statSync(pngPath).size > 100;
+		if (!pngOk) {
+			return {
+				ok: false,
+				message: `host-side xterm/Playwright render probe did not produce a PNG at ${pngPath}. Run: npx playwright install chromium`,
+			};
+		}
+		return { ok: true, message: pngPath };
+	} catch (error) {
+		return {
+			ok: false,
+			message: `host-side xterm/Playwright render probe failed: ${error instanceof Error ? error.message : String(error)}. Run npm install, then: npx playwright install chromium`,
+		};
+	} finally {
+		rmSync(probeDir, { recursive: true, force: true });
+	}
+}
+
 function findGitRoot(startPath) {
 	let dir = startPath;
 	for (let i = 0; i < 8; i++) {
@@ -137,7 +173,7 @@ function findGitRoot(startPath) {
 	return null;
 }
 
-function runChecks(config) {
+async function runChecks(config) {
 	// ── Phase 1: environment variables ──
 	console.log("\n── Environment variables ──");
 	const requiredVars = [
@@ -396,7 +432,16 @@ function runChecks(config) {
 		fail(`cannot write to ${artRoot}: ${e.message}`);
 	}
 
-	// ── Phase 10: Git status ──
+	// ── Phase 10: Host-side visual render probe ──
+	console.log("\n── Host-side visual render probe ──");
+	const renderProbe = await runRenderProbe(artRoot);
+	if (renderProbe.ok) {
+		ok("xterm/Playwright Chromium render probe wrote a PNG");
+	} else {
+		fail(renderProbe.message);
+	}
+
+	// ── Phase 11: Git status ──
 	console.log("\n── Git status ──");
 	const branch = shell("git branch --show-current");
 	branch ? ok(`branch: ${branch}`) : warn("could not determine branch");
@@ -408,7 +453,7 @@ function runChecks(config) {
 		ok("clean worktree");
 	}
 
-	// ── Phase 11: Forbidden files ──
+	// ── Phase 12: Forbidden files ──
 	console.log("\n── Forbidden files ──");
 	let anyForbidden = false;
 	for (const pat of [".env", "*.tgz"]) {
@@ -428,7 +473,7 @@ function runChecks(config) {
 	}
 	ok("no tracked .env.*");
 
-	// ── Phase 12: Cursor auth ──
+	// ── Phase 13: Cursor auth ──
 	console.log("\n── Cursor auth ──");
 	const key = env("CURSOR_API_KEY");
 	if (key && key.length > 10) {
@@ -439,7 +484,7 @@ function runChecks(config) {
 		fail("CURSOR_API_KEY missing — live Cursor suites will not run");
 	}
 
-	// ── Phase 13: node-pty self-test ──
+	// ── Phase 14: node-pty self-test ──
 	console.log("\n── node-pty self-test ──");
 	const ptyPath = resolve(process.cwd(), "node_modules", "node-pty");
 	if (existsSync(ptyPath)) {
@@ -458,7 +503,7 @@ function runChecks(config) {
 		warn("node-pty not installed — live PTY suites will not run. Run: npm ci");
 	}
 
-	// ── Phase 14: Summary ──
+	// ── Phase 15: Summary ──
 	console.log(`\n=== Results: ${failures} failure(s) ===`);
 	if (failures > 0) {
 		console.log("Fix failures above before running live Cursor suites.");
@@ -470,5 +515,5 @@ function runChecks(config) {
 }
 
 export async function runDoctor(config) {
-	runChecks(config);
+	await runChecks(config);
 }

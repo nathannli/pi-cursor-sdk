@@ -3,9 +3,9 @@
 import { createRequire } from "node:module";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessSync, constants } from "node:fs";
+import { existsSync } from "node:fs";
 
-import { prunePlatformSmokeArtifacts } from "./platform-smoke/artifacts.mjs";
+import { platformSmokeSuiteEvidence, prunePlatformSmokeArtifacts, redactSecrets, writeLatestPlatformSmokeIndex } from "./platform-smoke/artifacts.mjs";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -104,6 +104,53 @@ function validateSelections(targets, suites) {
 	}
 }
 
+function failedSuiteResults(result) {
+	if (!result) return [];
+	if (Array.isArray(result.results)) return result.results.filter((suiteResult) => suiteResult?.ok !== true);
+	return result.ok === true ? [] : [result];
+}
+
+function formatExistingPath(label, path) {
+	return path && existsSync(path) ? `  ${label}: ${path}` : undefined;
+}
+
+function printFailureEvidence(results, artifactRoot) {
+	const failed = [];
+	for (const { targetName, result } of results) {
+		let targetEvidenceCount = 0;
+		for (const suiteResult of failedSuiteResults(result)) {
+			const evidence = platformSmokeSuiteEvidence(suiteResult, artifactRoot);
+			if (evidence) {
+				targetEvidenceCount++;
+				failed.push({ targetName, ...evidence });
+			}
+		}
+		if (targetEvidenceCount === 0 && result?.ok !== true && result?.error) {
+			failed.push({ targetName, suite: "target", error: result.error });
+		}
+	}
+	if (failed.length === 0) return;
+	console.log("\nFailed suite artifacts:");
+	for (const item of failed) {
+		const paths = item.paths ?? {};
+		console.log(`- Suite: ${item.targetName}/${item.suite}`);
+		if (item.error) console.log(`  Target error: ${item.error}`);
+		const lines = [
+			formatExistingPath("Artifact dir", item.artifactDir),
+			formatExistingPath("Assertions", paths.assertions),
+			formatExistingPath("Failures", paths.failures),
+			formatExistingPath("Terminal HTML", paths.terminalHtml),
+			formatExistingPath("Terminal full PNG", paths.terminalFullPng),
+			formatExistingPath("Terminal final viewport PNG", paths.terminalFinalViewportPng),
+			formatExistingPath("Visual evidence", paths.visualEvidence),
+			formatExistingPath("Session JSONL", paths.sessionJsonl),
+			formatExistingPath("JSONL tool results", paths.jsonlToolResults),
+			formatExistingPath("Provider/Cursor debug artifacts", paths.providerDebugRoot),
+		].filter(Boolean);
+		for (const line of lines) console.log(line);
+	}
+}
+
 // ── commands ───────────────────────────────────────────────────────────────
 async function runDoctor() {
 	try {
@@ -125,8 +172,9 @@ async function runSuite(targetName, suiteName) {
 		const result = await runTargetSuite(config, targetName, suiteName);
 		return result;
 	} catch (err) {
-		console.error(`suite ${suiteName} on ${targetName} exception:`, err.message);
-		return { ok: false, error: err.message };
+		const message = redactSecrets(err.message);
+		console.error(`suite ${suiteName} on ${targetName} exception:`, message);
+		return { ok: false, error: message };
 	}
 }
 
@@ -135,8 +183,9 @@ async function runTarget(targetName, suites) {
 		const { runTargetSuites } = await import("./platform-smoke/targets.mjs");
 		return await runTargetSuites(config, targetName, suites);
 	} catch (err) {
-		console.error(`target ${targetName} exception:`, err.message);
-		return { ok: false, error: err.message };
+		const message = redactSecrets(err.message);
+		console.error(`target ${targetName} exception:`, message);
+		return { ok: false, error: message };
 	}
 }
 
@@ -179,6 +228,7 @@ async function main() {
 			console.log(`Pruned ${pruneResult.removed.length} old platform smoke artifact run(s) from ${pruneResult.root}`);
 		}
 
+		const startedAt = new Date().toISOString();
 		const targetRuns = targets.map(async (targetName) => {
 			console.log(`\n=== Target: ${targetName} ===`);
 			const result = args.suite
@@ -187,9 +237,21 @@ async function main() {
 			return { targetName, result };
 		});
 		const results = await Promise.all(targetRuns);
+		const finishedAt = new Date().toISOString();
+		const latest = writeLatestPlatformSmokeIndex(config, results, {
+			startedAt,
+			finishedAt,
+			command: {
+				cwd: process.cwd(),
+				targets,
+				suites,
+			},
+		});
+		console.log(`\nArtifact index: ${latest.path}`);
 		const anyFailed = results.some(({ result }) => !result.ok);
 		if (anyFailed) {
-			console.log("\nOne or more suites failed. Check .artifacts/platform-smoke/ for details.");
+			printFailureEvidence(results, config.artifactRoot);
+			console.log("\nOne or more suites failed.");
 			process.exit(1);
 		}
 		return;

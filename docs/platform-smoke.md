@@ -361,7 +361,7 @@ Doctor checks:
 17. `tar` is available on macOS and native Windows.
 18. `node-pty` self-test passes on every target.
 19. Target pi tool probe proves the shell tool accepts platform-rendered commands on every target.
-20. Host-side xterm/Playwright render self-test passes.
+20. Host-side xterm/Playwright render self-test passes by rendering a minimal ANSI fixture through the repo xterm helper and launching Playwright Chromium to write a tiny PNG. If this fails, run `npm install` and `npx playwright install chromium` before live suites.
 21. `CURSOR_API_KEY` is present.
 22. Artifact root is writable.
 23. `git status --short` is recorded.
@@ -642,6 +642,14 @@ Every suite writes under:
 ```text
 .artifacts/platform-smoke/<run-id>/<target>/<suite>/
 ```
+
+After each `smoke:platform run` invocation, the host writes an atomic latest artifact index for agents and humans:
+
+```text
+.artifacts/platform-smoke/latest.json
+```
+
+`latest.json` records the invocation timestamps, command selection, PID, run id(s), target/suite artifact directories, paths to suite summaries/assertions/failures when present, rendered terminal HTML/PNG paths, visual evidence, session JSONL, JSONL tool-result summaries, and capped Cursor SDK/provider debug artifact paths. The per-suite artifact directories remain the source of truth; `latest.json` is only a discoverability pointer.
 
 Common required artifacts:
 
