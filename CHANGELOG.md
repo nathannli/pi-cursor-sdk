@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Upgrade the pinned Cursor SDK runtime dependency to `@cursor/sdk@1.0.18` after auditing the 1.0.17 → 1.0.18 SDK type/docs delta; preserve existing local-agent defaults while carrying the SDK `requestId` correlation field through debug metadata and generic run failure diagnostics.
+
 ## 0.1.40 - 2026-06-08
 
 ### Changed

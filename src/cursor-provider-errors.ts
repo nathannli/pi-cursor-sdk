@@ -15,7 +15,7 @@ const NETWORK_CURSOR_SDK_ERROR_MESSAGE =
 // Keep this phrase aligned with pi's agent-level retry classifier (`provider.?returned.?error`).
 const RETRYABLE_CURSOR_RUN_FAILURE_PREFIX = "Provider returned error: Cursor SDK run failed";
 
-export type CursorSdkRunFailureSource = Pick<RunResult, "id" | "status" | "durationMs" | "model" | "result">;
+export type CursorSdkRunFailureSource = Pick<RunResult, "id" | "requestId" | "status" | "durationMs" | "model" | "result">;
 
 function isGenericErrorMessage(message: string): boolean {
 	const normalized = message.trim().toLowerCase();
@@ -159,6 +159,7 @@ export function formatCursorSdkRunFailureDetail(result: CursorSdkRunFailureSourc
 	const parts = [RETRYABLE_CURSOR_RUN_FAILURE_PREFIX];
 	if (result.model?.id) parts.push(`model ${result.model.id}`);
 	parts.push(`run ${shortRunId(result.id)}`);
+	if (result.requestId) parts.push(`request ${shortRunId(result.requestId)}`);
 	if (typeof result.durationMs === "number") parts.push(`${result.durationMs}ms`);
 	return parts.join(" · ");
 }

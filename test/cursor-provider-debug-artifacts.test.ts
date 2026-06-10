@@ -42,9 +42,10 @@ describe("streamCursor debug artifacts", () => {
 					opts.onDelta({ update: { type: "text-delta", text: "debugged" } });
 					return asMockCursorRun({
 						id: "run-debug",
+						requestId: "request-debug",
 						agentId: "agent-debug",
 						status: "finished",
-						wait: vi.fn().mockResolvedValue({ id: "run-debug", status: "finished" }),
+						wait: vi.fn().mockResolvedValue({ id: "run-debug", requestId: "request-debug", status: "finished" }),
 						cancel: vi.fn(),
 						supports: () => false,
 						unsupportedReason: () => "conversation unsupported",
@@ -63,6 +64,10 @@ describe("streamCursor debug artifacts", () => {
 				expect(readFileSync(join(artifactDir, "on-delta.jsonl"), "utf8")).toContain('"text-delta"');
 				expect(readFileSync(join(artifactDir, "pi-stream-events.jsonl"), "utf8")).toContain('"text_delta"');
 				expect(readFileSync(join(artifactDir, "stream-events.jsonl"), "utf8")).toContain('"assistant"');
+				expect(JSON.parse(readFileSync(join(artifactDir, "metadata.json"), "utf8"))).toMatchObject({
+					run: { runId: "run-debug", requestId: "request-debug" },
+				});
+				expect(readFileSync(join(artifactDir, "provider-events.jsonl"), "utf8")).toContain("request-debug");
 				expect(JSON.parse(readFileSync(join(artifactDir, "summary.json"), "utf8"))).toMatchObject({
 					artifactDir,
 					waitResultRecorded: true,

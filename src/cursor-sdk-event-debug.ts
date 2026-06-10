@@ -78,12 +78,14 @@ export interface CursorSdkEventDebugSendMeta {
 
 export interface CursorSdkEventDebugRunMeta {
 	runId: string;
+	requestId?: string;
 	agentId: string;
 	status: string;
 }
 
 interface CursorSdkRunLike {
 	id: string;
+	requestId?: string;
 	agentId?: string;
 	status?: string;
 	stream?: () => AsyncIterable<unknown>;
@@ -373,7 +375,7 @@ export class CursorSdkEventDebugSink {
 	attachRunStream(run: unknown): void {
 		const sdkRun = run as CursorSdkRunLike;
 		if (typeof sdkRun.stream !== "function") {
-			this.recordProviderEvent("run_stream_unavailable", { runId: sdkRun.id });
+			this.recordProviderEvent("run_stream_unavailable", { runId: sdkRun.id, requestId: sdkRun.requestId });
 			return;
 		}
 		this.streamCapturePromise = (async () => {

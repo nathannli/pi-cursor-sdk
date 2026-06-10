@@ -78,12 +78,14 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		sdkRun = run;
 		sdkEventDebug?.recordRunMeta({
 			runId: run.id,
+			requestId: run.requestId,
 			agentId: run.agentId,
 			status: run.status,
 		});
 		sdkEventDebug?.attachRunStream(run);
 		sdkEventDebug?.recordProviderEvent("agent_send_returned", {
 			runId: run.id,
+			requestId: run.requestId,
 			agentId: run.agentId,
 			status: run.status,
 		});

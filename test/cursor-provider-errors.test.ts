@@ -87,6 +87,7 @@ describe("cursor-provider-errors", () => {
 	it("builds run metadata when SDK result text is the generic failure string", () => {
 		const detail = formatCursorSdkRunFailureDetail({
 			id: "run-abc123456789",
+			requestId: "6e0d261c-86a2-4383-89f0-9162c1c10662",
 			status: "error",
 			result: "Cursor SDK run failed",
 			model: { id: "composer-2.5" },
@@ -96,6 +97,7 @@ describe("cursor-provider-errors", () => {
 		expect(detail).toContain("Provider returned error");
 		expect(detail).toContain("model composer-2.5");
 		expect(detail).toContain("run run-abc1…");
+		expect(detail).toContain("request 6e0d261c…");
 		expect(detail).toContain("1200ms");
 		expect(detail).not.toBe("Cursor SDK run failed");
 	});

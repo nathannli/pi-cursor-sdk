@@ -151,19 +151,24 @@ return (() => {
 
 describe("Cursor MCP timeout override", () => {
 	it("tracks the installed Cursor SDK MCP callTool timeout seam", () => {
-		const sdkBundle = readFileSync(
-			join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/index.js"),
+		const sdkMcpBundlePath = join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/429.index.js");
+		const sdkProtocolBundlePath = join(process.cwd(), "node_modules/@cursor/sdk/dist/esm/745.index.js");
+		const sdkMcpBundle = readFileSync(
+			sdkMcpBundlePath,
+			"utf8",
+		);
+		const sdkProtocolBundle = readFileSync(
+			sdkProtocolBundlePath,
 			"utf8",
 		);
 
-		expect(sdkBundle).toContain("class McpSdkClient");
-		expect(sdkBundle).toContain("this.client.callTool({name:t,arguments:r})");
-		expect(sdkBundle).toContain("this.client.listTools({cursor:e})");
-		expect(sdkBundle).toContain('this.request({method:"initialize"');
-		expect(sdkBundle).toContain(
-			"const h=r?.timeout??DEFAULT_REQUEST_TIMEOUT_MSEC;this._setupTimeout",
-		);
-		expect(sdkBundle).toContain("timeoutId:setTimeout(n,t)");
+		expect(sdkMcpBundle).toContain('withName("McpSdkClient.callTool")');
+		expect(sdkMcpBundle).toContain('this.client.callTool({name:t,arguments:r})');
+		expect(sdkMcpBundle).toContain('withName("McpSdkClient.getTools")');
+		expect(sdkMcpBundle).toContain('this.client.listTools({cursor:e})');
+		expect(sdkProtocolBundle).toContain('this.request({method:"initialize"');
+		expect(sdkProtocolBundle).toContain('_setupTimeout(e,t,n,s');
+		expect(sdkProtocolBundle).toContain('timeoutId:setTimeout(s,t)');
 	});
 
 	it("recognizes the Cursor SDK MCP tool-call timeout stack shape", () => {
