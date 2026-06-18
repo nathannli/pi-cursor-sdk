@@ -37,6 +37,30 @@ function makeCursorSdkNetworkConnectError(): Error & { rawMessage: string; code:
 	return error;
 }
 
+function makeCursorSdkHttp2EnhanceYourCalmConnectError(): Error & {
+	rawMessage: string;
+	code: number;
+	cause: Error & { rawMessage: string; code: string };
+} {
+	const error = new Error("[internal] Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM") as Error & {
+		rawMessage: string;
+		code: number;
+		cause: Error & { rawMessage: string; code: string };
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM";
+	error.code = 2;
+	error.cause = Object.assign(new Error("stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM"), {
+		rawMessage: "stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM",
+		code: "ERR_HTTP2_STREAM_ERROR",
+	});
+	error.stack =
+		"ConnectError: [internal] Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect/dist/esm/connect-error.js:71:20\n" +
+		"    at file:///repo/node_modules/@cursor/sdk/dist/esm/index.js:8:1086456";
+	return error;
+}
+
 function makeCursorExtensionNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = makeCursorSdkNetworkConnectError();
 	error.stack =
@@ -188,6 +212,17 @@ describe("cursor-provider-errors", () => {
 		expect(message).toContain("failed during network or service I/O");
 		expect(message).toContain("pi will retry automatically");
 		expect(message).not.toContain("ECONNRESET");
+	});
+
+	it("classifies Cursor SDK HTTP/2 stream backpressure ConnectErrors as retryable network failures", () => {
+		const error = makeCursorSdkHttp2EnhanceYourCalmConnectError();
+		const classification = classifyCursorConnectError(error);
+		const message = sanitizeCursorProviderError(error, "test-key");
+
+		expect(classification).toEqual({ kind: "network", source: "cursor-sdk-stack" });
+		expect(message).toContain("Network error");
+		expect(message).toContain("pi will retry automatically");
+		expect(message).not.toContain("NGHTTP2_ENHANCE_YOUR_CALM");
 	});
 
 	it("classifies Cursor backend unavailable ConnectErrors by code and details", () => {

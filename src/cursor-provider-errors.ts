@@ -44,6 +44,35 @@ function getErrorStack(error: unknown, record: Record<string, unknown> | undefin
 	return error instanceof Error ? error.stack ?? "" : getErrorStringField(record, "stack") ?? "";
 }
 
+const CONNECT_ERROR_EVIDENCE_KEYS = ["name", "message", "rawMessage", "code", "syscall"] as const;
+
+function getErrorEvidenceField(
+	value: unknown,
+	record: Record<string, unknown> | undefined,
+	key: (typeof CONNECT_ERROR_EVIDENCE_KEYS)[number],
+): string | undefined {
+	if (value instanceof Error && (key === "name" || key === "message")) return value[key] || undefined;
+	const field = record?.[key];
+	if (typeof field === "string") return field;
+	if (typeof field === "number") return String(field);
+	return undefined;
+}
+
+function collectConnectErrorEvidence(error: unknown, record: Record<string, unknown> | undefined): string {
+	const evidence: string[] = [];
+	let value = error;
+	let currentRecord = record;
+	for (let depth = 0; depth < 3 && currentRecord; depth += 1) {
+		for (const key of CONNECT_ERROR_EVIDENCE_KEYS) {
+			const field = getErrorEvidenceField(value, currentRecord, key)?.trim();
+			if (field) evidence.push(field);
+		}
+		value = currentRecord.cause;
+		currentRecord = asRecord(value);
+	}
+	return evidence.join("\n");
+}
+
 function isConnectError(error: unknown, record: Record<string, unknown> | undefined): boolean {
 	const name = error instanceof Error ? error.name : getErrorStringField(record, "name");
 	return name === "ConnectError";
@@ -98,6 +127,7 @@ export function classifyCursorConnectError(error: unknown): CursorConnectErrorCl
 	const cause = asRecord(record?.cause);
 	const causeName = getErrorStringField(cause, "name");
 	const stack = getErrorStack(error, record);
+	const evidence = collectConnectErrorEvidence(error, record);
 
 	if (
 		(code === 1 || code === "canceled") &&
@@ -109,7 +139,7 @@ export function classifyCursorConnectError(error: unknown): CursorConnectErrorCl
 		return { kind: "abort", source: "cursor-sdk-stack" };
 	}
 
-	if (isUnauthenticatedConnectCode(code) || isLikelyAuthError(`${message}\n${rawMessage}`)) {
+	if (isUnauthenticatedConnectCode(code) || isLikelyAuthError(evidence)) {
 		return { kind: "unauthenticated", source: getCursorConnectSource(error, record) };
 	}
 
@@ -117,9 +147,7 @@ export function classifyCursorConnectError(error: unknown): CursorConnectErrorCl
 		return { kind: "network", source: getCursorConnectSource(error, record) };
 	}
 
-	const causeCode = getErrorStringField(cause, "code");
-	const causeSyscall = getErrorStringField(cause, "syscall");
-	if (isLikelyNetworkTimeout(`${message}\n${rawMessage}\n${causeCode ?? ""}\n${causeSyscall ?? ""}`)) {
+	if (isLikelyNetworkTimeout(evidence)) {
 		return { kind: "network", source: getCursorConnectSource(error, record) };
 	}
 
@@ -136,8 +164,11 @@ export function isUnauthenticatedConnectError(error: unknown): boolean {
 
 function isLikelyNetworkTimeout(message: string): boolean {
 	return (
-		/\b(ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENETUNREACH|EAI_AGAIN)\b/i.test(message) ||
+		/\b(ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENETUNREACH|EAI_AGAIN|NGHTTP2_ENHANCE_YOUR_CALM|ERR_HTTP2_STREAM_ERROR|ERR_HTTP2_SESSION_ERROR)\b/i.test(
+			message,
+		) ||
 		/\bConnectError\b.*\b(unavailable|deadline|timeout|timed out)\b/i.test(message) ||
+		/\b(?:stream|session) closed with error code\b/i.test(message) ||
 		/\bread ETIMEDOUT\b/i.test(message)
 	);
 }

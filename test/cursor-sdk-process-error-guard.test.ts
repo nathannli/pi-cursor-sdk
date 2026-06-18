@@ -76,6 +76,30 @@ function makeCursorSdkNetworkConnectError(): Error & { rawMessage: string; code:
 	return error;
 }
 
+function makeCursorSdkHttp2EnhanceYourCalmConnectError(): Error & {
+	rawMessage: string;
+	code: number;
+	cause: Error & { rawMessage: string; code: string };
+} {
+	const error = new Error("[internal] Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM") as Error & {
+		rawMessage: string;
+		code: number;
+		cause: Error & { rawMessage: string; code: string };
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM";
+	error.code = 2;
+	error.cause = Object.assign(new Error("stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM"), {
+		rawMessage: "stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM",
+		code: "ERR_HTTP2_STREAM_ERROR",
+	});
+	error.stack =
+		"ConnectError: [internal] Stream closed with error code NGHTTP2_ENHANCE_YOUR_CALM\n" +
+		"    at file:///repo/node_modules/@connectrpc/connect/dist/esm/connect-error.js:71:20\n" +
+		"    at file:///repo/node_modules/@cursor/sdk/dist/esm/index.js:8:1086456";
+	return error;
+}
+
 function makeCursorExtensionNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = makeCursorSdkNetworkConnectError();
 	error.stack =
@@ -237,6 +261,27 @@ describe("Cursor SDK process error guard", () => {
 		}
 	});
 
+	it("suppresses Cursor SDK HTTP/2 stream reset process errors while a provider turn is active", () => {
+		const suppression = installCursorSdkProcessErrorGuard();
+		let listenerCalled = false;
+		const listener = () => {
+			listenerCalled = true;
+		};
+		process.once("uncaughtException", listener);
+		try {
+			const emitted = process.emit(
+				"uncaughtException",
+				makeCursorSdkHttp2EnhanceYourCalmConnectError(),
+				"uncaughtException",
+			);
+			expect(emitted).toBe(true);
+			expect(listenerCalled).toBe(false);
+		} finally {
+			process.removeListener("uncaughtException", listener);
+			suppression.dispose();
+		}
+	});
+
 	it("suppresses Cursor network unhandled rejections while a provider turn is active", () => {
 		const suppression = installCursorSdkProcessErrorGuard();
 		let listenerCalled = false;
@@ -290,6 +335,7 @@ describe("Cursor SDK process error guard", () => {
 
 	it.each([
 		["Cursor SDK stack", makeCursorSdkNetworkConnectError],
+		["Cursor SDK HTTP/2 stream reset", makeCursorSdkHttp2EnhanceYourCalmConnectError],
 		["generic connect-node stack", makeGenericConnectNodeNetworkConnectError],
 	])("does not suppress %s network ConnectErrors after guard disposal", (_name, makeError) => {
 		const suppression = installCursorSdkProcessErrorGuard();

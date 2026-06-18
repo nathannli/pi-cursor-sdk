@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.45 - 2026-06-18
+
+### Fixed
+
+- Classify Cursor SDK HTTP/2 `NGHTTP2_ENHANCE_YOUR_CALM` and stream-reset `ConnectError`s as retryable network errors so active-turn process errors do not hard-crash pi (#127).
+
 ## 0.1.44 - 2026-06-16
 
 ### Changed
