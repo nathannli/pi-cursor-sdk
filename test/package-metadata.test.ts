@@ -8,6 +8,7 @@ const packageJson = require("../package.json") as {
 	dependencies: Record<string, string>;
 	devDependencies: Record<string, string>;
 	peerDependencies: Record<string, string>;
+	bundledDependencies?: string[];
 	overrides?: Record<string, string>;
 };
 const packageLock = require("../package-lock.json") as {
@@ -45,6 +46,12 @@ describe("package metadata cutover baselines", () => {
 	it("keeps installed ConnectRPC transport siblings aligned", () => {
 		expect(lockPackageVersion("@connectrpc/connect-node")).toBe("1.7.0");
 		expect(lockPackageVersion("@connectrpc/connect-web")).toBe("1.7.0");
+	});
+
+	it("bundles the audited Node transport dependency tree for package consumers", () => {
+		expect(packageJson.dependencies.undici).toBe("7.28.0");
+		expect(lockPackageVersion("undici")).toBe("7.28.0");
+		expect(packageJson.bundledDependencies).toEqual(expect.arrayContaining(["@connectrpc/connect-node", "undici"]));
 	});
 
 	it("removes the obsolete sqlite override", () => {

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.48 - 2026-06-22
+
+### Fixed
+
+- Bundle Cursor's Node ConnectRPC transport seam with `undici` `7.28.0` so downstream `pi install npm:pi-cursor-sdk` production installs inherit the audited transport dependency instead of npm's root-only `overrides` fix.
+
 ## 0.1.47 - 2026-06-22
 
 ### Changed
