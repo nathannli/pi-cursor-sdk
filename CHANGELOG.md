@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.1.50 - 2026-06-24
+
+### Added
+
+- Normalize Cursor context-overflow failures into pi's `context_length_exceeded` form via a `message_end` handler so pi's auto-compact-retry recovery fires when a Cursor run fails on a too-large prompt. Scoped to the Cursor provider, limited to `stopReason === "error"`, never matches throttling/rate-limit signals, and idempotent. See pi `docs/custom-provider.md` "Context Overflow Errors".
+
+### Changed
+
+- Bump the local pi validation baseline (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`) from `0.80.1` to `0.80.2` after reviewing current installed Pi 0.80.2 docs and types. Published pi core peer dependencies remain `"*"`.
+- Reconcile the README recommended/validated pi baseline wording (previously `0.80.1` recommended vs `0.79.10` validated) to the current `0.80.2` baseline.
+
+### Validation
+
+- `npm run typecheck`, `npm test` (790 tests), and `npm pack --dry-run` pass against the `0.80.2` pi core local validation baseline.
+- `npm run smoke:platform:all` passes on macOS, Ubuntu, and Windows native (native-replay visual matrix, bridge visual matrix, abort cleanup; packed installs, PTY/ConPTY capture, JSONL assertions, redaction scans) with Cursor auth.
+
 ## 0.1.49 - 2026-06-23
 
 ### Changed
@@ -11,7 +27,7 @@
 
 ### Validation
 
-- Pending in this release train.
+- `npm test`, `npm run typecheck`, and `npm pack --dry-run` pass against the `0.80.1` pi core local validation baseline.
 
 ## 0.1.48 - 2026-06-22
 

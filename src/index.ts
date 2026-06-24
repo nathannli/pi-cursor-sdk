@@ -11,6 +11,7 @@ import { streamCursorLazy } from "./cursor-provider-lazy.js";
 import { CURSOR_API_KEY_CONFIG_VALUE } from "./cursor-api-key.js";
 import { registerCursorFallbackIssueWarning } from "./cursor-fallback-warning.js";
 import { registerCursorAgentsContextDedup } from "./cursor-agents-context-registration.js";
+import { registerCursorOverflowNormalization } from "./cursor-provider-overflow.js";
 
 type CursorExtensionApi =
 	& Pick<ExtensionAPI, "registerProvider" | "registerCommand" | "on">
@@ -22,7 +23,8 @@ type CursorExtensionApi =
 	& Parameters<typeof registerCursorSkillTool>[0]
 	& Parameters<typeof registerCursorPiToolBridge>[0]
 	& Parameters<typeof registerCursorFallbackIssueWarning>[0]
-	& Parameters<typeof registerCursorAgentsContextDedup>[0];
+	& Parameters<typeof registerCursorAgentsContextDedup>[0]
+	& Parameters<typeof registerCursorOverflowNormalization>[0];
 
 function createCursorProviderConfig(models: ProviderModelConfig[]): ProviderConfig {
 	return {
@@ -53,6 +55,7 @@ export default async function (pi: CursorExtensionApi) {
 	registerCursorSkillTool(pi);
 	registerCursorPiToolBridge(pi);
 	registerCursorAgentsContextDedup(pi);
+	registerCursorOverflowNormalization(pi);
 	let fallbackIssue: CursorModelFallbackIssue | undefined;
 	const models = await discoverModels({
 		onFallback: (issue) => {
