@@ -12,7 +12,7 @@ const packageJson = require("../package.json") as {
 	overrides?: Record<string, string>;
 };
 const packageLock = require("../package-lock.json") as {
-	packages: Record<string, { version?: string }>;
+	packages: Record<string, { version?: string; dependencies?: Record<string, string> }>;
 };
 
 const PI_PACKAGES = [
@@ -27,8 +27,8 @@ function lockPackageVersion(packageName: string): string | undefined {
 
 describe("package metadata cutover baselines", () => {
 	it("pins Cursor SDK exactly", () => {
-		expect(packageJson.dependencies["@cursor/sdk"]).toBe("1.0.19");
-		expect(lockPackageVersion("@cursor/sdk")).toBe("1.0.19");
+		expect(packageJson.dependencies["@cursor/sdk"]).toBe("1.0.22");
+		expect(lockPackageVersion("@cursor/sdk")).toBe("1.0.22");
 	});
 
 	it("pins the Node ConnectRPC transport required by Cursor SDK's Node seam", () => {
@@ -39,7 +39,8 @@ describe("package metadata cutover baselines", () => {
 
 		expect(sdkTransportDts).toContain("Node");
 		expect(sdkTransportDts).toContain("`@connectrpc/connect-node`");
-		expect(packageJson.dependencies["@connectrpc/connect-node"]).toBe("1.7.0");
+		expect(packageLock.packages["node_modules/@cursor/sdk"]?.dependencies?.["@connectrpc/connect-node"]).toBe("^1.6.1");
+		expect(packageJson.dependencies["@connectrpc/connect-node"]).toBeUndefined();
 		expect(lockPackageVersion("@connectrpc/connect-node")).toBe("1.7.0");
 	});
 
@@ -48,10 +49,11 @@ describe("package metadata cutover baselines", () => {
 		expect(lockPackageVersion("@connectrpc/connect-web")).toBe("1.7.0");
 	});
 
-	it("bundles the audited Node transport dependency tree for package consumers", () => {
-		expect(packageJson.dependencies.undici).toBe("7.28.0");
-		expect(lockPackageVersion("undici")).toBe("7.28.0");
-		expect(packageJson.bundledDependencies).toEqual(expect.arrayContaining(["@connectrpc/connect-node", "undici"]));
+	it("leaves the Cursor SDK transport dependency tree to npm resolution", () => {
+		expect(packageJson.dependencies.undici).toBeUndefined();
+		expect(packageJson.bundledDependencies).toBeUndefined();
+		expect(packageJson.overrides).toBeUndefined();
+		expect(packageLock.packages["node_modules/@connectrpc/connect-node/node_modules/undici"]?.version).toBe("5.29.0");
 	});
 
 	it("removes the obsolete sqlite override", () => {

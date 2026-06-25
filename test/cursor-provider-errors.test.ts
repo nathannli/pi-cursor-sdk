@@ -61,6 +61,36 @@ function makeCursorSdkHttp2EnhanceYourCalmConnectError(): Error & {
 	return error;
 }
 
+function makeCursorSdkStallAbortWrapperConnectError(): Error & { rawMessage: string; code: number; cause: Error } {
+	const cause = Object.assign(new Error("[canceled] This operation was aborted"), {
+		name: "ConnectError",
+		rawMessage: "This operation was aborted",
+		code: 1,
+		cause: new DOMException("This operation was aborted", "AbortError"),
+	});
+	cause.stack =
+		"ConnectError: [canceled] This operation was aborted\n" +
+		"    at ConnectError.from (file:///repo/node_modules/@connectrpc/connect/dist/esm/connect-error.js:69:24)\n" +
+		"    at connectErrorFromNodeReason (file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-error.js:52:29)\n" +
+		"    at Object.reject (file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63)\n" +
+		"    at AbortSignal.r (file:///repo/node_modules/@cursor/sdk/dist/esm/996.js:1:5705)\n" +
+		"    at Y.onStall (file:///repo/node_modules/@cursor/sdk/dist/esm/357.js:1:75246)";
+	const error = new Error("[unknown] [canceled] This operation was aborted") as Error & {
+		rawMessage: string;
+		code: number;
+		cause: Error;
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "[canceled] This operation was aborted";
+	error.code = 2;
+	error.cause = cause;
+	error.stack =
+		"ConnectError: [unknown] [canceled] This operation was aborted\n" +
+		"    at a.from (file:///repo/node_modules/@cursor/sdk/dist/esm/index.js:1:1125976)\n" +
+		"    at file:///repo/node_modules/@cursor/sdk/dist/esm/996.js:1:5832";
+	return error;
+}
+
 function makeCursorExtensionNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = makeCursorSdkNetworkConnectError();
 	error.stack =
@@ -223,6 +253,17 @@ describe("cursor-provider-errors", () => {
 		expect(message).toContain("Network error");
 		expect(message).toContain("pi will retry automatically");
 		expect(message).not.toContain("NGHTTP2_ENHANCE_YOUR_CALM");
+	});
+
+	it("classifies Cursor SDK stall abort wrappers as retryable network failures", () => {
+		const error = makeCursorSdkStallAbortWrapperConnectError();
+		const classification = classifyCursorConnectError(error);
+		const message = sanitizeCursorProviderError(error, "test-key");
+
+		expect(classification).toEqual({ kind: "network", source: "cursor-sdk-stack" });
+		expect(message).toContain("Network error");
+		expect(message).toContain("pi will retry automatically");
+		expect(message).not.toContain("operation was aborted");
 	});
 
 	it("classifies Cursor backend unavailable ConnectErrors by code and details", () => {

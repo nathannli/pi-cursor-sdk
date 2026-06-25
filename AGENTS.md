@@ -155,6 +155,14 @@ When the user requests a PR review (including thermo-nuclear / deep maintainabil
 - After remediations land, **repeat the review** on the updated branch until there are **no** remaining findings (including docs/PR-body drift and test-contract gaps).
 - Do not approve on passing unit tests alone. Thermo-nuclear review is maintainability-only and does **not** tell you to skip live smoke; repo smoke gates live here and in `docs/cursor-live-smoke-checklist.md`.
 
+## Release review gate (maintainer)
+
+Before publishing any npm/GitHub release or tagging release-ready status:
+
+- Run a thermo-nuclear/deep maintainability review on the exact release diff, including docs, tests, package metadata, generated artifacts, and PR/issue closure notes.
+- Remediate every finding, including polish. Repeat the review/fix loop until the reviewer reports no remaining findings.
+- This release review gate is in addition to the platform smoke gate; it does not replace `npm run smoke:platform:all`.
+
 ## Pre-commit live smoke (maintainer)
 
 Before **every commit** that touches Cursor provider/runtime, prompt/session send policy, agents-context dedup, bridge, replay, or related extension wiring:

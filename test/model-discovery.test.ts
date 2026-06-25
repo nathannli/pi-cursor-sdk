@@ -954,6 +954,47 @@ describe("discoverModels", () => {
 			params: [{ id: "reasoning", value: "low" }],
 		});
 	});
+
+	it("preserves variant-only default params without exposing them as known controls", async () => {
+		process.env.CURSOR_API_KEY = "test-key-123";
+		mockedList.mockResolvedValueOnce([
+			{
+				id: "claude-opus-4-8",
+				displayName: "Opus 4.8",
+				parameters: [
+					{ id: "thinking", displayName: "Thinking", values: [{ value: "false" }, { value: "true" }] },
+					{ id: "effort", displayName: "Effort", values: [{ value: "low" }, { value: "high" }] },
+				],
+				variants: [
+					{
+						params: [
+							{ id: "cyber", value: "false" },
+							{ id: "thinking", value: "true" },
+							{ id: "effort", value: "high" },
+						],
+						displayName: "Opus 4.8",
+						isDefault: true,
+					},
+				],
+			},
+		]);
+		await discoverModels();
+		expect(getCursorModelMetadata("claude-opus-4-8")?.parameterIds).toEqual({
+			context: false,
+			reasoning: false,
+			effort: true,
+			thinking: true,
+			fast: false,
+		});
+		expect(buildCursorModelSelection("claude-opus-4-8", "low")).toEqual({
+			id: "claude-opus-4-8",
+			params: [
+				{ id: "cyber", value: "false" },
+				{ id: "thinking", value: "true" },
+				{ id: "effort", value: "low" },
+			],
+		});
+	});
 });
 
 describe("discoverModels model-list cache", () => {

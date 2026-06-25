@@ -73,6 +73,19 @@ function collectConnectErrorEvidence(error: unknown, record: Record<string, unkn
 	return evidence.join("\n");
 }
 
+function collectConnectErrorStacks(error: unknown, record: Record<string, unknown> | undefined): string {
+	const stacks: string[] = [];
+	let value = error;
+	let currentRecord = record;
+	for (let depth = 0; depth < 3 && currentRecord; depth += 1) {
+		const stack = getErrorStack(value, currentRecord).trim();
+		if (stack) stacks.push(stack);
+		value = currentRecord.cause;
+		currentRecord = asRecord(value);
+	}
+	return stacks.join("\n");
+}
+
 function isConnectError(error: unknown, record: Record<string, unknown> | undefined): boolean {
 	const name = error instanceof Error ? error.name : getErrorStringField(record, "name");
 	return name === "ConnectError";
@@ -84,6 +97,17 @@ function isUnauthenticatedConnectCode(code: unknown): boolean {
 
 function isUnavailableConnectCode(code: unknown): boolean {
 	return code === 14 || (typeof code === "string" && /^(?:14|unavailable)$/i.test(code));
+}
+
+function isCursorSdkStallAbortNetworkError(code: unknown, evidence: string, stackEvidence: string): boolean {
+	return (
+		(code === 2 || (typeof code === "string" && /^(?:2|unknown)$/i.test(code))) &&
+		/(?:operation was aborted|canceled)/i.test(evidence) &&
+		/(?:AbortError|operation was aborted)/i.test(`${evidence}\n${stackEvidence}`) &&
+		stackEvidence.includes("@cursor/sdk") &&
+		stackEvidence.includes("@connectrpc/connect-node") &&
+		/\b(?:onStall|reportStall|StallDetected)\b/i.test(stackEvidence)
+	);
 }
 
 function isCursorExtensionConnectStack(stack: string): boolean {
@@ -128,6 +152,7 @@ export function classifyCursorConnectError(error: unknown): CursorConnectErrorCl
 	const causeName = getErrorStringField(cause, "name");
 	const stack = getErrorStack(error, record);
 	const evidence = collectConnectErrorEvidence(error, record);
+	const stackEvidence = collectConnectErrorStacks(error, record);
 
 	if (
 		(code === 1 || code === "canceled") &&
@@ -137,6 +162,10 @@ export function classifyCursorConnectError(error: unknown): CursorConnectErrorCl
 		stack.includes("@connectrpc/connect-node")
 	) {
 		return { kind: "abort", source: "cursor-sdk-stack" };
+	}
+
+	if (isCursorSdkStallAbortNetworkError(code, evidence, stackEvidence)) {
+		return { kind: "network", source: getCursorConnectSource(error, record) };
 	}
 
 	if (isUnauthenticatedConnectCode(code) || isLikelyAuthError(evidence)) {

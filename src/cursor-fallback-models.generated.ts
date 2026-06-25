@@ -5,6 +5,412 @@ import type { ModelListItem } from "@cursor/sdk";
 // Do not add secrets; this file stores public model metadata only.
 export const FALLBACK_MODEL_ITEMS = [
 	{
+		id: "claude-fable-5",
+		displayName: "Fable 5",
+		aliases: [
+			"fable",
+			"fable-5",
+			"fable-5"
+		],
+		parameters: [
+			{
+				id: "thinking",
+				displayName: "Thinking",
+				values: [
+					{
+						value: "false"
+					},
+					{
+						value: "true"
+					}
+				]
+			},
+			{
+				id: "context",
+				displayName: "Context",
+				values: [
+					{
+						value: "300k",
+						displayName: "300K"
+					},
+					{
+						value: "1m",
+						displayName: "1M"
+					}
+				]
+			},
+			{
+				id: "effort",
+				displayName: "Effort",
+				values: [
+					{
+						value: "low",
+						displayName: "Low"
+					},
+					{
+						value: "medium",
+						displayName: "Medium"
+					},
+					{
+						value: "high",
+						displayName: "High"
+					},
+					{
+						value: "xhigh",
+						displayName: "Extra High"
+					},
+					{
+						value: "max",
+						displayName: "Max"
+					}
+				]
+			}
+		],
+		variants: [
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Fable 5",
+				isDefault: true
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Fable 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Fable 5"
+			}
+		]
+	},
+	{
 		id: "claude-haiku-4-5",
 		displayName: "Haiku 4.5",
 		aliases: [
@@ -149,19 +555,6 @@ export const FALLBACK_MODEL_ITEMS = [
 						displayName: "Max"
 					}
 				]
-			},
-			{
-				id: "fast",
-				displayName: "Fast",
-				values: [
-					{
-						value: "false"
-					},
-					{
-						value: "true",
-						displayName: "Fast"
-					}
-				]
 			}
 		],
 		variants: [
@@ -178,31 +571,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "low"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "low"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -220,31 +588,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -262,31 +605,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "high"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "high"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -304,31 +622,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "max"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "max"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -346,31 +639,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "low"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
-						value: "low"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -388,31 +656,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
-						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -430,31 +673,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "high"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
-						value: "high"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -472,31 +690,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "max"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "false"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
-						value: "max"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -514,31 +707,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "low"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "low"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -556,31 +724,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -598,31 +741,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "high"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "high"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -640,31 +758,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "max"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "200k"
-					},
-					{
-						id: "effort",
-						value: "max"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -682,31 +775,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "low"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
-						value: "low"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -724,31 +792,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
-						value: "medium"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -766,10 +809,6 @@ export const FALLBACK_MODEL_ITEMS = [
 					{
 						id: "effort",
 						value: "high"
-					},
-					{
-						id: "fast",
-						value: "false"
 					}
 				],
 				displayName: "Opus 4.6",
@@ -787,53 +826,7 @@ export const FALLBACK_MODEL_ITEMS = [
 					},
 					{
 						id: "effort",
-						value: "high"
-					},
-					{
-						id: "fast",
-						value: "true"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
 						value: "max"
-					},
-					{
-						id: "fast",
-						value: "false"
-					}
-				],
-				displayName: "Opus 4.6"
-			},
-			{
-				params: [
-					{
-						id: "thinking",
-						value: "true"
-					},
-					{
-						id: "context",
-						value: "1m"
-					},
-					{
-						id: "effort",
-						value: "max"
-					},
-					{
-						id: "fast",
-						value: "true"
 					}
 				],
 				displayName: "Opus 4.6"
@@ -1998,6 +1991,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2018,6 +2015,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2040,6 +2041,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2060,6 +2065,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2081,6 +2090,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2103,6 +2116,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2124,6 +2141,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2144,6 +2165,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2165,6 +2190,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2187,6 +2216,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2208,6 +2241,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2228,6 +2265,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2250,6 +2291,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2270,6 +2315,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2291,6 +2340,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2313,6 +2366,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2334,6 +2391,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2354,6 +2415,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2375,6 +2440,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "false"
@@ -2397,6 +2466,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "false"
 					},
@@ -2418,6 +2491,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2439,6 +2516,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2459,6 +2540,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "true"
@@ -2481,6 +2566,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2501,6 +2590,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "true"
@@ -2523,6 +2616,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2544,6 +2641,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2565,6 +2666,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2585,6 +2690,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "true"
@@ -2607,6 +2716,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2628,6 +2741,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2649,6 +2766,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2669,6 +2790,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "true"
@@ -2691,6 +2816,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2711,6 +2840,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "true"
@@ -2734,6 +2867,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2755,6 +2892,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2776,6 +2917,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			{
 				params: [
 					{
+						id: "cyber",
+						value: "false"
+					},
+					{
 						id: "thinking",
 						value: "true"
 					},
@@ -2796,6 +2941,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "true"
@@ -2817,6 +2966,10 @@ export const FALLBACK_MODEL_ITEMS = [
 			},
 			{
 				params: [
+					{
+						id: "cyber",
+						value: "false"
+					},
 					{
 						id: "thinking",
 						value: "true"
@@ -3297,6 +3450,46 @@ export const FALLBACK_MODEL_ITEMS = [
 		]
 	},
 	{
+		id: "composer-2",
+		displayName: "Composer 2",
+		parameters: [
+			{
+				id: "fast",
+				displayName: "Fast",
+				values: [
+					{
+						value: "false"
+					},
+					{
+						value: "true",
+						displayName: "Fast"
+					}
+				]
+			}
+		],
+		variants: [
+			{
+				params: [
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "Composer 2",
+				isDefault: true
+			},
+			{
+				params: [
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "Composer 2"
+			}
+		]
+	},
+	{
 		id: "composer-2.5",
 		displayName: "Composer 2.5",
 		aliases: [
@@ -3409,6 +3602,47 @@ export const FALLBACK_MODEL_ITEMS = [
 				params: [],
 				displayName: "Gemini 3.5 Flash",
 				isDefault: true
+			}
+		]
+	},
+	{
+		id: "glm-5.2",
+		displayName: "GLM 5.2",
+		parameters: [
+			{
+				id: "reasoning",
+				displayName: "Reasoning",
+				values: [
+					{
+						value: "high",
+						displayName: "High"
+					},
+					{
+						value: "max",
+						displayName: "Max"
+					}
+				]
+			}
+		],
+		variants: [
+			{
+				params: [
+					{
+						id: "reasoning",
+						value: "high"
+					}
+				],
+				displayName: "GLM 5.2",
+				isDefault: true
+			},
+			{
+				params: [
+					{
+						id: "reasoning",
+						value: "max"
+					}
+				],
+				displayName: "GLM 5.2"
 			}
 		]
 	},

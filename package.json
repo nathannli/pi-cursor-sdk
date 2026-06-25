@@ -1,6 +1,6 @@
 {
   "name": "pi-cursor-sdk",
-  "version": "0.1.50",
+  "version": "0.1.51",
   "description": "pi provider extension backed by @cursor/sdk local agents",
   "author": "Mitch Fultz (https://github.com/fitchmultz)",
   "license": "MIT",
@@ -109,15 +109,9 @@
     "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native"
   },
   "dependencies": {
-    "@connectrpc/connect-node": "1.7.0",
-    "@cursor/sdk": "1.0.19",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "undici": "7.28.0"
+    "@cursor/sdk": "1.0.22",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
-  "bundledDependencies": [
-    "@connectrpc/connect-node",
-    "undici"
-  ],
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
@@ -139,9 +133,6 @@
     "extensions": [
       "./src/index.ts"
     ]
-  },
-  "overrides": {
-    "undici": "7.28.0"
   },
   "allowScripts": {
     "node-pty@1.1.0": true

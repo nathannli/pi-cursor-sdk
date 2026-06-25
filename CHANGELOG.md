@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.1.51 - 2026-06-25
+
+### Changed
+
+- Upgrade the pinned Cursor SDK runtime dependency to `@cursor/sdk@1.0.22` after auditing the 1.0.19 → 1.0.22 package/type/docs delta. Cursor SDK now declares its Node ConnectRPC transport dependency directly, so packed npm installs resolve `@connectrpc/connect-node` from the SDK path instead of failing at runtime (#131).
+- Refresh the offline Cursor fallback model catalog from the live SDK catalog: add `claude-fable-5` and `composer-2`, and preserve variant-only `cyber=false` defaults on Opus variants. Live authenticated discovery remains the source of truth.
+- Codify the maintainer release-review gate: npm/GitHub releases must run a thermo-nuclear review/fix loop until no findings or polish items remain, in addition to the platform smoke gate.
+
+### Fixed
+
+- Classify Cursor SDK `onStall` cancellation wrappers (`ConnectError: [unknown] [canceled] This operation was aborted`) as retryable network failures during active Cursor turns so sudden network outages do not escape as process-level crashes (#128).
+
+### Validation
+
+- `npm run verify` passes against package version `0.1.51` (`check:platform-smoke`, `typecheck`, and `npm test` with 794 tests).
+- `npm pack --dry-run` produces `pi-cursor-sdk-0.1.51.tgz` without bundling `@cursor/sdk` or its transport tree; a temp consumer install resolves `@connectrpc/connect-node` from the `@cursor/sdk@1.0.22` dependency path, `npm ls @connectrpc/connect-node undici` is coherent, and the SDK imports successfully.
+- `npm run smoke:platform:all` passes on macOS, Ubuntu, and Windows native with Cursor auth (platform-build, native-replay visual matrix, bridge visual matrix, abort cleanup, packed installs, PTY/ConPTY capture, JSONL assertions, redaction scans). Artifact index: `.artifacts/platform-smoke/latest.json`.
+- `npm audit --audit-level=low` reports 3 upstream advisories in the SDK-owned `@connectrpc/connect-node -> undici@5.29.0` tree with no npm-provided fix; this release keeps npm dependency resolution coherent rather than bundling a mismatched transport override.
+
 ## 0.1.50 - 2026-06-24
 
 ### Added

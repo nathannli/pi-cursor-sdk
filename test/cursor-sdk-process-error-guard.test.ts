@@ -100,6 +100,36 @@ function makeCursorSdkHttp2EnhanceYourCalmConnectError(): Error & {
 	return error;
 }
 
+function makeCursorSdkStallAbortWrapperConnectError(): Error & { rawMessage: string; code: number; cause: Error } {
+	const cause = Object.assign(new Error("[canceled] This operation was aborted"), {
+		name: "ConnectError",
+		rawMessage: "This operation was aborted",
+		code: 1,
+		cause: new DOMException("This operation was aborted", "AbortError"),
+	});
+	cause.stack =
+		"ConnectError: [canceled] This operation was aborted\n" +
+		"    at ConnectError.from (file:///repo/node_modules/@connectrpc/connect/dist/esm/connect-error.js:69:24)\n" +
+		"    at connectErrorFromNodeReason (file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-error.js:52:29)\n" +
+		"    at Object.reject (file:///repo/node_modules/@connectrpc/connect-node/dist/esm/node-universal-client.js:293:63)\n" +
+		"    at AbortSignal.r (file:///repo/node_modules/@cursor/sdk/dist/esm/996.js:1:5705)\n" +
+		"    at Y.onStall (file:///repo/node_modules/@cursor/sdk/dist/esm/357.js:1:75246)";
+	const error = new Error("[unknown] [canceled] This operation was aborted") as Error & {
+		rawMessage: string;
+		code: number;
+		cause: Error;
+	};
+	error.name = "ConnectError";
+	error.rawMessage = "[canceled] This operation was aborted";
+	error.code = 2;
+	error.cause = cause;
+	error.stack =
+		"ConnectError: [unknown] [canceled] This operation was aborted\n" +
+		"    at a.from (file:///repo/node_modules/@cursor/sdk/dist/esm/index.js:1:1125976)\n" +
+		"    at file:///repo/node_modules/@cursor/sdk/dist/esm/996.js:1:5832";
+	return error;
+}
+
 function makeCursorExtensionNetworkConnectError(): Error & { rawMessage: string; code: number; cause: NodeJS.ErrnoException } {
 	const error = makeCursorSdkNetworkConnectError();
 	error.stack =
@@ -166,6 +196,7 @@ function makeProvenanceFreeNetworkConnectError(): Error & { rawMessage: string; 
 describe("Cursor SDK process error guard", () => {
 	it("matches local Cursor SDK abort ConnectError shape", () => {
 		expect(isCursorSdkAbortConnectError(makeCursorSdkAbortConnectError())).toBe(true);
+		expect(isCursorSdkAbortConnectError(makeCursorSdkStallAbortWrapperConnectError())).toBe(false);
 		expect(isCursorSdkAbortConnectError(new Error("boom"))).toBe(false);
 	});
 
@@ -282,6 +313,23 @@ describe("Cursor SDK process error guard", () => {
 		}
 	});
 
+	it("suppresses Cursor SDK stall abort wrappers while a provider turn is active", () => {
+		const suppression = installCursorSdkProcessErrorGuard();
+		let listenerCalled = false;
+		const listener = () => {
+			listenerCalled = true;
+		};
+		process.once("uncaughtException", listener);
+		try {
+			const emitted = process.emit("uncaughtException", makeCursorSdkStallAbortWrapperConnectError(), "uncaughtException");
+			expect(emitted).toBe(true);
+			expect(listenerCalled).toBe(false);
+		} finally {
+			process.removeListener("uncaughtException", listener);
+			suppression.dispose();
+		}
+	});
+
 	it("suppresses Cursor network unhandled rejections while a provider turn is active", () => {
 		const suppression = installCursorSdkProcessErrorGuard();
 		let listenerCalled = false;
@@ -336,6 +384,7 @@ describe("Cursor SDK process error guard", () => {
 	it.each([
 		["Cursor SDK stack", makeCursorSdkNetworkConnectError],
 		["Cursor SDK HTTP/2 stream reset", makeCursorSdkHttp2EnhanceYourCalmConnectError],
+		["Cursor SDK stall abort wrapper", makeCursorSdkStallAbortWrapperConnectError],
 		["generic connect-node stack", makeGenericConnectNodeNetworkConnectError],
 	])("does not suppress %s network ConnectErrors after guard disposal", (_name, makeError) => {
 		const suppression = installCursorSdkProcessErrorGuard();
