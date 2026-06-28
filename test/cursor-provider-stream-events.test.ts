@@ -9,9 +9,12 @@ import {
 	collectThinkingDeltas,
 	getEventsOfType,
 	getDoneEvent,
+	getErrorEvent,
 	type CursorDeltaHandler,
 	mockCreatedAgent,
 	asMockCursorRun,
+	asMockSdkAgent,
+	mockedCreate,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
 import type { Context } from "@earendil-works/pi-ai/compat";
@@ -75,6 +78,102 @@ describe("streamCursor stream events", () => {
 
 			const done = getDoneEvent(events);
 			expect(done).toBeDefined();
+		});
+
+		it("serializes concurrent Cursor turns for one pi session across model selections", async () => {
+			let activeSends = 0;
+			let maxActiveSends = 0;
+			let releaseFirstSend!: () => void;
+			const firstSendReleased = new Promise<void>((resolve) => {
+				releaseFirstSend = resolve;
+			});
+			let firstSendStarted = false;
+			const sendFor = (label: string) =>
+				vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+					activeSends += 1;
+					maxActiveSends = Math.max(maxActiveSends, activeSends);
+					if (label === "first") {
+						firstSendStarted = true;
+						await firstSendReleased;
+					} else {
+						expect(firstSendStarted).toBe(true);
+					}
+					opts.onDelta({ update: { type: "text-delta", text: `${label}-answer` } });
+					activeSends -= 1;
+					return asMockCursorRun({
+						id: `${label}-run`,
+						agentId: `${label}-agent`,
+						status: "finished",
+						wait: vi.fn().mockResolvedValue({ id: `${label}-run`, status: "finished" }),
+					});
+				});
+			const firstSend = sendFor("first");
+			const secondSend = sendFor("second");
+			mockedCreate
+				.mockResolvedValueOnce(asMockSdkAgent({ agentId: "first-agent", send: firstSend }))
+				.mockResolvedValueOnce(asMockSdkAgent({ agentId: "second-agent", send: secondSend }));
+
+			const firstEventsPromise = collectEvents(streamCursor(makeModel("composer-2.5"), makeContext([{ role: "user", content: "first task", timestamp: 1 }]), { apiKey: "test-key" }));
+			const secondEventsPromise = collectEvents(streamCursor(makeModel("gpt-5.5@272k"), makeContext([{ role: "user", content: "second task", timestamp: 1 }]), { apiKey: "test-key", reasoning: "medium" }));
+			await vi.waitFor(() => expect(firstSend).toHaveBeenCalledTimes(1));
+			expect(secondSend).not.toHaveBeenCalled();
+
+			releaseFirstSend();
+			const [firstEvents, secondEvents] = await Promise.all([firstEventsPromise, secondEventsPromise]);
+
+			expect(maxActiveSends).toBe(1);
+			expect(collectTextDeltas(firstEvents)).toBe("first-answer");
+			expect(collectTextDeltas(secondEvents)).toBe("second-answer");
+			expect(mockedCreate).toHaveBeenCalledTimes(2);
+		});
+
+		it("aborts a queued Cursor turn without waiting for the active turn", async () => {
+			let releaseFirstSend!: () => void;
+			const firstSendReleased = new Promise<void>((resolve) => {
+				releaseFirstSend = resolve;
+			});
+			const firstSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				await firstSendReleased;
+				opts.onDelta({ update: { type: "text-delta", text: "first-answer" } });
+				return asMockCursorRun({
+					id: "first-run",
+					agentId: "first-agent",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "first-run", status: "finished" }),
+				});
+			});
+			const secondSend = vi.fn();
+			mockedCreate.mockResolvedValueOnce(asMockSdkAgent({ agentId: "first-agent", send: firstSend }));
+
+			const firstEventsPromise = collectEvents(streamCursor(makeModel("composer-2.5"), makeContext([{ role: "user", content: "first task", timestamp: 1 }]), { apiKey: "test-key" }));
+			await vi.waitFor(() => expect(firstSend).toHaveBeenCalledTimes(1));
+			const controller = new AbortController();
+			const secondEventsPromise = collectEvents(streamCursor(makeModel("gpt-5.5@272k"), makeContext([{ role: "user", content: "second task", timestamp: 1 }]), { apiKey: "test-key", reasoning: "medium", signal: controller.signal }));
+
+			controller.abort();
+			const secondEvents = await secondEventsPromise;
+			expect(secondEvents[0]?.type).toBe("start");
+			expect(getErrorEvent(secondEvents).reason).toBe("aborted");
+			expect(secondSend).not.toHaveBeenCalled();
+			expect(mockedCreate).toHaveBeenCalledTimes(1);
+
+			const thirdSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				opts.onDelta({ update: { type: "text-delta", text: "third-answer" } });
+				return asMockCursorRun({
+					id: "third-run",
+					agentId: "third-agent",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "third-run", status: "finished" }),
+				});
+			});
+			mockedCreate.mockResolvedValueOnce(asMockSdkAgent({ agentId: "third-agent", send: thirdSend }));
+			const thirdEventsPromise = collectEvents(streamCursor(makeModel("gpt-5.5@272k"), makeContext([{ role: "user", content: "third task", timestamp: 1 }]), { apiKey: "test-key", reasoning: "medium" }));
+			await Promise.resolve();
+			expect(thirdSend).not.toHaveBeenCalled();
+
+			releaseFirstSend();
+			expect(collectTextDeltas(await firstEventsPromise)).toBe("first-answer");
+			expect(collectTextDeltas(await thirdEventsPromise)).toBe("third-answer");
 		});
 
 		it("emits createPlan args as final visible text when native replay is unavailable", async () => {

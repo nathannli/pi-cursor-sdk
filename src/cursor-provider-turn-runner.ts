@@ -46,7 +46,6 @@ export class CursorProviderTurnRunner {
 		});
 
 		try {
-			stream.push({ type: "start", partial });
 			this.throwIfAborted();
 			const cwd = getCursorSessionCwd();
 			this.sdkEventDebug = CursorSdkEventDebugSink.maybeCreate({
@@ -62,6 +61,7 @@ export class CursorProviderTurnRunner {
 			) {
 				return;
 			}
+			this.throwIfAborted();
 
 			this.resolvedApiKey = requireCursorApiKey(options);
 			prepared = await prepareCursorProviderTurn({

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.1.52 - 2026-06-28
+
+### Fixed
+
+- Serialize Cursor provider turns per pi session scope so parallel same-session Cursor model evaluations cannot supersede each other's SDK session agent or drain the wrong live run. Queued aborts now return an aborted stream without creating a Cursor SDK agent or leaking the turn queue.
+
+### Validation
+
+- `npm run check:platform-smoke`, `npm run typecheck`, `npm test` (796 tests), and `npm publish --dry-run` pass locally.
+- `npm run smoke:platform:all` passes on macOS, Ubuntu, and Windows native with Cursor auth. Artifact index: `.artifacts/platform-smoke/latest.json`.
+- Subagent review/fix loop and thermo-nuclear release review completed with final `NO FINDINGS`.
+
 ## 0.1.51 - 2026-06-25
 
 ### Changed

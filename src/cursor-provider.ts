@@ -22,6 +22,8 @@ import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-gu
 import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
 import { resolveCursorApiKey } from "./cursor-api-key.js";
 import { CursorProviderTurnRunner } from "./cursor-provider-turn-runner.js";
+import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
+import { runExclusiveCursorSessionTurn, __testUtils as cursorSessionTurnQueueTestUtils } from "./cursor-session-turn-queue.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
 	return {
@@ -54,7 +56,6 @@ export function streamCursor(
 
 	(async () => {
 		const partial = makeInitialMessage(model);
-		const sdkProcessErrorGuard = installCursorSdkProcessErrorGuard();
 
 		const runner = new CursorProviderTurnRunner({
 			model,
@@ -66,7 +67,12 @@ export function streamCursor(
 		});
 
 		try {
-			await runner.run(sdkProcessErrorGuard);
+			stream.push({ type: "start", partial });
+			await runExclusiveCursorSessionTurn(
+				getCursorSessionScopeKey(),
+				() => runner.run(installCursorSdkProcessErrorGuard()),
+				options?.signal,
+			);
 		} catch (error) {
 			await runner.handleOuterCatch(error);
 		}
@@ -93,4 +99,5 @@ export const __testUtils = {
 	resetCursorNativeReplayIdleDisposeMs,
 	releaseAllPendingCursorLiveRunsForTests,
 	resetSessionCursorAgents: () => disposeAllSessionCursorAgents(),
+	resetSessionTurnQueue: cursorSessionTurnQueueTestUtils.reset,
 };

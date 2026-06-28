@@ -354,6 +354,7 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 	cursorProviderTestUtils.resetCursorNativeReplayIdleDisposeMs();
 	await cursorProviderTestUtils.resetSessionCursorAgents();
+	cursorProviderTestUtils.resetSessionTurnQueue();
 	cursorSessionScopeTestUtils.reset();
 	cursorStateTestUtils.resetCursorModeStateForTests();
 	nativeToolDisplayTestUtils.reset();
