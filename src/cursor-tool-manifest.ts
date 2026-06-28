@@ -20,22 +20,26 @@ export function buildCursorToolManifestText(options: {
 	bridgeSnapshot?: CursorPiToolBridgeSnapshot;
 	/** When false, bridge is off via PI_CURSOR_PI_TOOL_BRIDGE=0 (not merely empty). */
 	piBridgeEnabled?: boolean;
+	includePiBridgeGuidance?: boolean;
 } = {}): string {
 	const piBridgeEnabled = options.piBridgeEnabled ?? true;
+	const includePiBridgeGuidance = options.includePiBridgeGuidance !== false;
 	const lines = [
 		"Callable tool surfaces this run:",
 		`- Cursor SDK host tools (callable; not listed in MCP listTools): ${CURSOR_HOST_TOOL_MANIFEST_SUMMARY}.`,
 		"- Configured Cursor MCP servers: discovered at runtime via MCP listTools (depends on Cursor settings and PI_CURSOR_SETTING_SOURCES).",
 		"- Pi CLI tool toggles such as --no-tools affect pi tools and bridge exposure only; they do not disable Cursor SDK host tools or configured Cursor MCP.",
 	];
-	const bridgeTools = options.bridgeSnapshot?.tools ?? [];
-	if (!piBridgeEnabled) {
-		lines.push("- Pi bridge: disabled (PI_CURSOR_PI_TOOL_BRIDGE=0).");
-	} else if (bridgeTools.length === 0) {
-		lines.push("- Pi bridge: no pi__* tools exposed this run.");
-	} else {
-		const names = [...bridgeTools.map((tool) => tool.mcpToolName)].sort().join(", ");
-		lines.push(`- Pi bridge (call pi__* MCP names; pi shows real pi tool names): ${names}.`);
+	const bridgeTools = includePiBridgeGuidance ? options.bridgeSnapshot?.tools ?? [] : [];
+	if (includePiBridgeGuidance) {
+		if (!piBridgeEnabled) {
+			lines.push("- Pi bridge: disabled (PI_CURSOR_PI_TOOL_BRIDGE=0).");
+		} else if (bridgeTools.length === 0) {
+			lines.push("- Pi bridge: no pi__* tools exposed this run.");
+		} else {
+			const names = [...bridgeTools.map((tool) => tool.mcpToolName)].sort().join(", ");
+			lines.push(`- Pi bridge (call pi__* MCP names; pi shows real pi tool names): ${names}.`);
+		}
 	}
 	lines.push("- Not callable: cursor-replay-* IDs, pi history tool names, and transcript labels.");
 	return lines.join("\n");

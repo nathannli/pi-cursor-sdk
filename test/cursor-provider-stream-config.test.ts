@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Type } from "typebox";
 import {
 	resetCursorProviderTestState,
 	mockedCreate,
@@ -10,6 +11,8 @@ import {
 	getTextEndEvent,
 	mockCreatedAgent,
 	createMockAgentPlatform,
+	registerBridgeForProviderTest,
+	createTestToolInfo,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
 import { registerCursorRuntimeControls } from "../src/cursor-state.js";
@@ -100,6 +103,79 @@ it("budgets oversized prompt history before Cursor Agent.send", async () => {
 		expect(sentMessage.text).toContain("Earlier transcript omitted");
 		expect(sentMessage.text).not.toContain("old request");
 		expect(sentMessage.images).toEqual([{ data: "base64-image", mimeType: "image/png" }]);
+	});
+
+	it("does not advertise pi bridge calls in Agent.send prompt when context tools are empty", async () => {
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+		const previousManifest = process.env.PI_CURSOR_TOOL_MANIFEST;
+		delete process.env.PI_CURSOR_TOOL_MANIFEST;
+		const context = makeContext([{ role: "user", content: "return code only", timestamp: 1 }]);
+		context.tools = [];
+
+		try {
+			await collectEvents(streamCursor(makeModel("gpt-5.5@272k"), context, { apiKey: "test-key", reasoning: "medium" }));
+		} finally {
+			if (previousManifest === undefined) delete process.env.PI_CURSOR_TOOL_MANIFEST;
+			else process.env.PI_CURSOR_TOOL_MANIFEST = previousManifest;
+		}
+
+		const sentMessage = mockSend.mock.calls[0]?.[0] as { text: string };
+		expect(sentMessage.text).toContain("Cursor SDK tool boundary:");
+		expect(sentMessage.text).toContain("Call only tools exposed by Cursor SDK in this run");
+		expect(sentMessage.text).toContain("Callable tool surfaces this run:");
+		expect(sentMessage.text).toContain("Cursor SDK host tools");
+		expect(sentMessage.text).not.toContain("Bridged pi tools:");
+		expect(sentMessage.text).not.toContain("Pi bridge");
+		expect(sentMessage.text).not.toContain("Use pi__cursor_ask_question");
+	});
+
+	it("keeps pi bridge prompt guidance when the actual bridge exposes tools even if context tools are empty", async () => {
+		const previousManifest = process.env.PI_CURSOR_TOOL_MANIFEST;
+		delete process.env.PI_CURSOR_TOOL_MANIFEST;
+		registerBridgeForProviderTest({
+			active: ["sem_reindex"],
+			tools: [createTestToolInfo("sem_reindex", Type.Object({ target: Type.String() }), "Reindex semantic cache")],
+		});
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({
+			send: mockSend,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+		const context = makeContext([{ role: "user", content: "use bridge if needed", timestamp: 1 }]);
+		context.tools = [];
+
+		try {
+			await collectEvents(streamCursor(makeModel("gpt-5.5@272k"), context, { apiKey: "test-key", reasoning: "medium" }));
+		} finally {
+			if (previousManifest === undefined) delete process.env.PI_CURSOR_TOOL_MANIFEST;
+			else process.env.PI_CURSOR_TOOL_MANIFEST = previousManifest;
+		}
+
+		const sentMessage = mockSend.mock.calls[0]?.[0] as { text: string };
+		expect(sentMessage.text).toContain("Bridged pi tools:");
+		expect(sentMessage.text).not.toContain("Use pi__cursor_ask_question");
+		expect(sentMessage.text).toContain("Pi bridge (call pi__* MCP names");
+		expect(sentMessage.text).toContain("pi__sem_reindex");
 	});
 
 	it("forwards latest user images to Cursor Agent.send", async () => {

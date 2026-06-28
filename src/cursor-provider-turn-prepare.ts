@@ -88,8 +88,15 @@ export async function prepareCursorProviderTurn(
 		sessionAgentScopeKey = sessionAgentLease.scopeKey;
 		throwIfAborted();
 
+		let bridgeToolNames = new Set(sessionAgentLease.bridgeRun?.snapshot.tools.map((tool) => tool.mcpToolName) ?? []);
+		let includePiBridgeGuidance = bridgeToolNames.size > 0;
 		const buildPromptOptions = (plan: ReturnType<typeof planCursorSessionSend>) => {
-			const promptOptions = { ...getCursorPromptOptions(model), agentMode };
+			const promptOptions = {
+				...getCursorPromptOptions(model),
+				agentMode,
+				includePiBridgeGuidance,
+				includePiAskQuestionGuidance: bridgeToolNames.has("pi__cursor_ask_question"),
+			};
 			if (plan.mode !== "bootstrap" || !resolveCursorToolManifestEnabled()) {
 				return promptOptions;
 			}
@@ -98,6 +105,7 @@ export async function prepareCursorProviderTurn(
 				toolManifest: buildCursorToolManifestText({
 					bridgeSnapshot: sessionAgentLease.bridgeRun?.snapshot,
 					piBridgeEnabled: resolveCursorPiToolBridgeEnabled(),
+					includePiBridgeGuidance,
 				}),
 			};
 		};
@@ -108,6 +116,8 @@ export async function prepareCursorProviderTurn(
 			await resetSessionCursorAgent(sessionAgentScopeKey);
 			sessionAgentLease = await acquireSessionCursorAgent(sessionAgentAcquireParams);
 			sessionAgentScopeKey = sessionAgentLease.scopeKey;
+			bridgeToolNames = new Set(sessionAgentLease.bridgeRun?.snapshot.tools.map((tool) => tool.mcpToolName) ?? []);
+			includePiBridgeGuidance = bridgeToolNames.size > 0;
 			sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
 			promptOptions = buildPromptOptions(sendPlan);
 			prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);

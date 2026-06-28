@@ -437,6 +437,6 @@ it("keeps the session agent alive after a successful text-only turn", async () =
 		const firstPrompt = mockSend.mock.calls[0]?.[0] as { text?: string };
 		expect(firstPrompt.text).toContain("Callable tool surfaces this run:");
 		expect(firstPrompt.text).toContain("not listed in MCP listTools");
-		expect(firstPrompt.text).toContain("pi__cursor_ask_question");
+		expect(firstPrompt.text).not.toContain("pi__cursor_ask_question");
 	});
 });

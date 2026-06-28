@@ -16,40 +16,55 @@ export interface CursorPromptOptions {
 	agentMode?: AgentModeOption;
 	/** Compact callable-surface summary; included on bootstrap prompts when set. */
 	toolManifest?: string;
+	includePiBridgeGuidance?: boolean;
+	includePiAskQuestionGuidance?: boolean;
 }
 
 export const CURSOR_APPROX_CHARS_PER_TOKEN = 4;
 export const CURSOR_IMAGE_TOKEN_ESTIMATE = 1200;
 const SECTION_SEPARATOR = "\n\n";
 
-export function getCursorPlanModeToolGuidanceText(agentMode: AgentModeOption | undefined): string | undefined {
+export function getCursorPlanModeToolGuidanceText(
+	agentMode: AgentModeOption | undefined,
+	options: { includePiBridgeGuidance?: boolean } = {},
+): string | undefined {
 	if (agentMode !== "plan") return undefined;
 	return [
 		"Cursor SDK mode is plan for this run. In pi-cursor-sdk, plan mode may still use available Cursor SDK/MCP tools for inspection when needed.",
 		"Safe/read-only shell commands that inspect or print information are allowed when Cursor chooses to call Shell; do not say Shell is blocked by plan mode and then call it anyway.",
-		"Exposed pi__* bridge tools are also callable in plan mode when the user asks for them or they are needed to answer.",
-	].join("\n");
+		options.includePiBridgeGuidance === false
+			? undefined
+			: "Exposed pi__* bridge tools are also callable in plan mode when the user asks for them or they are needed to answer.",
+	].filter((line): line is string => line !== undefined).join("\n");
 }
 
 export function getCursorToolTailGuardText(
-	options: Pick<CursorPromptOptions, "agentMode"> & { includePlanModeGuidance?: boolean } = {},
+	options: Pick<CursorPromptOptions, "agentMode"> & { includePlanModeGuidance?: boolean; includePiBridgeGuidance?: boolean } = {},
 ): string {
 	return [
 		"Shell: use an explicit `cd` to the repo path when running project commands; session cwd may not match paths in tool args.",
-		options.includePlanModeGuidance === false ? undefined : getCursorPlanModeToolGuidanceText(options.agentMode),
+		options.includePlanModeGuidance === false
+			? undefined
+			: getCursorPlanModeToolGuidanceText(options.agentMode, { includePiBridgeGuidance: options.includePiBridgeGuidance }),
 		"Exact-output requests: if the latest user asks to reply exactly, output exactly that text and do not add preambles, diagnostics, or repo checks unless explicitly requested.",
 		"Tool boundary reminder: If a tool is needed, call an available Cursor SDK/MCP tool. Never print a tool card (for example Tool call/Shell/command) as assistant text.",
 	].filter((line): line is string => line !== undefined).join("\n");
 }
 
-function getCursorToolBoundaryText(options: Pick<CursorPromptOptions, "agentMode"> & { hasToolManifest?: boolean } = {}): string {
+function getCursorToolBoundaryText(
+	options: Pick<CursorPromptOptions, "agentMode" | "includePiAskQuestionGuidance"> & { hasToolManifest?: boolean; includePiBridgeGuidance?: boolean } = {},
+): string {
+	const includePiBridgeGuidance = options.includePiBridgeGuidance !== false;
+	const includePiAskQuestionGuidance = includePiBridgeGuidance && options.includePiAskQuestionGuidance !== false;
 	const lines = [
 		"Cursor SDK tool boundary:",
 		"Call only tools exposed by Cursor SDK in this run. Pi tool names, replay labels, and transcript names are context only—not callable.",
-		"Bridged pi tools: call pi__* MCP names when exposed, not the pi card name in history. Replay activity is display-only.",
+		includePiBridgeGuidance
+			? "Bridged pi tools: call pi__* MCP names when exposed, not the pi card name in history. Replay activity is display-only."
+			: undefined,
 		"Do not claim pi-side or WebSearch/WebFetch tools unless Cursor executes an equivalent tool.",
-		"Use pi__cursor_ask_question for material choices if exposed.",
-		getCursorPlanModeToolGuidanceText(options.agentMode),
+		includePiAskQuestionGuidance ? "Use pi__cursor_ask_question for material choices if exposed." : undefined,
+		getCursorPlanModeToolGuidanceText(options.agentMode, { includePiBridgeGuidance }),
 		"Images: only the latest user message's images are sent as bytes; ask to reattach or describe prior images.",
 	].filter((line): line is string => line !== undefined);
 	if (options.hasToolManifest) {
@@ -389,7 +404,12 @@ export function buildCursorIncrementalPrompt(context: Context, options: CursorPr
 }
 
 export function buildCursorPrompt(context: Context, options: CursorPromptOptions = {}): CursorPrompt {
-	const sectionsBeforeMessages: string[] = [getCursorToolBoundaryText({ agentMode: options.agentMode, hasToolManifest: Boolean(options.toolManifest) })];
+	const sectionsBeforeMessages: string[] = [getCursorToolBoundaryText({
+		agentMode: options.agentMode,
+		hasToolManifest: Boolean(options.toolManifest),
+		includePiBridgeGuidance: options.includePiBridgeGuidance,
+		includePiAskQuestionGuidance: options.includePiAskQuestionGuidance,
+	})];
 	if (options.toolManifest) {
 		sectionsBeforeMessages.push(options.toolManifest);
 	}

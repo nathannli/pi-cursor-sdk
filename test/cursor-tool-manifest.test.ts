@@ -32,6 +32,32 @@ describe("cursor-tool-manifest", () => {
 		expect(text).toContain("cursor-replay-*");
 	});
 
+	it("omits bridge lines when pi bridge guidance is disabled", () => {
+		const text = buildCursorToolManifestText({
+			includePiBridgeGuidance: false,
+			piBridgeEnabled: true,
+			bridgeSnapshot: {
+				tools: [
+					{
+						piToolName: "cursor_ask_question",
+						mcpToolName: "pi__cursor_ask_question",
+						description: "ask",
+						inputSchema: { type: "object" },
+						sourceInfo: { source: "extension", path: "test", scope: "temporary", origin: "top-level" },
+					},
+				],
+				mcpToolNameToPiToolName: new Map(),
+				piToolNameToMcpToolName: new Map(),
+			},
+		});
+
+		expect(text).toContain("Callable tool surfaces this run:");
+		expect(text).toContain("Cursor SDK host tools");
+		expect(text).toContain("Configured Cursor MCP servers");
+		expect(text).not.toContain("Pi bridge");
+		expect(text).not.toContain("pi__cursor_ask_question");
+	});
+
 	it("notes disabled bridge", () => {
 		const text = buildCursorToolManifestText({ piBridgeEnabled: false });
 		expect(text).toContain("Pi bridge: disabled");

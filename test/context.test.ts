@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { Type } from "typebox";
 import {
 	buildCursorPrompt,
 	buildCursorIncrementalPrompt,
@@ -510,6 +511,50 @@ describe("buildCursorPrompt", () => {
 	it("omits tool manifest by default", () => {
 		const result = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
 		expect(result.text).not.toContain("Callable tool surfaces this run:");
+	});
+
+	it("uses compact pi-bridge framing when bridge guidance is disabled", () => {
+		const ctx: Context = {
+			systemPrompt: "Reply with code only.",
+			messages: [{ role: "user", content: "def add(a, b):", timestamp: 1 }],
+			tools: [],
+		};
+		const defaultPrompt = buildCursorPrompt(ctx, { charsPerToken: 1 });
+		const compactPrompt = buildCursorPrompt(ctx, { charsPerToken: 1, includePiBridgeGuidance: false });
+
+		expect(compactPrompt.text).toContain("Cursor SDK tool boundary:");
+		expect(compactPrompt.text).toContain("Call only tools exposed by Cursor SDK in this run");
+		expect(compactPrompt.text).toContain("Reply with code only.");
+		expect(compactPrompt.text).toContain("User: def add(a, b):");
+		expect(compactPrompt.text).not.toContain("Bridged pi tools:");
+		expect(compactPrompt.text).not.toContain("Use pi__cursor_ask_question");
+		expect(compactPrompt.text).not.toContain("Exposed pi__* bridge tools");
+		expect(defaultPrompt.text.length - compactPrompt.text.length).toBeGreaterThan(150);
+
+		const planPrompt = buildCursorPrompt(ctx, { agentMode: "plan", includePiBridgeGuidance: false });
+		expect(planPrompt.text).toContain("Cursor SDK mode is plan for this run");
+		expect(planPrompt.text).not.toContain("Exposed pi__* bridge tools");
+		const incrementalPlanPrompt = buildCursorIncrementalPrompt(ctx, { agentMode: "plan", includePiBridgeGuidance: false });
+		expect(incrementalPlanPrompt.text).toContain("Cursor SDK mode is plan for this run");
+		expect(incrementalPlanPrompt.text).not.toContain("Exposed pi__* bridge tools");
+	});
+
+	it("keeps pi-bridge framing when context tools are present or unknown", () => {
+		const readTool: NonNullable<Context["tools"]>[number] = {
+			name: "read",
+			description: "Read files",
+			parameters: Type.Object({}),
+		};
+		const withTools = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }], tools: [readTool] });
+		const unknownTools = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
+
+		expect(withTools.text).toContain("Bridged pi tools:");
+		expect(withTools.text).toContain("Use pi__cursor_ask_question");
+		expect(unknownTools.text).toContain("Bridged pi tools:");
+		expect(unknownTools.text).toContain("Use pi__cursor_ask_question");
+
+		const unknownToolsPlan = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] }, { agentMode: "plan" });
+		expect(unknownToolsPlan.text).toContain("Exposed pi__* bridge tools");
 	});
 
 	it("instructs Cursor not to claim web search without an actual Cursor web tool", () => {
