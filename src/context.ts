@@ -42,12 +42,12 @@ export function getCursorToolTailGuardText(
 	options: Pick<CursorPromptOptions, "agentMode"> & { includePlanModeGuidance?: boolean; includePiBridgeGuidance?: boolean } = {},
 ): string {
 	return [
-		"Shell: use an explicit `cd` to the repo path when running project commands; session cwd may not match paths in tool args.",
+		"Shell: use explicit `cd` to repo path for project commands; session cwd may differ from tool args.",
 		options.includePlanModeGuidance === false
 			? undefined
 			: getCursorPlanModeToolGuidanceText(options.agentMode, { includePiBridgeGuidance: options.includePiBridgeGuidance }),
-		"Exact-output requests: if the latest user asks to reply exactly, output exactly that text and do not add preambles, diagnostics, or repo checks unless explicitly requested.",
-		"Tool boundary reminder: If a tool is needed, call an available Cursor SDK/MCP tool. Never print a tool card (for example Tool call/Shell/command) as assistant text.",
+		"Exact-output requests: output exactly the requested text; no preamble or checks unless asked.",
+		"Tools: call available Cursor SDK/MCP tools; never print tool cards as assistant text.",
 	].filter((line): line is string => line !== undefined).join("\n");
 }
 
@@ -58,27 +58,24 @@ function getCursorToolBoundaryText(
 	const includePiAskQuestionGuidance = includePiBridgeGuidance && options.includePiAskQuestionGuidance !== false;
 	const lines = [
 		"Cursor SDK tool boundary:",
-		"Call only tools exposed by Cursor SDK in this run. Pi tool names, replay labels, and transcript names are context only—not callable.",
+		"Call only Cursor SDK/MCP tools exposed in this run; pi history names, replay labels, and transcript names are not callable.",
 		includePiBridgeGuidance
-			? "Bridged pi tools: call pi__* MCP names when exposed, not the pi card name in history. Replay activity is display-only."
+			? "For exposed pi bridge tools, call pi__* MCP names, not pi card/history names."
 			: undefined,
-		"Do not claim pi-side or WebSearch/WebFetch tools unless Cursor executes an equivalent tool.",
+		"Do not claim pi-side or WebSearch/WebFetch tools unless Cursor ran an equivalent tool.",
 		includePiAskQuestionGuidance ? "Use pi__cursor_ask_question for material choices if exposed." : undefined,
 		getCursorPlanModeToolGuidanceText(options.agentMode, { includePiBridgeGuidance }),
-		"Images: only the latest user message's images are sent as bytes; ask to reattach or describe prior images.",
+		"Images: only latest user images are sent; ask to reattach prior images.",
 	].filter((line): line is string => line !== undefined);
 	if (options.hasToolManifest) {
-		lines.push("See callable tool surfaces block below.");
+		lines.push("See callable surfaces below.");
 	}
 	return lines.join("\n");
 }
 
 function getCursorBootstrapTailSections(options: Pick<CursorPromptOptions, "agentMode"> = {}): string[] {
 	return [
-		[
-			"Answer the latest user request above using Cursor SDK capabilities only. Do not list, promise, or call pi-only tools from the system prompt as if they were available.",
-			"If web research is requested, do not claim it unless a Cursor web/search/browser/MCP tool ran.",
-		].join("\n"),
+		"Answer the latest user request above using the instructions and Cursor SDK capabilities available in this run.",
 		getCursorToolTailGuardText({ ...options, includePlanModeGuidance: false }),
 	];
 }

@@ -37,8 +37,7 @@ Enforced invariants (default mode):
   - each scanned JSONL file contains parseable JSONL records
   - each scanned JSONL file contains at least one persisted assistant message
   - every persisted assistant message has usage metadata
-  - assistant usage input/output/totalTokens are non-negative numbers
-  - assistant usage cacheRead/cacheWrite are exactly 0
+  - assistant usage input/output/totalTokens/cacheRead/cacheWrite are non-negative numbers
 
 Replay error scan (--replay-errors / --replay-errors-only):
   - no persisted error toolResult or error assistant message contains "Tool grep/cursor/find/ls not found"
@@ -79,8 +78,8 @@ function isBadUsage(usage) {
 		!isNonNegativeNumber(usage.input) ||
 		!isNonNegativeNumber(usage.output) ||
 		!isNonNegativeNumber(usage.totalTokens) ||
-		usage.cacheRead !== 0 ||
-		usage.cacheWrite !== 0
+		!isNonNegativeNumber(usage.cacheRead) ||
+		!isNonNegativeNumber(usage.cacheWrite)
 	);
 }
 

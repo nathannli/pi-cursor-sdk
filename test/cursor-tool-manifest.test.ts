@@ -26,8 +26,8 @@ describe("cursor-tool-manifest", () => {
 		});
 
 		expect(text).toContain("Callable tool surfaces this run:");
-		expect(text).toContain("not listed in MCP listTools");
-		expect(text).toContain("--no-tools affect pi tools and bridge exposure only");
+		expect(text).toContain("Cursor host/MCP");
+		expect(text).toContain("Pi tool toggles affect pi tools/bridge exposure only");
 		expect(text).toContain("pi__cursor_ask_question");
 		expect(text).toContain("cursor-replay-*");
 	});
@@ -52,8 +52,8 @@ describe("cursor-tool-manifest", () => {
 		});
 
 		expect(text).toContain("Callable tool surfaces this run:");
-		expect(text).toContain("Cursor SDK host tools");
-		expect(text).toContain("Configured Cursor MCP servers");
+		expect(text).toContain("Cursor host/MCP");
+		expect(text).toContain("configured MCP depends on Cursor settings");
 		expect(text).not.toContain("Pi bridge");
 		expect(text).not.toContain("pi__cursor_ask_question");
 	});
@@ -84,6 +84,6 @@ describe("cursor-tool-manifest", () => {
 		);
 		expect(prompt.text).toContain("Callable tool surfaces this run:");
 		expect(prompt.text).toContain("Cursor SDK tool boundary:");
-		expect(prompt.text).toContain("See callable tool surfaces block below.");
+		expect(prompt.text).toContain("See callable surfaces below.");
 	});
 });

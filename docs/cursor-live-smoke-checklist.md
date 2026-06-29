@@ -90,7 +90,7 @@ Pass criteria:
 - Exit code is `0`.
 - stdout contains `PI_CURSOR_SMOKE_OK`.
 - stderr is empty or contains only expected non-secret diagnostics for the specific test.
-- The persisted JSONL has exactly one assistant message with non-negative usage fields and `cacheRead/cacheWrite` equal to `0`.
+- The persisted JSONL has exactly one assistant message with non-negative usage fields and non-negative `cacheRead/cacheWrite`.
 
 ## 2. Default setting-source startup noise check
 
@@ -239,7 +239,7 @@ Pass criteria:
 - Diagnostics include `run_created`, `tools_exposed`, two `request_queued`, two `request_resolved`, and `run_disposed`.
 - The missing-file request has `isError: true`.
 - Persisted JSONL contains real pi tool calls named `read`, matching `toolResult` messages, and final assistant output.
-- Later assistant usage counts consumed tool-result input; no assistant usage has negative values or nonzero cache fields.
+- Later assistant usage counts consumed tool-result input; no assistant usage has negative values.
 
 ## 7. Native replay cards without the pi bridge
 
@@ -346,7 +346,7 @@ Script-enforced pass criteria:
 - Every scanned JSONL file contains at least one assistant message.
 - Every assistant message has usage metadata.
 - Assistant usage `input`, `output`, and `totalTokens` are non-negative numbers.
-- Assistant usage `cacheRead` and `cacheWrite` are exactly `0`.
+- Assistant usage `cacheRead` and `cacheWrite` are non-negative when present.
 
 Additional manual usage checks for provider/accounting changes:
 

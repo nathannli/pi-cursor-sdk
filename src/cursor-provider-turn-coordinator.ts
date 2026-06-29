@@ -32,6 +32,7 @@ import {
 	CursorToolCompletionLedger,
 	getToolFingerprint,
 } from "./cursor-provider-turn-tool-ledger.js";
+import { readCursorSdkTurnUsageFromUpdate, type CursorSdkTurnUsage } from "./cursor-usage-accounting.js";
 
 export interface CursorSdkTurnCoordinatorOptions {
 	stream: AssistantMessageEventStream;
@@ -63,6 +64,7 @@ export class CursorSdkTurnCoordinator {
 	private readonly displayRouter: CursorTurnDisplayRouter;
 	private readonly lifecycleEmitter: CursorToolLifecycleEmitter;
 	private readonly contentEmitter;
+	private sdkTurnUsage?: CursorSdkTurnUsage;
 
 	constructor(options: CursorSdkTurnCoordinatorOptions) {
 		this.stream = options.stream;
@@ -104,6 +106,10 @@ export class CursorSdkTurnCoordinator {
 		return this.displayRouter.nativeToolReplayStarted;
 	}
 
+	get lastSdkTurnUsage(): CursorSdkTurnUsage | undefined {
+		return this.sdkTurnUsage;
+	}
+
 	discardIncompleteStartedToolCalls(
 		outcome: IncompleteCursorToolRunOutcome = buildIncompleteCursorToolRunOutcome(),
 	): void {
@@ -141,6 +147,11 @@ export class CursorSdkTurnCoordinator {
 	}
 
 	handleDelta(update: InteractionUpdate): void {
+		const sdkTurnUsage = readCursorSdkTurnUsageFromUpdate(update);
+		if (sdkTurnUsage) this.sdkTurnUsage = sdkTurnUsage;
+		if (this.liveRun && (update.type === "turn-ended" || sdkTurnUsage)) {
+			cursorLiveRuns.recordSdkTurnEnded(this.liveRun, sdkTurnUsage);
+		}
 		if (update.type === "text-delta") {
 			this.textDeltas.push(update.text);
 			if (this.liveRun) {

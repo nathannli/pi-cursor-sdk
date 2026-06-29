@@ -20,7 +20,7 @@ import {
 } from "./cursor-native-tool-display-state.js";
 import { type CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
 import { resetSessionCursorAgent } from "./cursor-session-agent.js";
-import { applyCursorApproximateUsage } from "./cursor-usage-accounting.js";
+import { applyCursorUsage } from "./cursor-usage-accounting.js";
 import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
 import { trimCurrentTurnAlreadyEmittedCursorText } from "./cursor-run-final-text.js";
 import { formatCursorSdkAbortMessage, resolveCursorSdkAbortCause } from "./cursor-provider-errors.js";
@@ -105,6 +105,17 @@ export async function settleCursorLiveToolBatch(run: CursorLiveRun): Promise<voi
 	await scheduler.wait(75);
 }
 
+async function waitForCursorLiveSdkTurnEnded(run: CursorLiveRun, signal?: AbortSignal): Promise<boolean> {
+	const deadline = Date.now() + 125;
+	while (!cursorLiveRuns.hasSdkTurnEnded(run) && !run.done && !run.disposed && !run.cancelled && !run.errorMessage) {
+		const remainingMs = deadline - Date.now();
+		if (remainingMs <= 0) return false;
+		await scheduler.wait(Math.min(25, remainingMs));
+		if (signal?.aborted) throw new CursorLiveRunAbortError();
+	}
+	return cursorLiveRuns.hasSdkTurnEnded(run);
+}
+
 export function flushPendingCursorLiveRunTraceEventsToStream(
 	stream: AssistantMessageEventStream,
 	partial: AssistantMessage,
@@ -184,7 +195,9 @@ function emitCursorNativeToolUseTurn(
 			});
 		}
 	}
-	applyCursorApproximateUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens));
+	applyCursorUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens), {
+		turn: cursorLiveRuns.takeSdkTurnUsage(run),
+	});
 	partial.stopReason = "toolUse";
 	stream.push({ type: "done", reason: "toolUse", message: partial });
 	cursorLiveRuns.requestIdleDispose(run);
@@ -229,7 +242,9 @@ function emitCursorBridgeToolUseTurn(
 		const block = partial.content[contentIndex];
 		if (block.type === "toolCall") stream.push({ type: "toolcall_end", contentIndex, toolCall: block, partial });
 	}
-	applyCursorApproximateUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens));
+	applyCursorUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens), {
+		turn: cursorLiveRuns.takeSdkTurnUsage(run),
+	});
 	partial.stopReason = "toolUse";
 	stream.push({ type: "done", reason: "toolUse", message: partial });
 	cursorLiveRuns.requestIdleDispose(run);
@@ -249,6 +264,7 @@ async function emitCursorLiveRunPendingToolUseTurn(
 	const eventType = cursorLiveRuns.peekEvent(run)?.type;
 	if (eventType !== "tool" && eventType !== "bridge-tool") return undefined;
 	await settleCursorLiveToolBatch(run);
+	const sdkTurnEnded = await waitForCursorLiveSdkTurnEnded(run, options.signal);
 	if (options.signal?.aborted) throw new CursorLiveRunAbortError();
 	if (eventType === "tool") {
 		const { active, inactive } = partitionNativeToolsByActiveContext(context, cursorLiveRuns.collectNativeToolBatch(run));
@@ -257,9 +273,11 @@ async function emitCursorLiveRunPendingToolUseTurn(
 			// Inactive-only batch: trace was emitted above; do not emit toolUse.
 			return "handled";
 		}
+		if (!sdkTurnEnded) cursorLiveRuns.ignoreFutureSdkTurnUsage(run);
 		if (options.mode === "emit") turn.emitter.closeAll();
 		emitCursorNativeToolUseTurn(stream, partial, model, context, run, toolResultInputTokens, active, debugRecorder);
 	} else {
+		if (!sdkTurnEnded) cursorLiveRuns.ignoreFutureSdkTurnUsage(run);
 		if (options.mode === "emit") turn.emitter.closeAll();
 		const requests = cursorLiveRuns.collectBridgeToolBatch(run);
 		emitCursorBridgeToolUseTurn(stream, partial, model, context, run, toolResultInputTokens, requests);
@@ -358,7 +376,9 @@ export async function drainCursorLiveRunTurn(
 				if (finalText) {
 					await emitTextDeltas(stream, partial, splitTextIntoReplayDeltas(finalText));
 				}
-				applyCursorApproximateUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens));
+				applyCursorUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens), {
+					turn: cursorLiveRuns.takeSdkTurnUsage(run),
+				});
 				partial.stopReason = "stop";
 				stream.push({ type: "done", reason: "stop", message: partial });
 				await cursorLiveRuns.release(run);

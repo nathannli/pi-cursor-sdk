@@ -3,10 +3,13 @@ import type { SDKAgent } from "@cursor/sdk";
 import {
 	consumeCursorLiveToolResults,
 	createCursorLiveRunAccountingState,
+	recordCursorLiveSdkTurnEnded,
+	takeCursorLiveSdkTurnUsage,
 	takeCursorLiveTurnInputTokens,
 	type CursorLiveRunAccountingState,
 	type CursorLiveToolResultConsumption,
 } from "./cursor-live-run-accounting.js";
+import type { CursorSdkTurnUsage } from "./cursor-usage-accounting.js";
 import type { CursorNativeToolDisplayItem } from "./cursor-native-tool-display-state.js";
 import type { CursorPiBridgeToolRequest, CursorPiToolBridgeRun } from "./cursor-pi-tool-bridge.js";
 import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
@@ -38,6 +41,7 @@ export interface CursorLiveRun {
 	sessionBridgeRun?: CursorPiToolBridgeRun;
 	sessionAgentScopeKey: string;
 	sdkRun?: CursorLiveSdkRun;
+	ignoreFutureSdkTurnUsage?: boolean;
 	accounting: CursorLiveRunAccountingState;
 	pendingEvents: CursorLiveQueuedEvent[];
 	textDeltas: string[];
@@ -77,6 +81,9 @@ export interface CursorLiveRunCoordinator {
 	markFinished(run: CursorLiveRun, finalText: string): void;
 	markCancelled(run: CursorLiveRun, abortMessage?: string): void;
 	markError(run: CursorLiveRun, errorMessage: string): void;
+	recordSdkTurnEnded(run: CursorLiveRun, usage?: CursorSdkTurnUsage): void;
+	ignoreFutureSdkTurnUsage(run: CursorLiveRun): void;
+	hasSdkTurnEnded(run: CursorLiveRun): boolean;
 	queueEvent(run: CursorLiveRun, event: CursorLiveQueuedEvent): void;
 	peekEvent(run: CursorLiveRun): CursorLiveQueuedEvent | undefined;
 	shiftEvent(run: CursorLiveRun): CursorLiveQueuedEvent | undefined;
@@ -84,6 +91,7 @@ export interface CursorLiveRunCoordinator {
 	collectBridgeToolBatch(run: CursorLiveRun): CursorPiBridgeToolRequest[];
 	consumeToolResults(run: CursorLiveRun, context: Context, getReplayId: CursorReplayIdResolver): CursorLiveToolResultConsumption;
 	takeTurnInputTokens(run: CursorLiveRun, toolResultInputTokens: number): number;
+	takeSdkTurnUsage(run: CursorLiveRun): CursorSdkTurnUsage | undefined;
 	getPendingFromContext(context: Context, getReplayId: CursorReplayIdResolver): CursorLiveRun | undefined;
 	getActiveForScope(scopeKey?: string): CursorLiveRun | undefined;
 	isReady(run: CursorLiveRun): boolean;
@@ -328,6 +336,25 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			coordinator.requestIdleDispose(run);
 		},
 
+		recordSdkTurnEnded(run, usage): void {
+			if (run.disposed) return;
+			if (run.ignoreFutureSdkTurnUsage) {
+				run.accounting = { ...run.accounting, sdkTurnEnded: false, sdkTurnUsage: undefined };
+				notifyProgress(run);
+				return;
+			}
+			run.accounting = recordCursorLiveSdkTurnEnded(run.accounting, usage);
+			notifyProgress(run);
+		},
+
+		ignoreFutureSdkTurnUsage(run): void {
+			if (!run.disposed) run.ignoreFutureSdkTurnUsage = true;
+		},
+
+		hasSdkTurnEnded(run): boolean {
+			return run.accounting.sdkTurnEnded;
+		},
+
 		queueEvent(run, event): void {
 			if (run.disposed) return;
 			run.pendingEvents.push(event);
@@ -373,6 +400,12 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			const taken = takeCursorLiveTurnInputTokens(run.accounting, toolResultInputTokens);
 			run.accounting = taken.state;
 			return taken.sessionInputTokens;
+		},
+
+		takeSdkTurnUsage(run): CursorSdkTurnUsage | undefined {
+			const taken = takeCursorLiveSdkTurnUsage(run.accounting);
+			run.accounting = taken.state;
+			return taken.sdkTurnUsage;
 		},
 
 		getPendingFromContext(context, getReplayId): CursorLiveRun | undefined {

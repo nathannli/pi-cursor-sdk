@@ -17,7 +17,7 @@ Pi CLI tool toggles apply at the pi tool-registry boundary. `--no-tools`, `--too
 ## Discoverability
 
 - **MCP `listTools`** (and pi's MCP catalog when present) lists **MCP servers only** — for example `pi_tools` with `pi__cursor_ask_question`. It does **not** enumerate Cursor SDK host tools such as `Read` or `Shell`.
-- **Bootstrap prompts** include a short **Cursor SDK tool boundary** block plus a compact **callable tool surfaces** manifest by default (disable manifest with `PI_CURSOR_TOOL_MANIFEST=0`). The manifest lists host-tool categories, bridge `pi__*` names for the current run, and a reminder that configured Cursor MCP servers appear at runtime via `listTools`. MCP `listTools` entries for bridged pi tools point back to the bootstrap prompt instead of repeating the full contract.
+- **Bootstrap prompts** include a short **Cursor SDK tool boundary** block plus a compact **callable tool surfaces** manifest by default (disable manifest with `PI_CURSOR_TOOL_MANIFEST=0`). The manifest reminds the model that Cursor host/configured MCP tools are controlled by Cursor, while pi tool toggles only affect pi tools/bridge exposure; when bridge tools are exposed, it lists the current `pi__*` names. MCP `listTools` entries for bridged pi tools point back to the bootstrap prompt instead of repeating the full contract.
 - **Incremental prompts** omit the full boundary block but keep a short tail guard (including an explicit shell `cd` hint); the session agent retains prior bootstrap context.
 - **In-session debug:** `/cursor-tools` prints bridge enablement, manifest enablement, effective `PI_CURSOR_SETTING_SOURCES`, and the current callable-surface snapshot.
 

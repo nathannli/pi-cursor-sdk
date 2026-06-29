@@ -6,11 +6,19 @@ import {
 	estimateCursorTextTokens,
 	type CursorPromptOptions,
 } from "./context.js";
+import { asRecord, getNumber } from "./cursor-record-utils.js";
 
 export interface CursorUsagePromptOptions extends CursorPromptOptions {
 	maxInputTokens: number;
 	charsPerToken: number;
 	imageTokenEstimate: number;
+}
+
+export interface CursorSdkTurnUsage {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
 }
 
 function getPromptInputTokenBudget(model: Model<Api>): number {
@@ -24,6 +32,26 @@ export function getCursorPromptOptions(model: Model<Api>): CursorUsagePromptOpti
 		charsPerToken: CURSOR_APPROX_CHARS_PER_TOKEN,
 		imageTokenEstimate: CURSOR_IMAGE_TOKEN_ESTIMATE,
 	};
+}
+
+function getNonNegativeTokenCount(record: Record<string, unknown> | undefined, key: string): number | undefined {
+	const value = getNumber(record, key);
+	return value === undefined ? undefined : Math.max(0, Math.floor(value));
+}
+
+export function readCursorSdkTurnUsage(value: unknown): CursorSdkTurnUsage | undefined {
+	const record = asRecord(value);
+	const inputTokens = getNonNegativeTokenCount(record, "inputTokens");
+	const outputTokens = getNonNegativeTokenCount(record, "outputTokens");
+	const cacheReadTokens = getNonNegativeTokenCount(record, "cacheReadTokens");
+	const cacheWriteTokens = getNonNegativeTokenCount(record, "cacheWriteTokens");
+	if (inputTokens === undefined || outputTokens === undefined || cacheReadTokens === undefined || cacheWriteTokens === undefined) return undefined;
+	return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens };
+}
+
+export function readCursorSdkTurnUsageFromUpdate(update: unknown): CursorSdkTurnUsage | undefined {
+	const record = asRecord(update);
+	return record?.type === "turn-ended" ? readCursorSdkTurnUsage(record.usage) : undefined;
 }
 
 function stringifyUsageValue(value: unknown): string {
@@ -56,11 +84,36 @@ export function estimateCursorContextTotalTokens(partial: AssistantMessage, mode
 	return estimateCursorContextTokens(withAssistantMessage(context, partial), getCursorPromptOptions(model));
 }
 
-export function applyCursorApproximateUsage(partial: AssistantMessage, _model: Model<Api>, _context: Context, sessionInputTokens: number): void {
+export function applyCursorSdkUsage(partial: AssistantMessage, turnUsage: CursorSdkTurnUsage): void {
+	partial.usage.input = turnUsage.inputTokens;
+	partial.usage.output = turnUsage.outputTokens;
+	partial.usage.cacheRead = turnUsage.cacheReadTokens;
+	partial.usage.cacheWrite = turnUsage.cacheWriteTokens;
+	partial.usage.totalTokens = turnUsage.inputTokens + turnUsage.outputTokens;
+}
+
+export function applyCursorApproximateUsage(partial: AssistantMessage, model: Model<Api>, context: Context, sessionInputTokens: number): void {
 	const outputTokens = estimateCursorAssistantSessionOutputTokens(partial);
 	partial.usage.input = Math.max(0, sessionInputTokens);
 	partial.usage.output = outputTokens;
 	partial.usage.cacheRead = 0;
 	partial.usage.cacheWrite = 0;
-	partial.usage.totalTokens = partial.usage.input + partial.usage.output + partial.usage.cacheRead + partial.usage.cacheWrite;
+	partial.usage.totalTokens = Math.max(
+		partial.usage.input + partial.usage.output,
+		estimateCursorContextTotalTokens(partial, model, context),
+	);
+}
+
+export function applyCursorUsage(
+	partial: AssistantMessage,
+	model: Model<Api>,
+	context: Context,
+	sessionInputTokens: number,
+	sdkUsage?: { turn?: CursorSdkTurnUsage },
+): void {
+	if (sdkUsage?.turn) {
+		applyCursorSdkUsage(partial, sdkUsage.turn);
+		return;
+	}
+	applyCursorApproximateUsage(partial, model, context, sessionInputTokens);
 }

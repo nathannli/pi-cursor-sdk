@@ -1,10 +1,13 @@
 import type { Context, Message, ToolResultMessage } from "@earendil-works/pi-ai/compat";
 import { CURSOR_APPROX_CHARS_PER_TOKEN, estimateCursorPromptMessageTokens } from "./context.js";
+import type { CursorSdkTurnUsage } from "./cursor-usage-accounting.js";
 
 export interface CursorLiveRunAccountingState {
 	promptInputTokens: number;
 	promptInputTokensReported: boolean;
 	consumedToolResultIds: ReadonlySet<string>;
+	sdkTurnEnded: boolean;
+	sdkTurnUsage?: CursorSdkTurnUsage;
 }
 
 export interface CursorLiveToolResultConsumption {
@@ -19,7 +22,23 @@ export function createCursorLiveRunAccountingState(promptInputTokens: number): C
 		promptInputTokens,
 		promptInputTokensReported: false,
 		consumedToolResultIds: new Set(),
+		sdkTurnEnded: false,
 	};
+}
+
+export function recordCursorLiveSdkTurnEnded(
+	state: CursorLiveRunAccountingState,
+	sdkTurnUsage?: CursorSdkTurnUsage,
+): CursorLiveRunAccountingState {
+	return { ...state, sdkTurnEnded: true, sdkTurnUsage };
+}
+
+export function takeCursorLiveSdkTurnUsage(state: CursorLiveRunAccountingState): {
+	state: CursorLiveRunAccountingState;
+	sdkTurnUsage?: CursorSdkTurnUsage;
+} {
+	const { sdkTurnUsage, ...nextState } = state;
+	return { state: { ...nextState, sdkTurnEnded: false }, sdkTurnUsage };
 }
 
 function asToolResultMessage(message: Message): ToolResultMessage | undefined {

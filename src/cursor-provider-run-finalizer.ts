@@ -24,7 +24,7 @@ import type {
 	CursorProviderTurnSend,
 	CursorProviderTurnSendResult,
 } from "./cursor-provider-turn-types.js";
-import { applyCursorApproximateUsage } from "./cursor-usage-accounting.js";
+import { applyCursorUsage } from "./cursor-usage-accounting.js";
 import { hasUsableText } from "./cursor-record-utils.js";
 export type CursorTurnTerminalEvent =
 	| {
@@ -174,7 +174,9 @@ export class CursorRunFinalizer {
 				prepared.runtime.turnCoordinator.flushText(
 					outcome.kind === "finished" && hasUsableText(outcome.finalText) ? [outcome.finalText] : [],
 				);
-				applyCursorApproximateUsage(partial, model, context, prepared.meta.promptInputTokens);
+				applyCursorUsage(partial, model, context, prepared.meta.promptInputTokens, {
+					turn: prepared.runtime.turnCoordinator.lastSdkTurnUsage,
+				});
 				stream.push({ type: "done", reason: "stop", message: partial });
 				break;
 		}

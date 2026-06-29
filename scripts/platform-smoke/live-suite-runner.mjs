@@ -581,7 +581,6 @@ async function main() {
 	try {
 		console.log(`[platform-live] suite=${args.suite} target=${args.target} model=${args.model}`);
 		copyFixtureWorkspace(workspaceDir);
-		const piCli = resolvePiCli();
 		const piEnv = { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1" };
 		let installPath = `./node_modules/${packageName}`;
 		if (args.prepDir) {
@@ -603,6 +602,7 @@ async function main() {
 			const npmInstallPacked = runLogged(logDir, "workspace-npm-install-packed", commandName("npm"), ["install", "--no-save", tarballPath], { cwd: workspaceDir, timeout: 180_000 });
 			requireOk(npmInstallPacked, "workspace npm install packed tarball");
 		}
+		const piCli = resolvePiCli();
 		const install = runLogged(logDir, "pi-install", piCli, ["install", "--approve", "-l", installPath], { cwd: workspaceDir, env: piEnv, timeout: 120_000 });
 		requireOk(install, "pi install --approve packed package directory");
 		const list = runLogged(logDir, "pi-list", piCli, ["list", "--approve"], { cwd: workspaceDir, env: piEnv, timeout: 60_000 });

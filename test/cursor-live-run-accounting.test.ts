@@ -4,6 +4,8 @@ import { estimateCursorPromptMessageTokens } from "../src/context.js";
 import {
 	consumeCursorLiveToolResults,
 	createCursorLiveRunAccountingState,
+	recordCursorLiveSdkTurnEnded,
+	takeCursorLiveSdkTurnUsage,
 	takeCursorLiveTurnInputTokens,
 } from "../src/cursor-live-run-accounting.js";
 
@@ -60,6 +62,19 @@ describe("cursor live-run accounting", () => {
 		expect(secondConsumption.toolCallIds).toEqual([]);
 		expect(secondConsumption.toolResultInputTokens).toBe(0);
 		expect(secondTurn.sessionInputTokens).toBe(0);
+	});
+
+	it("takes SDK turn usage once", () => {
+		const state = recordCursorLiveSdkTurnEnded(
+			createCursorLiveRunAccountingState(100),
+			{ inputTokens: 25_432, outputTokens: 612, cacheReadTokens: 24_000, cacheWriteTokens: 123 },
+		);
+
+		const first = takeCursorLiveSdkTurnUsage(state);
+		const second = takeCursorLiveSdkTurnUsage(first.state);
+
+		expect(first.sdkTurnUsage).toEqual({ inputTokens: 25_432, outputTokens: 612, cacheReadTokens: 24_000, cacheWriteTokens: 123 });
+		expect(second.sdkTurnUsage).toBeUndefined();
 	});
 
 	it("ignores nonmatching tool results without consuming them", () => {

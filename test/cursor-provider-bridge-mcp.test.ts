@@ -454,8 +454,8 @@ describe("streamCursor bridge MCP", () => {
 			expect(replayDone.message.usage.input).toBeGreaterThanOrEqual(
 				estimateCursorPromptMessageTokens(readToolResultMessage) + estimateCursorPromptMessageTokens(bashToolResultMessage),
 			);
-			expect(replayDone.message.usage.totalTokens).toBe(
-				replayDone.message.usage.input + replayDone.message.usage.output + replayDone.message.usage.cacheRead + replayDone.message.usage.cacheWrite,
+			expect(replayDone.message.usage.totalTokens).toBeGreaterThanOrEqual(
+				replayDone.message.usage.input + replayDone.message.usage.output,
 			);
 		} finally {
 			await client.close().catch(() => undefined);

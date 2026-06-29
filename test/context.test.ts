@@ -382,8 +382,8 @@ describe("buildCursorPrompt", () => {
 
 	it("explains that only latest user images are available as image bytes", () => {
 		const result = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
-		expect(result.text).toContain("only the latest user message's images are sent as bytes");
-		expect(result.text).toContain("ask to reattach or describe prior images");
+		expect(result.text).toContain("only latest user images are sent");
+		expect(result.text).toContain("ask to reattach prior images");
 	});
 
 	it("replaces historical images with placeholder text", () => {
@@ -523,13 +523,13 @@ describe("buildCursorPrompt", () => {
 		const compactPrompt = buildCursorPrompt(ctx, { charsPerToken: 1, includePiBridgeGuidance: false });
 
 		expect(compactPrompt.text).toContain("Cursor SDK tool boundary:");
-		expect(compactPrompt.text).toContain("Call only tools exposed by Cursor SDK in this run");
+		expect(compactPrompt.text).toContain("Call only Cursor SDK/MCP tools exposed in this run");
 		expect(compactPrompt.text).toContain("Reply with code only.");
 		expect(compactPrompt.text).toContain("User: def add(a, b):");
 		expect(compactPrompt.text).not.toContain("Bridged pi tools:");
 		expect(compactPrompt.text).not.toContain("Use pi__cursor_ask_question");
 		expect(compactPrompt.text).not.toContain("Exposed pi__* bridge tools");
-		expect(defaultPrompt.text.length - compactPrompt.text.length).toBeGreaterThan(150);
+		expect(defaultPrompt.text.length - compactPrompt.text.length).toBeGreaterThan(100);
 
 		const planPrompt = buildCursorPrompt(ctx, { agentMode: "plan", includePiBridgeGuidance: false });
 		expect(planPrompt.text).toContain("Cursor SDK mode is plan for this run");
@@ -548,9 +548,9 @@ describe("buildCursorPrompt", () => {
 		const withTools = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }], tools: [readTool] });
 		const unknownTools = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
 
-		expect(withTools.text).toContain("Bridged pi tools:");
+		expect(withTools.text).toContain("For exposed pi bridge tools");
 		expect(withTools.text).toContain("Use pi__cursor_ask_question");
-		expect(unknownTools.text).toContain("Bridged pi tools:");
+		expect(unknownTools.text).toContain("For exposed pi bridge tools");
 		expect(unknownTools.text).toContain("Use pi__cursor_ask_question");
 
 		const unknownToolsPlan = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] }, { agentMode: "plan" });
@@ -564,9 +564,9 @@ describe("buildCursorPrompt", () => {
 		};
 		const result = buildCursorPrompt(ctx);
 		expect(result.text.indexOf("Cursor SDK tool boundary:")).toBeLessThan(result.text.indexOf("System instructions from pi:"));
-		expect(result.text).toContain("Pi tool names, replay labels, and transcript names are context only");
-		expect(result.text).toContain("call pi__* MCP names when exposed");
-		expect(result.text).toContain("Replay activity is display-only");
+		expect(result.text).toContain("pi history names, replay labels, and transcript names are not callable");
+		expect(result.text).toContain("call pi__* MCP names");
+		expect(result.text).toContain("not pi card/history names");
 		expect(result.text).toContain("Do not claim pi-side or WebSearch/WebFetch tools");
 		expect(result.text).toContain("Use pi__cursor_ask_question for material choices if exposed");
 		expect(result.text).not.toContain("Pi bridge contract:");
@@ -575,7 +575,7 @@ describe("buildCursorPrompt", () => {
 
 	it("omits manifest pointer from boundary when tool manifest is disabled", () => {
 		const result = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
-		expect(result.text).not.toContain("See callable tool surfaces block below.");
+		expect(result.text).not.toContain("See callable surfaces below.");
 	});
 
 	it("points boundary readers to the manifest when tool manifest is present", () => {
@@ -584,14 +584,14 @@ describe("buildCursorPrompt", () => {
 			{ messages: [{ role: "user", content: "test", timestamp: 1 }] },
 			{ toolManifest: manifest },
 		);
-		expect(result.text).toContain("See callable tool surfaces block below.");
+		expect(result.text).toContain("See callable surfaces below.");
 		expect(result.text).toContain(manifest);
 	});
 
 	it("includes shell cd hint in the tool tail guard", () => {
 		const tail = getCursorToolTailGuardText();
 		expect(tail).toContain("explicit `cd`");
-		expect(tail).toContain("session cwd may not match paths in tool args");
+		expect(tail).toContain("session cwd may differ from tool args");
 		expect(tail).toContain("Exact-output requests");
 		const bootstrap = buildCursorPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
 		const incremental = buildCursorIncrementalPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });

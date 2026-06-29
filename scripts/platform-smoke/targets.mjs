@@ -638,7 +638,6 @@ async function executeLiveSuite(config, targetName, suiteName, suiteDir, slug, l
 		{ id: "provider-debug-artifacts", fn: () => providerDebugFiles.some((file) => file.endsWith("session.json")) && providerDebugFiles.length > 1 },
 		...(suiteName !== "cursor-abort-cleanup" ? [
 			{ id: "jsonl-usage-non-negative", fn: () => usageChecks.seen && usageChecks.nonNegative },
-			{ id: "jsonl-cache-zero", fn: () => usageChecks.seen && usageChecks.cacheZero },
 		] : []),
 		{ id: "final-marker", fn: () => scenario?.finalMarker ? status?.finalMarkerObserved === true : status?.ok === true },
 		...(suiteName === "cursor-abort-cleanup" ? [{ id: "abort-no-successful-answer", fn: () => !hasAbortSuccessClaim(jsonlRaw) }] : []),
@@ -798,7 +797,6 @@ function collectBridgeDiagnostics(terminalText) {
 function collectUsageChecks(jsonlRaw) {
 	let seen = false;
 	let nonNegative = true;
-	let cacheZero = true;
 	for (const line of jsonlRaw.split(/\r?\n/)) {
 		if (!line.trim()) continue;
 		let event;
@@ -809,10 +807,10 @@ function collectUsageChecks(jsonlRaw) {
 		for (const value of Object.values(usage)) {
 			if (typeof value === "number" && value < 0) nonNegative = false;
 		}
-		if (typeof usage.cacheRead === "number" && usage.cacheRead !== 0) cacheZero = false;
-		if (typeof usage.cacheWrite === "number" && usage.cacheWrite !== 0) cacheZero = false;
+		if (typeof usage.cacheRead === "number" && usage.cacheRead < 0) nonNegative = false;
+		if (typeof usage.cacheWrite === "number" && usage.cacheWrite < 0) nonNegative = false;
 	}
-	return { seen, nonNegative, cacheZero };
+	return { seen, nonNegative };
 }
 
 export function hasAbortSuccessClaim(jsonlRaw) {

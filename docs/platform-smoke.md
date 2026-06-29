@@ -481,8 +481,7 @@ Required JSONL evidence:
 - successful native `find` result proving `src/cursor-provider.ts` was enumerated;
 - failed shell result with `isError=true` and `native shell failure` output;
 - final assistant message's last non-empty `text` part contains `NATIVE_MATRIX_OK`;
-- assistant usage fields are non-negative;
-- `cacheRead=0` and `cacheWrite=0`.
+- assistant usage fields are non-negative.
 
 ### `cursor-bridge-visual-matrix`
 
@@ -556,8 +555,7 @@ Required JSONL evidence:
 - real pi tool call named `read`, failure;
 - real pi tool call named `bash`, success;
 - final assistant message's last non-empty `text` part contains `BRIDGE_MATRIX_OK`;
-- assistant usage fields are non-negative;
-- `cacheRead=0` and `cacheWrite=0`.
+- assistant usage fields are non-negative.
 
 ### `cursor-abort-cleanup`
 

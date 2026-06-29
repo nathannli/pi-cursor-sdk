@@ -763,8 +763,8 @@ describe("Cursor runtime state", () => {
 			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("PI_CURSOR_SETTING_SOURCES: none (effective: none)"), "info");
 			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Callable tool surfaces this run:"), "info");
 			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("pi__custom_bridge_tool"), "info");
-			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("not listed in MCP listTools"), "info");
-			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("--no-tools affect pi tools and bridge exposure only"), "info");
+			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Cursor host/MCP"), "info");
+			expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Pi tool toggles affect pi tools/bridge exposure only"), "info");
 		} finally {
 			if (originalBridgeEnv === undefined) delete process.env.PI_CURSOR_PI_TOOL_BRIDGE;
 			else process.env.PI_CURSOR_PI_TOOL_BRIDGE = originalBridgeEnv;

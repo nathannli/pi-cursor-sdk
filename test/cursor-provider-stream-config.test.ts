@@ -133,9 +133,9 @@ it("budgets oversized prompt history before Cursor Agent.send", async () => {
 
 		const sentMessage = mockSend.mock.calls[0]?.[0] as { text: string };
 		expect(sentMessage.text).toContain("Cursor SDK tool boundary:");
-		expect(sentMessage.text).toContain("Call only tools exposed by Cursor SDK in this run");
+		expect(sentMessage.text).toContain("Call only Cursor SDK/MCP tools exposed in this run");
 		expect(sentMessage.text).toContain("Callable tool surfaces this run:");
-		expect(sentMessage.text).toContain("Cursor SDK host tools");
+		expect(sentMessage.text).toContain("Cursor host/MCP");
 		expect(sentMessage.text).not.toContain("Bridged pi tools:");
 		expect(sentMessage.text).not.toContain("Pi bridge");
 		expect(sentMessage.text).not.toContain("Use pi__cursor_ask_question");
@@ -172,9 +172,9 @@ it("budgets oversized prompt history before Cursor Agent.send", async () => {
 		}
 
 		const sentMessage = mockSend.mock.calls[0]?.[0] as { text: string };
-		expect(sentMessage.text).toContain("Bridged pi tools:");
+		expect(sentMessage.text).toContain("For exposed pi bridge tools");
 		expect(sentMessage.text).not.toContain("Use pi__cursor_ask_question");
-		expect(sentMessage.text).toContain("Pi bridge (call pi__* MCP names");
+		expect(sentMessage.text).toContain("Pi bridge: call exposed pi__* MCP names");
 		expect(sentMessage.text).toContain("pi__sem_reindex");
 	});
 

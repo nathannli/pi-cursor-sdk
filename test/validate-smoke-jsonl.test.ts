@@ -30,7 +30,7 @@ describe("validate-smoke-jsonl", () => {
 		for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("accepts assistant messages with valid zero-cache usage", () => {
+	it("accepts assistant messages with valid usage", () => {
 		const smokeDir = makeSmokeDir();
 		writeSessionJsonl(smokeDir, "valid", [
 			{ type: "message", message: { role: "user", content: "hi" } },
@@ -39,7 +39,7 @@ describe("validate-smoke-jsonl", () => {
 				message: {
 					role: "assistant",
 					content: [{ type: "text", text: "hello" }],
-					usage: { input: 1, output: 2, totalTokens: 3, cacheRead: 0, cacheWrite: 0 },
+					usage: { input: 1, output: 2, totalTokens: 3, cacheRead: 4, cacheWrite: 0 },
 				},
 			},
 		]);
@@ -74,7 +74,7 @@ describe("validate-smoke-jsonl", () => {
 		expect(result.stdout).toContain('"assistantCount":0');
 	});
 
-	it("fails assistant messages with missing or non-zero-cache usage", () => {
+	it("fails assistant messages with missing or negative usage", () => {
 		const smokeDir = makeSmokeDir();
 		writeSessionJsonl(smokeDir, "bad-usage", [
 			{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "missing" }] } },
@@ -83,7 +83,7 @@ describe("validate-smoke-jsonl", () => {
 				message: {
 					role: "assistant",
 					content: [{ type: "text", text: "bad cache" }],
-					usage: { input: 1, output: 1, totalTokens: 2, cacheRead: 1, cacheWrite: 0 },
+					usage: { input: 1, output: 1, totalTokens: 2, cacheRead: -1, cacheWrite: 0 },
 				},
 			},
 		]);

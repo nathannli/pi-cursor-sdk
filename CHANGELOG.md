@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.1.53 - 2026-06-29
+
+### Changed
+
+- Use real per-turn Cursor SDK usage when available, including cache read/write fields, while keeping local prompt/output estimates as the no-SDK-usage fallback. SDK-attributed context occupancy is pinned to latest-turn input plus output so cumulative run input and cache reads do not overstate compaction pressure; fallback context occupancy uses the replayable context estimate so split tool turns do not show a tiny footer percentage next to large input counts.
+- Shorten Cursor bootstrap and incremental prompt boundary text while preserving host-tool, configured MCP, pi bridge, exact-output, shell cwd, plan-mode, and latest-image guidance. The callable-surface manifest remains enabled by default but uses compact wording for Cursor host/configured MCP tools and pi tools/bridge exposure.
+
+### Fixed
+
+- Resolve standalone Windows platform-smoke suite setup by resolving the local `pi` CLI after target dependencies are installed instead of falling back to a missing global `pi.cmd`.
+
+### Validation
+
+- Usage accounting regression tests prove the old 6.7M cumulative fixture now reports per-turn input `25,432`, cache read `24,000`, and context `26,044` instead of a sub-1k char/4 estimate or cumulative input.
+- Prompt-builder measurement reduced pi's local bootstrap estimate from 537 to 367 tokens for explicit no-bridge eval prompts and from 546 to 367 tokens for interactive bridge prompts; this is not a claim about real Cursor token savings because SDK/Cursor-side settings, rules, and tool schemas dominate actual usage.
+- `pi-model-eval` default-seed HumanEval+ smoke for `cursor/gpt-5.5@272k (medium)` passed 5/5 with average pi-estimated input reduced from 721.2 to 648.2 on the same first five tasks; real Cursor usage is now reported from SDK usage when available.
+- Focused live smokes verified exact-output, Cursor-native file read, pi bridge `pi__read`, and corrected footer context percentages after split tool turns.
+- `npm run verify`, `npm pack --dry-run`, and `npm run smoke:platform:all` pass locally; release-review subagent returned no findings.
+
 ## 0.1.52 - 2026-06-28
 
 ### Fixed
