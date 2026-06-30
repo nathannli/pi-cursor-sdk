@@ -181,3 +181,15 @@ For multi-step or tool-heavy work, give short progress updates after meaningful 
 ## Updating this file
 
 Keep this file concise and repo-specific. Update it when commands, package layout, safety constraints, or validation expectations change. Put specialized subdirectory rules in a nested `AGENTS.md` only when that subtree has materially different commands or constraints.
+
+## Cursor Cloud specific instructions
+
+This is a `pi` provider extension (not a server/web app). "Running the app" means launching `pi` with this extension loaded. Standard commands live in `## Setup and commands`; only the non-obvious caveats are below.
+
+- Dependencies install with `npm install` (no build step; extension runs from `src/` via `pi -e .`).
+- Node: `engines` requires `>=22.19.0`. The VM's default `node` on `PATH` (`/exec-daemon/node`) is 22.14.0. Typecheck, tests, and live `pi` runs all work on it (engine check is advisory, not enforced), so no node switch is required. A compliant version is also available via `nvm use 22.22.2` if you want to match `engines` exactly.
+- `CURSOR_API_KEY` is provided as a cloud-agent secret, so live Cursor runs and full live model discovery work without `/login`. `npm test`, `npm run typecheck`, and `npm pack --dry-run` need no key.
+- Run the extension locally with `./node_modules/.bin/pi -e . --model cursor/composer-2-5` (the bare `pi` is not on `PATH`). Add `--approve` for interactive sessions; print-mode smoke: `./node_modules/.bin/pi -e . --model cursor/composer-2-5 --cursor-no-fast --no-session -p "..."`.
+- Cold-start gotcha: the *first* Cursor SDK run in a fresh VM can take several minutes (SDK/transport warm-up); subsequent runs complete in ~10s. Warm up with one throwaway run before any timing-sensitive or recorded demo, and don't treat a slow first run as a hang.
+- When capturing print-mode (`-p`) output, redirect stdout to a file rather than piping through `tail`/`head` — those pipes buffer until the process exits, hiding streaming progress.
+- The maintainer platform/live smoke gates (`npm run smoke:platform:all`, etc.) are heavy (Crabbox, PTY, Playwright) and are not needed to validate basic environment setup; use the unit/typecheck/print-mode flow above for that.
