@@ -204,7 +204,7 @@ export function getCursorProviderAgentModeOrThrow(): AgentModeOption {
 }
 
 function formatCursorStatus(fast: boolean | undefined): string {
-	const parts = [fast === true ? "cursor-fast:on" : fast === false ? "cursor-fast:off" : "cursor"];
+	const parts = [fast === true ? "cursor-fast:on" : fast === false ? "cursor-fast:off" : "cursor-fast:n/a"];
 	const modeResolution = resolveCursorAgentMode();
 	if (modeResolution.kind === "invalid") {
 		parts.push("mode invalid");

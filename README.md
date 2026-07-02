@@ -239,15 +239,15 @@ Composer 2 and Composer 2.5 can default to fast. Use `--cursor-no-fast` or a `:s
 In interactive mode, the footer shows Cursor status only while a Cursor model is active. Fast-capable models show fast state explicitly, and fast and plan mode share one Cursor status value so they do not overwrite each other:
 
 ```text
-cursor
-cursor · plan
+cursor-fast:n/a
+cursor-fast:n/a · plan
 cursor-fast:off
 cursor-fast:on
 cursor-fast:off · plan
 cursor-fast:on · plan
 ```
 
-`cursor-fast:off` means fast mode is off. A plain `cursor` status means the active Cursor model does not expose a fast parameter. If you do not see `plan`, Cursor SDK mode is the default `agent` mode.
+`cursor-fast:off` means fast mode is off. `cursor-fast:n/a` means the active Cursor model does not expose a fast parameter. If you do not see `plan`, Cursor SDK mode is the default `agent` mode.
 
 ## Cursor SDK mode
 
@@ -404,7 +404,7 @@ That does not mean the model cannot think. It means the Cursor SDK does not expo
 
 ### I do not see `cursor-fast:on` / `cursor-fast:off` or `plan` in the footer
 
-The Cursor footer appears only while a Cursor model is active. Fast-capable models show `cursor-fast:on` or `cursor-fast:off`; Cursor models without a fast parameter show plain `cursor`. Cursor SDK mode is the default `agent` mode when `plan` is absent. When both are active, pi shows one combined Cursor status such as `cursor-fast:on · plan` or `cursor · plan`.
+The Cursor footer appears only while a Cursor model is active. Fast-capable models show `cursor-fast:on` or `cursor-fast:off`; Cursor models without a fast parameter show `cursor-fast:n/a`. Cursor SDK mode is the default `agent` mode when `plan` is absent. When both are active, pi shows one combined Cursor status such as `cursor-fast:on · plan` or `cursor-fast:n/a · plan`.
 
 ### My Cursor app settings or rules do not seem to apply
 

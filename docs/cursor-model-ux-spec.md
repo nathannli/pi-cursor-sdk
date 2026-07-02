@@ -410,7 +410,7 @@ Rules:
 Status examples:
 
 ```text
-cursor · plan
+cursor-fast:n/a · plan
 cursor-fast:off · plan
 cursor-fast:on · plan
 ```
@@ -435,7 +435,7 @@ Expected native footer behavior:
 - provider/model is shown by pi from the selected `cursor` model,
 - thinking level is shown by pi when `reasoning` is true,
 - context usage is computed from `contextWindow`,
-- extension status adds only Cursor-only text such as `cursor`, `cursor · plan`, `cursor-fast:off`, `cursor-fast:on`, or `cursor-fast:on · plan`.
+- extension status adds only Cursor-only text such as `cursor-fast:n/a`, `cursor-fast:n/a · plan`, `cursor-fast:off`, `cursor-fast:on`, or `cursor-fast:on · plan`.
 
 `ctx.ui.setStatus()` adds an extension status line in the default footer. It does not patch the built-in model segment. The native shape is closer to:
 
@@ -706,7 +706,7 @@ Before calling done:
    - verify default pi footer remains unchanged
    - verify Cursor status appears only for Cursor models
    - verify Cursor fast-capable models show `cursor-fast:on` or `cursor-fast:off`
-   - verify Cursor `plan` status appears only in non-default mode and combines with status as `cursor · plan`, `cursor-fast:on · plan`, or `cursor-fast:off · plan`
+   - verify Cursor `plan` status appears only in non-default mode and combines with status as `cursor-fast:n/a · plan`, `cursor-fast:on · plan`, or `cursor-fast:off · plan`
    - verify non-cursor footer/status unchanged
    - verify `shift+tab` uses pi native thinking
    - verify context changes through native model selection

@@ -600,17 +600,17 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a");
 		expect(getEffectiveFastForModelId("gemini-3.1-pro")).toBeUndefined();
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
 
-	it("keeps plain Cursor status when unsupported Cursor models run in plan mode", async () => {
+	it("keeps not-applicable fast status when unsupported Cursor models run in plan mode", async () => {
 		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "gemini-3.1-pro", cursorModeFlag: "plan" });
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a · plan");
 		expect(getEffectiveFastForModelId("gemini-3.1-pro")).toBeUndefined();
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -715,7 +715,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a");
 		expect(getEffectiveFastForModelId("gemini-3.1-pro")).toBeUndefined();
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});

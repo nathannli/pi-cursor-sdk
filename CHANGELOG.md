@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.55 - 2026-07-02
+
+### Changed
+
+- Show Cursor models that do not expose a Cursor `fast` parameter as `cursor-fast:n/a` in the interactive footer instead of plain `cursor`, including `cursor-fast:n/a · plan` when Cursor plan mode is active.
+
+### Validation
+
+- `npm test`, `npm run typecheck`, `npm run typecheck:tests`, `npm pack --dry-run`, `npm run smoke:platform:all`, and release review pass locally.
+
 ## 0.1.54 - 2026-07-02
 
 ### Changed
