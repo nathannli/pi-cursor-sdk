@@ -108,16 +108,19 @@ import { detectCards, assertRequiredCards } from "./scripts/platform-smoke/card-
 import { isSafeBundlePath } from "./scripts/platform-smoke/targets.mjs";
 const promptOnly = detectCards("1. call pi__read on ./package.json\n2. grep ./README.md\n");
 const rendered = detectCards("read /workspace/pi-cursor-sdk/package.json\ngrep /pi-cursor-sdk/ in C:/workspace/README.md\nbridge visual smoke\nENOENT: no such file or directory\ncomposer-2-5\n");
+const wrapped = detectCards("read /workspace/very-long-test-workspace/package.js\non\n");
 const checks = assertRequiredCards(".", rendered, ["bridge-read-success", "grep", "bridge-shell-success", "bridge-read-failure", "footer-status"]);
+const wrappedChecks = assertRequiredCards(".", wrapped, ["bridge-read-success"]);
 const result = {
   promptCardCount: promptOnly.length,
   renderedOk: checks.every((check) => check.ok),
+  wrappedOk: wrappedChecks.every((check) => check.ok),
   traversalRejected: !isSafeBundlePath("/tmp/platform-smoke-suite", "../outside.txt"),
   absoluteRejected: !isSafeBundlePath("/tmp/platform-smoke-suite", "/tmp/outside.txt"),
   normalAccepted: isSafeBundlePath("/tmp/platform-smoke-suite", "artifacts/terminal.txt"),
 };
 console.log(JSON.stringify(result));
-if (result.promptCardCount !== 0 || !result.renderedOk || !result.traversalRejected || !result.absoluteRejected || !result.normalAccepted) process.exit(1);
+if (result.promptCardCount !== 0 || !result.renderedOk || !result.wrappedOk || !result.traversalRejected || !result.absoluteRejected || !result.normalAccepted) process.exit(1);
 `;
 		const result = run(process.execPath, ["--input-type=module", "-e", code]);
 		expect(result.status).toBe(0);

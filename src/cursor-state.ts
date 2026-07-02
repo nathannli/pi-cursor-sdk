@@ -203,16 +203,15 @@ export function getCursorProviderAgentModeOrThrow(): AgentModeOption {
 	return resolution.mode;
 }
 
-function formatCursorStatus(fast: boolean | undefined): string | undefined {
-	const parts: string[] = [];
+function formatCursorStatus(fast: boolean | undefined): string {
+	const parts = [fast === true ? "cursor-fast:on" : fast === false ? "cursor-fast:off" : "cursor"];
 	const modeResolution = resolveCursorAgentMode();
-	if (fast === true) parts.push("fast");
 	if (modeResolution.kind === "invalid") {
 		parts.push("mode invalid");
 	} else if (modeResolution.mode === "plan") {
 		parts.push("plan");
 	}
-	return parts.length > 0 ? `cursor ${parts.join(" · ")}` : undefined;
+	return parts.join(" · ");
 }
 
 function updateCursorStatus(ctx: Pick<ExtensionContext, "model" | "ui">, model = ctx.model): void {

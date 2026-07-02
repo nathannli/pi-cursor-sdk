@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.1.54 - 2026-07-02
+
+### Changed
+
+- Show Cursor fast state explicitly in the interactive footer for fast-capable Cursor models as `cursor-fast:on` or `cursor-fast:off`, while preserving plain `cursor` status for Cursor models without fast support and clearing status for non-Cursor models.
+
+### Fixed
+
+- Accept wrapped `package.json` read-card paths in platform-smoke visual assertions while keeping JSONL result checks as the source of truth for the actual bridge read target.
+
+### Validation
+
+- `npm test`, `npm run typecheck`, `npm run typecheck:tests`, `npm pack --dry-run`, `npm run smoke:platform:all`, and subagent review loop pass locally.
+
 ## 0.1.53 - 2026-06-29
 
 ### Changed
