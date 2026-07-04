@@ -1,4 +1,4 @@
-import type { RunResult } from "@cursor/sdk";
+import type { RunError, RunResult } from "@cursor/sdk";
 import { selectCursorFinalText } from "./cursor-run-final-text.js";
 import {
 	formatCursorSdkAbortMessage,
@@ -42,6 +42,7 @@ export interface ResolveCursorRunOutcomeParams {
 	planTextCandidate?: string;
 	selectFinalTextOptions?: { allowPartialPrefix?: boolean };
 	runResultFallback?: string;
+	runErrorFallback?: RunError;
 	resolvedApiKey?: string;
 	optionsApiKey?: string;
 }
@@ -91,7 +92,11 @@ export function resolveCursorRunOutcome(params: ResolveCursorRunOutcomeParams): 
 	}
 
 	if (waitResult.status === "error") {
-		const failureDetail = formatCursorSdkRunFailureDetail(waitResult, params.runResultFallback);
+		const failureDetail = formatCursorSdkRunFailureDetail(
+			waitResult,
+			params.runResultFallback,
+			params.runErrorFallback,
+		);
 		return {
 			kind: "error",
 			waitResult,

@@ -1,4 +1,4 @@
-import type { RunResult } from "@cursor/sdk";
+import type { RunError, RunResult } from "@cursor/sdk";
 import { asRecord } from "./cursor-record-utils.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
 
@@ -15,7 +15,7 @@ const NETWORK_CURSOR_SDK_ERROR_MESSAGE =
 // Keep this phrase aligned with pi's agent-level retry classifier (`provider.?returned.?error`).
 const RETRYABLE_CURSOR_RUN_FAILURE_PREFIX = "Provider returned error: Cursor SDK run failed";
 
-export type CursorSdkRunFailureSource = Pick<RunResult, "id" | "requestId" | "status" | "durationMs" | "model" | "result">;
+export type CursorSdkRunFailureSource = Pick<RunResult, "id" | "requestId" | "status" | "durationMs" | "model" | "result" | "error">;
 
 function isGenericErrorMessage(message: string): boolean {
 	const normalized = message.trim().toLowerCase();
@@ -208,17 +208,43 @@ function shortRunId(runId: string): string {
 	return `${trimmed.slice(0, 8)}…`;
 }
 
-export function formatCursorSdkRunFailureDetail(result: CursorSdkRunFailureSource, runResult?: string): string {
+function runErrorCode(error: RunError | undefined): string | undefined {
+	return error?.code?.trim() || undefined;
+}
+
+function nonGenericRunErrorMessage(error: RunError | undefined): string | undefined {
+	const message = error?.message?.trim();
+	return message && !isKnownGenericRunFailureText(message) ? message : undefined;
+}
+
+function withRunErrorCode(message: string, code: string | undefined): string {
+	return code ? `${message} (code: ${code})` : message;
+}
+
+export function formatCursorSdkRunFailureDetail(
+	result: CursorSdkRunFailureSource,
+	runResult?: string,
+	runError?: RunError,
+): string {
+	const errorCode = runErrorCode(result.error) ?? runErrorCode(runError);
+	const fromWaitError = nonGenericRunErrorMessage(result.error);
+	if (fromWaitError) return withRunErrorCode(fromWaitError, errorCode);
+
 	const fromWait = result.result?.trim();
 	if (fromWait && !isKnownGenericRunFailureText(fromWait)) {
-		return fromWait;
+		return withRunErrorCode(fromWait, errorCode);
 	}
+
+	const fromRunError = nonGenericRunErrorMessage(runError);
+	if (fromRunError) return withRunErrorCode(fromRunError, errorCode);
+
 	const fromRun = runResult?.trim();
 	if (fromRun && !isKnownGenericRunFailureText(fromRun)) {
-		return fromRun;
+		return withRunErrorCode(fromRun, errorCode);
 	}
 
 	const parts = [RETRYABLE_CURSOR_RUN_FAILURE_PREFIX];
+	if (errorCode) parts.push(`code ${errorCode}`);
 	if (result.model?.id) parts.push(`model ${result.model.id}`);
 	parts.push(`run ${shortRunId(result.id)}`);
 	if (result.requestId) parts.push(`request ${shortRunId(result.requestId)}`);

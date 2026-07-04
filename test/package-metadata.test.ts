@@ -27,8 +27,8 @@ function lockPackageVersion(packageName: string): string | undefined {
 
 describe("package metadata cutover baselines", () => {
 	it("pins Cursor SDK exactly", () => {
-		expect(packageJson.dependencies["@cursor/sdk"]).toBe("1.0.22");
-		expect(lockPackageVersion("@cursor/sdk")).toBe("1.0.22");
+		expect(packageJson.dependencies["@cursor/sdk"]).toBe("1.0.23");
+		expect(lockPackageVersion("@cursor/sdk")).toBe("1.0.23");
 	});
 
 	it("pins the Node ConnectRPC transport required by Cursor SDK's Node seam", () => {
@@ -62,8 +62,8 @@ describe("package metadata cutover baselines", () => {
 
 	it("pins pi validation baselines", () => {
 		for (const packageName of PI_PACKAGES) {
-			expect(packageJson.devDependencies[packageName]).toBe("0.80.2");
-			expect(lockPackageVersion(packageName)).toBe("0.80.2");
+			expect(packageJson.devDependencies[packageName]).toBe("0.80.3");
+			expect(lockPackageVersion(packageName)).toBe("0.80.3");
 		}
 	});
 

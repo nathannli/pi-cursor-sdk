@@ -93,6 +93,7 @@ export class CursorRunFinalizer {
 			modelId,
 			signal: runnerParams.options?.signal,
 			runResultFallback: run.result,
+			runErrorFallback: run.error,
 			resolvedApiKey: this.params.resolvedApiKey(),
 			optionsApiKey: runnerParams.options?.apiKey,
 			sdkEventDebug,

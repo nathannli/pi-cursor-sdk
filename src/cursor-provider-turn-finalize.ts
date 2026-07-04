@@ -1,4 +1,4 @@
-import type { SDKAgent } from "@cursor/sdk";
+import type { RunError, SDKAgent } from "@cursor/sdk";
 import { loadCursorTranscriptWebToolCallsAfterOffset } from "./cursor-agent-message-web-tools.js";
 import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-window-cache.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
@@ -30,6 +30,7 @@ export interface BuildCursorRunOutcomeParams {
 	prepared: CursorProviderTurnPrepareResult;
 	signal?: AbortSignal;
 	runResultFallback?: string;
+	runErrorFallback?: RunError;
 	resolvedApiKey?: string;
 	optionsApiKey?: string;
 }
@@ -46,6 +47,7 @@ export function buildCursorRunOutcomeFromWait(params: BuildCursorRunOutcomeParam
 		planTextCandidate: turnCoordinator.planTextCandidate,
 		selectFinalTextOptions: liveRun ? undefined : { allowPartialPrefix: true },
 		runResultFallback: params.runResultFallback,
+		runErrorFallback: params.runErrorFallback,
 		resolvedApiKey: params.resolvedApiKey,
 		optionsApiKey: params.optionsApiKey,
 	});
@@ -83,6 +85,7 @@ export interface AwaitFinalizeCursorRunOutcomeParams {
 	modelId: string;
 	signal?: AbortSignal;
 	runResultFallback?: string;
+	runErrorFallback?: RunError;
 	resolvedApiKey?: string;
 	optionsApiKey?: string;
 	sdkEventDebug?: CursorSdkEventDebugSink;
@@ -101,6 +104,7 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 		prepared: params.prepared,
 		signal: params.signal,
 		runResultFallback: params.runResultFallback,
+		runErrorFallback: params.runErrorFallback,
 		resolvedApiKey: params.resolvedApiKey,
 		optionsApiKey: params.optionsApiKey,
 	});

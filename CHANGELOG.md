@@ -1,6 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.1.56 - 2026-07-04
+
+### Changed
+
+- Upgrade the pinned Cursor SDK runtime dependency to exact `@cursor/sdk@1.0.23` after auditing the 1.0.22 → 1.0.23 package/type/docs delta.
+- Bump the local pi validation baseline (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`) to `0.80.3` after reviewing the current installed Pi 0.80.3 changelog.
+
+### Fixed
+
+- Preserve Cursor SDK `RunError` terminal failure details and codes when formatting failed run diagnostics.
+
+### Validation
+
+- `npm run typecheck`, `npm test`, `npm run check:platform-smoke`, `npm pack --dry-run`, and `npm run smoke:platform:all` pass locally.
+- Thermo-nuclear subagent release review signed off with no behavior, TUI/visual, package-baseline, or maintainability blockers.
 
 ## 0.1.55 - 2026-07-02
 

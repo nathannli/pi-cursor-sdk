@@ -104,6 +104,7 @@ export class CursorProviderTurnRunner {
 				modelId: model.id,
 				signal: options?.signal,
 				runResultFallback: send.run.result,
+				runErrorFallback: send.run.error,
 				resolvedApiKey: this.resolvedApiKey,
 				optionsApiKey: options?.apiKey,
 				sdkEventDebug: this.sdkEventDebug,

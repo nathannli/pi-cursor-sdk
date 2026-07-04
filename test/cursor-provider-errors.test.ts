@@ -166,6 +166,27 @@ describe("cursor-provider-errors", () => {
 		expect(detail).toBe("MCP tool call timed out after 60s");
 	});
 
+	it("preserves RunError terminal details and code", () => {
+		const detail = formatCursorSdkRunFailureDetail({
+			id: "run-error",
+			status: "error",
+			result: "Cursor SDK run failed",
+			error: { message: "Backend rejected the run", code: "backend_rejected" },
+		});
+
+		expect(detail).toBe("Backend rejected the run (code: backend_rejected)");
+	});
+
+	it("uses run.error fallback when wait result text is generic", () => {
+		const detail = formatCursorSdkRunFailureDetail(
+			{ id: "run-error-fallback", status: "error", result: "Cursor SDK run failed" },
+			undefined,
+			{ message: "Run handle failure", code: "run_handle_error" },
+		);
+
+		expect(detail).toBe("Run handle failure (code: run_handle_error)");
+	});
+
 	it("falls back to run.result when wait result text is generic", () => {
 		const detail = formatCursorSdkRunFailureDetail(
 			{ id: "run-2", status: "error", result: "Cursor SDK run failed" },
