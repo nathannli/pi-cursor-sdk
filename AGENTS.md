@@ -139,6 +139,8 @@ If validation fails:
 
 Use a short written plan before multi-file behavior changes, SDK integration changes, or public UX changes. Use `PLANS.md` only if a task needs durable multi-session tracking; do not create one for routine edits.
 
+When plans, reviews, investigations, or generated smoke/debug artifacts are no longer the active source of truth, delete them or fold the durable facts into the current docs. Do not leave stale files under `docs/plans/`, `docs/reviews/`, `docs/investigations/`, `.artifacts/`, `.debug/`, `.crabbox/`, or similar local artifact directories once they are superseded.
+
 ## Security and side effects
 
 - NEVER store Cursor API keys in repo files, `~/.pi/agent/cursor-sdk.json`, tests, logs, snapshots, or docs examples.
