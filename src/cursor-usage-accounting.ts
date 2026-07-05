@@ -109,10 +109,11 @@ export function applyCursorUsage(
 	model: Model<Api>,
 	context: Context,
 	sessionInputTokens: number,
-	sdkUsage?: { turn?: CursorSdkTurnUsage },
+	sdkUsage?: { turn?: CursorSdkTurnUsage; run?: CursorSdkTurnUsage },
 ): void {
-	if (sdkUsage?.turn) {
-		applyCursorSdkUsage(partial, sdkUsage.turn);
+	const usage = sdkUsage?.turn ?? sdkUsage?.run;
+	if (usage) {
+		applyCursorSdkUsage(partial, usage);
 		return;
 	}
 	applyCursorApproximateUsage(partial, model, context, sessionInputTokens);

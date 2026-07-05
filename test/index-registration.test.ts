@@ -27,6 +27,8 @@ vi.mock("../src/cursor-provider.js", () => ({
 
 import extensionFactory from "../src/index.js";
 import { discoverModels } from "../src/model-discovery.js";
+import { acquireSessionCursorAgent, __testUtils as sessionAgentTestUtils } from "../src/cursor-session-agent.js";
+import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
 import { streamCursor } from "../src/cursor-provider.js";
 import { streamCursorLazy } from "../src/cursor-provider-lazy.js";
 import { buildCursorPiToolBridgeSnapshot } from "../src/cursor-pi-tool-bridge.js";
@@ -62,6 +64,14 @@ describe("extension registration and discovery", () => {
 			"cursor-mode",
 			expect.objectContaining({ type: "string", default: "" }),
 		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-auto-review",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-sandbox",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
 		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-fast",
 			expect.objectContaining({ description: expect.stringContaining("Toggle Cursor fast") }),
@@ -77,6 +87,10 @@ describe("extension registration and discovery", () => {
 		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-refresh-models",
 			expect.objectContaining({ description: expect.stringContaining("Refresh the live Cursor model catalog") }),
+		);
+		expect(pi.registerCommand).toHaveBeenCalledWith(
+			"cursor-refresh-config",
+			expect.objectContaining({ description: expect.stringContaining("Refresh filesystem Cursor config") }),
 		);
 		expect(pi.registerTool).toHaveBeenCalledTimes(10);
 		expect(pi._tools.map((tool) => tool.name)).toEqual([
@@ -378,6 +392,59 @@ describe("extension registration and discovery", () => {
 		expect(pi._registered[1].config.models).toBe(refreshedModels);
 		expect(pi._registered[1].config.streamSimple).toBe(streamCursorLazy);
 		expect(notify).toHaveBeenCalledWith("Cursor model catalog refreshed with 1 model.", "info");
+	});
+
+	it("refreshes the current Cursor SDK agent config through a command", async () => {
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+		await pi.runSessionStart({ sessionManager: { getSessionFile: vi.fn(() => "/tmp/sessions/refresh-config.jsonl") } });
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/refresh-config.jsonl");
+		const reload = vi.fn().mockResolvedValue(undefined);
+		await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent: vi.fn().mockResolvedValue({
+				agentId: "agent-refresh-config",
+				reload,
+				[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+			}),
+		});
+		const notify = vi.fn();
+
+		await pi.runCommand("cursor-refresh-config", "", createExtensionCommandContext({ model: makeModel("composer-2.5"), ui: { notify } }));
+
+		expect(reload).toHaveBeenCalledTimes(1);
+		expect(notify).toHaveBeenCalledWith("Cursor SDK agent config refreshed.", "info");
+		await sessionAgentTestUtils.disposeAllSessionCursorAgents();
+	});
+
+	it("handles cursor-refresh-config before an agent exists", async () => {
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+		const notify = vi.fn();
+
+		await pi.runCommand("cursor-refresh-config", "", createExtensionCommandContext({ model: makeModel("composer-2.5"), ui: { notify } }));
+
+		expect(notify).toHaveBeenCalledWith("No Cursor SDK agent exists yet; config will load on the next Cursor run.", "warning");
+	});
+
+	it("handles cursor-refresh-config on non-Cursor models", async () => {
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createExtensionPi();
+		await extensionFactory(pi);
+		const notify = vi.fn();
+
+		await pi.runCommand(
+			"cursor-refresh-config",
+			"",
+			createExtensionCommandContext({ model: makeHarnessModel("openai", "openai-chat", "gpt-test"), ui: { notify } }),
+		);
+
+		expect(notify).toHaveBeenCalledWith("Cursor config refresh is available only for Cursor models.", "info");
 	});
 
 	it("warns when live Cursor model refresh does not use a live catalog", async () => {

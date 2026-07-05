@@ -6,6 +6,7 @@ import {
 	applyCursorUsage,
 	estimateCursorAssistantSessionOutputTokens,
 	estimateCursorContextTotalTokens,
+	readCursorSdkTurnUsage,
 	readCursorSdkTurnUsageFromUpdate,
 } from "../src/cursor-usage-accounting.js";
 import { makeModel } from "./helpers/pi-harness.js";
@@ -79,6 +80,69 @@ describe("cursor usage accounting", () => {
 			type: "usage",
 			usage: { inputTokens: 5, outputTokens: 6, cacheReadTokens: 7, cacheWriteTokens: 8, totalTokens: 11 },
 		}).success).toBe(false);
+	});
+
+	it("applies returned RunResult usage only when turn usage is absent", () => {
+		const model = makeModel();
+		const context: Context = {
+			systemPrompt: "Be helpful.",
+			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+		};
+		const partial = makeAssistantMessage([{ type: "text", text: "Hello back." }]);
+
+		applyCursorUsage(partial, model, context, 7, {
+			run: readCursorSdkTurnUsage({
+				inputTokens: 100,
+				outputTokens: 20,
+				cacheReadTokens: 80,
+				cacheWriteTokens: 5,
+				totalTokens: 205,
+			}),
+		});
+
+		expect(partial.usage).toMatchObject({ input: 100, output: 20, cacheRead: 80, cacheWrite: 5, totalTokens: 120 });
+	});
+
+	it("keeps turn-ended usage preferred over returned RunResult usage", () => {
+		const model = makeModel();
+		const context: Context = {
+			systemPrompt: "Be helpful.",
+			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+		};
+		const partial = makeAssistantMessage([{ type: "text", text: "Hello back." }]);
+
+		applyCursorUsage(partial, model, context, 7, {
+			turn: { inputTokens: 25, outputTokens: 6, cacheReadTokens: 24, cacheWriteTokens: 1 },
+			run: readCursorSdkTurnUsage({
+				inputTokens: 100,
+				outputTokens: 20,
+				cacheReadTokens: 80,
+				cacheWriteTokens: 5,
+				totalTokens: 205,
+			}),
+		});
+
+		expect(partial.usage).toMatchObject({ input: 25, output: 6, cacheRead: 24, cacheWrite: 1, totalTokens: 31 });
+	});
+
+	it("uses each returned RunResult usage as-is instead of baseline subtracting across resumed turns", () => {
+		const model = makeModel();
+		const context: Context = {
+			systemPrompt: "Be helpful.",
+			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+		};
+		const first = makeAssistantMessage([{ type: "text", text: "First." }]);
+		const resumed = makeAssistantMessage([{ type: "text", text: "Second." }]);
+
+		applyCursorUsage(first, model, context, 7, {
+			run: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 80, cacheWriteTokens: 5 },
+		});
+		applyCursorUsage(resumed, model, context, 7, {
+			run: { inputTokens: 90, outputTokens: 8, cacheReadTokens: 70, cacheWriteTokens: 0 },
+		});
+
+		expect(first.usage).toMatchObject({ input: 100, output: 20, cacheRead: 80, cacheWrite: 5, totalTokens: 120 });
+		expect(resumed.usage).toMatchObject({ input: 90, output: 8, cacheRead: 70, cacheWrite: 0, totalTokens: 98 });
 	});
 
 	it("keeps the prompt/output estimate fallback when SDK usage is absent", () => {

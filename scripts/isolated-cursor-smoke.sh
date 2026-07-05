@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Isolated /tmp install + fail-fast live smoke for pi-cursor-sdk native replay.
 #
 # Validates packed extension load, plan-strip resync, and absence of "Tool * not found".
@@ -39,8 +39,7 @@ PI_NONE_ENV=()
 SELF_TEST_TEMP_DIR=""
 
 print_help() {
-	cat <<EOF
-Isolated /tmp install smoke for pi-cursor-sdk (native replay + plan-strip resync).
+	printf '%s\n' 'Isolated /tmp install smoke for pi-cursor-sdk (native replay + plan-strip resync).
 
 Usage:
   ./scripts/isolated-cursor-smoke.sh
@@ -50,7 +49,7 @@ Usage:
 Environment:
   REPO                          Repo under test (default: script parent directory).
   ISOLATED                      Artifact root (default: /tmp/pi-cursor-sdk-isolated-<timestamp>).
-  REAL_HOME                     Source for auth.json (default: \$HOME).
+  REAL_HOME                     Source for auth.json (default: $HOME).
   AUTH_JSON                     Path to pi auth.json to seed isolated HOME (default: ~/.pi/agent/auth.json).
   PI_LIVE_TIMEOUT               Per live pi check timeout in seconds (default: 45).
   PI_BIN                        Optional pi command/path to resolve from the parent PATH (default: pi).
@@ -71,8 +70,7 @@ Options:
 
 Exit codes:
   0  all requested checks passed
-  1  prerequisite, unit, pack, live smoke, or JSONL replay validation failure
-EOF
+  1  prerequisite, unit, pack, live smoke, or JSONL replay validation failure'
 }
 
 log() { smoke_log "$@"; }

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add `/cursor-refresh-config` to call the current pooled Cursor SDK agent's `agent.reload()` for filesystem Cursor config refreshes without recreating the agent.
+- Add explicit local Cursor safety controls: `--cursor-auto-review` / `PI_CURSOR_AUTO_REVIEW` and `--cursor-sandbox` / `PI_CURSOR_SANDBOX`, plus `local.autoReview` and `local.sandboxOptions.enabled` config. Defaults stay off.
+
 ## 0.1.56 - 2026-07-04
 
 ### Changed

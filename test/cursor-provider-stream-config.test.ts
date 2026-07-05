@@ -18,8 +18,9 @@ import { streamCursor } from "../src/cursor-provider.js";
 import { registerCursorRuntimeControls } from "../src/cursor-state.js";
 import { __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
+import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
 import type { Context } from "@earendil-works/pi-ai/compat";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,7 +33,95 @@ async function setCursorModeForProviderTest(mode: "agent" | "plan"): Promise<voi
 describe("streamCursor prompt and model config", () => {
 	beforeEach(resetCursorProviderTestState);
 
-it("budgets oversized prompt history before Cursor Agent.send", async () => {
+	it("leaves local safety controls off by default", async () => {
+		mockCreatedAgent({
+			send: vi.fn().mockResolvedValue({
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			}),
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate.mock.calls[0][0].local).toEqual({ cwd: process.cwd(), settingSources: ["all"] });
+	});
+
+	it("passes enabled local safety controls from env into Agent.create", async () => {
+		process.env.PI_CURSOR_AUTO_REVIEW = "1";
+		process.env.PI_CURSOR_SANDBOX = "true";
+		mockCreatedAgent({
+			send: vi.fn().mockResolvedValue({
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			}),
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate.mock.calls[0][0].local).toMatchObject({ autoReview: true, sandboxOptions: { enabled: true } });
+	});
+
+	it("passes trusted project local safety config into Agent.create", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-cursor-local-safety-"));
+		const cwd = join(root, "repo");
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "cursor-sdk.json"), JSON.stringify({ local: { autoReview: true, sandboxOptions: { enabled: true } } }));
+		cursorSessionScopeTestUtils.set(cwd, "/tmp/session-local-safety.jsonl", "test-session", true);
+		mockCreatedAgent({
+			send: vi.fn().mockResolvedValue({
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			}),
+		});
+
+		try {
+			await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+
+		expect(mockedCreate.mock.calls[0][0].local).toMatchObject({ cwd, autoReview: true, sandboxOptions: { enabled: true } });
+	});
+
+	it("lets CLI local safety flags override disabled env/config", async () => {
+		process.env.PI_CURSOR_AUTO_REVIEW = "0";
+		process.env.PI_CURSOR_SANDBOX = "0";
+		const pi = createPiHarness({ flagValues: { "cursor-auto-review": true, "cursor-sandbox": true } });
+		registerCursorRuntimeControls(pi);
+		await pi.runSessionStart({ model: makeModel("gpt-5.5@1m") });
+		mockCreatedAgent({
+			send: vi.fn().mockResolvedValue({
+				id: "run-1",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			}),
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate.mock.calls[0][0].local).toMatchObject({ autoReview: true, sandboxOptions: { enabled: true } });
+	});
+
+	it("budgets oversized prompt history before Cursor Agent.send", async () => {
 		const mockSend = vi.fn().mockResolvedValue({
 			id: "run-1",
 			agentId: "agent-1",
