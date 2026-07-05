@@ -1,8 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { AgentModeOption } from "@cursor/sdk";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	buildCursorToolManifestText,
 	CURSOR_TOOL_MANIFEST_ENV,
@@ -22,11 +19,22 @@ import { isCursorModel } from "./cursor-model.js";
 import { registerCursorModelLifecycle } from "./cursor-model-lifecycle.js";
 import { asRecord } from "./cursor-record-utils.js";
 import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
+import { refreshSessionCursorAgentConfig } from "./cursor-session-agent.js";
 import { getCursorModelMetadata } from "./model-discovery.js";
+import {
+	cursorFastDefaultsFromConfig,
+	getCursorSdkUserConfigPath,
+	CURSOR_AUTO_REVIEW_ENV,
+	CURSOR_SANDBOX_ENV,
+	loadCursorSdkUserConfig,
+	resolveCursorFastDefault,
+	saveCursorSdkUserConfig,
+	withCursorFastDefaults,
+	type CursorSdkConfig,
+} from "./cursor-config.js";
 
 const FAST_ENTRY_TYPE = "cursor-fast-state";
 const MODE_ENTRY_TYPE = "cursor-mode-state";
-const GLOBAL_CONFIG_FILE = "cursor-sdk.json";
 
 export type CursorAgentMode = AgentModeOption;
 
@@ -40,10 +48,6 @@ interface CursorFastEntryData {
 
 interface CursorModeEntryData {
 	mode: AgentModeOption;
-}
-
-interface CursorGlobalConfig {
-	fastDefaults?: Record<string, boolean>;
 }
 
 type CursorRuntimeControlsExtensionApi = Pick<
@@ -60,6 +64,8 @@ const sessionFastPreferences = new Map<string, boolean>();
 let globalFastPreferences = new Map<string, boolean>();
 let cliForceFast = false;
 let cliForceNoFast = false;
+let cliAutoReview = false;
+let cliSandbox = false;
 let sessionCursorAgentMode: AgentModeOption | undefined;
 let cliCursorModeState: CursorCliModeState = { kind: "unset" };
 const invalidCursorModeNotifiedSessionScopeKeys = new Set<string>();
@@ -88,42 +94,17 @@ function isCursorModeEntryData(value: unknown): value is CursorModeEntryData {
 	return isCursorAgentMode(asRecord(value)?.mode);
 }
 
-function parseCursorGlobalConfig(value: unknown): CursorGlobalConfig | undefined {
-	const record = asRecord(value);
-	if (!record) return undefined;
-	const { fastDefaults } = record;
-	if (fastDefaults === undefined) return {};
-	const fastDefaultsRecord = asRecord(fastDefaults);
-	if (!fastDefaultsRecord) return undefined;
-	return {
-		fastDefaults: Object.fromEntries(
-			Object.entries(fastDefaultsRecord).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
-		),
-	};
-}
-
 function getConfigPath(): string {
-	return join(getAgentDir(), GLOBAL_CONFIG_FILE);
+	return getCursorSdkUserConfigPath();
 }
 
 function loadGlobalFastPreferences(): Map<string, boolean> {
-	const path = getConfigPath();
-	if (!existsSync(path)) return new Map();
-	try {
-		const parsed = parseCursorGlobalConfig(JSON.parse(readFileSync(path, "utf-8")));
-		return new Map(Object.entries(parsed?.fastDefaults ?? {}));
-	} catch {
-		return new Map();
-	}
+	return cursorFastDefaultsFromConfig(loadCursorSdkUserConfig());
 }
 
 function saveGlobalFastPreferences(): void {
-	const path = getConfigPath();
-	mkdirSync(dirname(path), { recursive: true });
-	const config: CursorGlobalConfig = {
-		fastDefaults: Object.fromEntries([...globalFastPreferences.entries()].sort(([a], [b]) => a.localeCompare(b))),
-	};
-	writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+	const currentConfig: CursorSdkConfig = loadCursorSdkUserConfig();
+	saveCursorSdkUserConfig(withCursorFastDefaults(currentConfig, globalFastPreferences));
 }
 
 function restoreSessionFastPreferences(ctx: { sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> }): void {
@@ -155,23 +136,25 @@ function getVirtualFastBaseModelId(modelId: string): string {
 	return modelId.replace(/:(?:fast|slow)$/, "");
 }
 
-function getStoredFastPreference(metadata: NonNullable<ReturnType<typeof getCursorModelMetadata>>): boolean | undefined {
+function getMapFastPreference(
+	map: Map<string, boolean>,
+	metadata: NonNullable<ReturnType<typeof getCursorModelMetadata>>,
+): boolean | undefined {
 	const preferenceModelId = getFastPreferenceModelId(metadata);
-	return (
-		sessionFastPreferences.get(preferenceModelId) ??
-		(preferenceModelId !== metadata.baseModelId ? sessionFastPreferences.get(metadata.baseModelId) : undefined) ??
-		globalFastPreferences.get(preferenceModelId) ??
-		(preferenceModelId !== metadata.baseModelId ? globalFastPreferences.get(metadata.baseModelId) : undefined)
-	);
+	return map.get(preferenceModelId) ?? (preferenceModelId !== metadata.baseModelId ? map.get(metadata.baseModelId) : undefined);
 }
 
 function getEffectiveFast(modelId: string): boolean | undefined {
 	const metadata = getCursorModelMetadata(modelId);
 	if (!metadata?.supportsFast) return undefined;
-	if (cliForceNoFast) return false;
-	if (cliForceFast) return true;
-	if (metadata.fastOverride !== undefined) return metadata.fastOverride;
-	return getStoredFastPreference(metadata) ?? metadata.defaultFast;
+	return resolveCursorFastDefault({
+		cliForceNoFast,
+		cliForceFast,
+		aliasOverride: metadata.fastOverride,
+		sessionValue: getMapFastPreference(sessionFastPreferences, metadata),
+		userValue: getMapFastPreference(globalFastPreferences, metadata),
+		modelDefault: metadata.defaultFast,
+	}).value;
 }
 
 function formatInvalidCursorMode(raw: string): string {
@@ -201,6 +184,13 @@ export function getCursorProviderAgentModeOrThrow(): AgentModeOption {
 	const resolution = resolveCursorAgentMode();
 	if (resolution.kind === "invalid") throw new Error(resolution.message);
 	return resolution.mode;
+}
+
+export function getCursorCliLocalSafetyConfig(): CursorSdkConfig {
+	return {
+		...(cliAutoReview ? { local: { autoReview: true } } : {}),
+		...(cliSandbox ? { local: { ...(cliAutoReview ? { autoReview: true } : {}), sandboxOptions: { enabled: true } } } : {}),
+	};
 }
 
 function formatCursorStatus(fast: boolean | undefined): string {
@@ -363,6 +353,18 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		default: "",
 	});
 
+	pi.registerFlag("cursor-auto-review", {
+		description: `Enable Cursor SDK local Auto-review for this run (or set ${CURSOR_AUTO_REVIEW_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+
+	pi.registerFlag("cursor-sandbox", {
+		description: `Enable Cursor SDK local sandboxing for this run (or set ${CURSOR_SANDBOX_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+
 	pi.registerCommand("cursor-fast", {
 		description: "Toggle Cursor fast mode for the selected Cursor model",
 		handler: async (_args, ctx) => {
@@ -408,6 +410,28 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		description: "Show live Cursor tool surfaces for this session (maintainer debug)",
 		handler: async (_args, ctx) => {
 			emitCursorToolsDebugReport(pi, ctx);
+		},
+	});
+
+	pi.registerCommand("cursor-refresh-config", {
+		description: "Refresh filesystem Cursor config in the current pooled SDK agent",
+		handler: async (_args, ctx) => {
+			if (!isCursorModel(ctx.model)) {
+				ctx.ui.notify("Cursor config refresh is available only for Cursor models.", "info");
+				return;
+			}
+			try {
+				const result = await refreshSessionCursorAgentConfig();
+				const messages: Record<typeof result, string> = {
+					reloaded: "Cursor SDK agent config refreshed.",
+					"no-agent": "No Cursor SDK agent exists yet; config will load on the next Cursor run.",
+					busy: "Cursor SDK agent is still finalizing a run; retry /cursor-refresh-config after it finishes.",
+					unsupported: "Current Cursor SDK agent does not support config reload.",
+				};
+				ctx.ui.notify(messages[result], result === "reloaded" ? "info" : "warning");
+			} catch (error) {
+				ctx.ui.notify(`Failed to refresh Cursor config: ${error instanceof Error ? error.message : String(error)}`, "error");
+			}
 		},
 	});
 
@@ -457,6 +481,8 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			globalFastPreferences = loadGlobalFastPreferences();
 			cliForceFast = pi.getFlag("cursor-fast") === true;
 			cliForceNoFast = pi.getFlag("cursor-no-fast") === true;
+			cliAutoReview = pi.getFlag("cursor-auto-review") === true;
+			cliSandbox = pi.getFlag("cursor-sandbox") === true;
 			restoreSessionFastPreferences(ctx);
 			restoreSessionCursorMode(ctx);
 			restoreCliCursorMode(pi.getFlag("cursor-mode"));
@@ -471,6 +497,8 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 function resetCursorModeStateForTests(): void {
 	sessionCursorAgentMode = undefined;
 	cliCursorModeState = { kind: "unset" };
+	cliAutoReview = false;
+	cliSandbox = false;
 	invalidCursorModeNotifiedSessionScopeKeys.clear();
 }
 

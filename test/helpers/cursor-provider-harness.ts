@@ -350,6 +350,8 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	delete process.env.PI_CURSOR_PI_TOOL_BRIDGE;
 	delete process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS;
 	delete process.env.PI_CURSOR_TASK_PRESENTATION;
+	delete process.env.PI_CURSOR_AUTO_REVIEW;
+	delete process.env.PI_CURSOR_SANDBOX;
 	process.env.PI_CURSOR_TOOL_MANIFEST = "0";
 	expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 	cursorProviderTestUtils.resetCursorNativeReplayIdleDisposeMs();

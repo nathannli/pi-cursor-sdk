@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AgentModeOption, ModelSelection, SDKAgent, SettingSource } from "@cursor/sdk";
+import type { AgentModeOption, LocalAgentOptions, ModelSelection, SDKAgent, SettingSource } from "@cursor/sdk";
 import type { Context } from "@earendil-works/pi-ai/compat";
 import {
 	getRegisteredCursorPiToolBridge,
@@ -103,6 +103,7 @@ interface SessionCursorAgentCreateParams {
 	cwd: string;
 	modelSelection: ModelSelection;
 	settingSources?: SettingSource[];
+	localSafety?: CursorLocalSafetyOptions;
 	onBridgeToolRequest?: (request: CursorPiBridgeToolRequest) => void;
 	debugRecorder?: CursorSdkEventDebugRecorder;
 	createAgent?: CursorSdkModule["Agent"]["create"];
@@ -114,6 +115,24 @@ const terminalDisposedScopeGenerations = new Map<string, number>();
 const scopeCreationGenerations = new Map<string, number>();
 const EMPTY_POOL_STATE: SessionCursorAgentPoolState = { status: "empty" };
 let nextSessionAgentInstanceId = 1;
+
+export interface CursorLocalSafetyOptions {
+	autoReview?: boolean;
+	sandboxEnabled?: boolean;
+}
+
+export function buildCursorLocalAgentOptions(options: {
+	cwd: string;
+	settingSources?: SettingSource[];
+	localSafety?: CursorLocalSafetyOptions;
+}): LocalAgentOptions {
+	return {
+		cwd: options.cwd,
+		...(options.settingSources ? { settingSources: options.settingSources } : {}),
+		...(options.localSafety?.autoReview === true ? { autoReview: true } : {}),
+		...(options.localSafety?.sandboxEnabled === true ? { sandboxOptions: { enabled: true } } : {}),
+	};
+}
 
 function allocateSessionAgentInstanceId(): number {
 	return nextSessionAgentInstanceId++;
@@ -143,6 +162,13 @@ function buildSettingSourcesPoolKey(settingSources?: SettingSource[]): string {
 	return settingSources?.join(",") ?? "";
 }
 
+function buildLocalSafetyPoolKey(localSafety?: CursorLocalSafetyOptions): string {
+	return JSON.stringify({
+		autoReview: localSafety?.autoReview === true,
+		sandboxEnabled: localSafety?.sandboxEnabled === true,
+	});
+}
+
 function buildApiKeyPoolKeyFingerprint(apiKey: string): string {
 	return createHash("sha256").update(apiKey).digest("hex").slice(0, 16);
 }
@@ -159,6 +185,7 @@ function buildSessionAgentPoolKey(scopeKey: string, params: SessionCursorAgentCr
 		params.cwd,
 		buildModelPoolKey(params.modelSelection),
 		buildSettingSourcesPoolKey(params.settingSources),
+		buildLocalSafetyPoolKey(params.localSafety),
 		buildApiKeyPoolKeyFingerprint(params.apiKey),
 		buildBridgePoolKeySuffix(),
 	].join("\0");
@@ -372,7 +399,11 @@ async function createSessionAgentEntry(
 			apiKey: params.apiKey,
 			model: params.modelSelection,
 			mode: params.agentMode,
-			local: params.settingSources ? { cwd: params.cwd, settingSources: params.settingSources } : { cwd: params.cwd },
+			local: buildCursorLocalAgentOptions({
+				cwd: params.cwd,
+				settingSources: params.settingSources,
+				localSafety: params.localSafety,
+			}),
 			...(bridgeRun?.mcpServers ? { mcpServers: bridgeRun.mcpServers } : {}),
 		});
 	} catch (error) {
@@ -504,6 +535,17 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 	}
 }
 
+export type RefreshSessionCursorAgentConfigResult = "reloaded" | "no-agent" | "busy" | "unsupported";
+
+export async function refreshSessionCursorAgentConfig(scopeKey: string = getCursorSessionScopeKey()): Promise<RefreshSessionCursorAgentConfigResult> {
+	const entry = sessionAgentsByScope.get(scopeKey);
+	if (!entry || entry.status === "creating") return "no-agent";
+	if (entry.status === "busy") return "busy";
+	if (typeof entry.agent.reload !== "function") return "unsupported";
+	await entry.agent.reload();
+	return "reloaded";
+}
+
 export async function resetSessionCursorAgent(scopeKey: string = getCursorSessionScopeKey()): Promise<void> {
 	await disposePoolEntryForScope(scopeKey);
 }
@@ -525,6 +567,7 @@ export const __testUtils = {
 	invalidateSessionAgent,
 	disposeSessionCursorAgent,
 	resetSessionCursorAgent,
+	refreshSessionCursorAgentConfig,
 	disposeAllSessionCursorAgents,
 	buildApiKeyPoolKeyFingerprint,
 	buildSessionAgentPoolKey,

@@ -17,9 +17,11 @@ import {
 	createCursorNativeReplayId,
 	cursorLiveRuns,
 } from "./cursor-provider-live-run-drain.js";
-import { getCursorProviderAgentModeOrThrow, getEffectiveFastForModelId } from "./cursor-state.js";
+import { getCursorCliLocalSafetyConfig, getCursorProviderAgentModeOrThrow, getEffectiveFastForModelId } from "./cursor-state.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
+import { loadCursorSdkConfig, resolveCursorSdkConfig } from "./cursor-config.js";
+import { getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-env.js";
 import {
 	buildCursorToolManifestText,
@@ -60,6 +62,16 @@ export async function prepareCursorProviderTurn(
 		const agentMode = getCursorProviderAgentModeOrThrow();
 		const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
 		const settingSources = getEffectiveCursorSettingSources();
+		const loadedConfig = loadCursorSdkConfig({ cwd, projectTrusted: getCursorSessionProjectTrusted() });
+		const resolvedConfig = resolveCursorSdkConfig({
+			cli: getCursorCliLocalSafetyConfig(),
+			user: loadedConfig.user,
+			project: loadedConfig.project,
+		});
+		const localSafety = {
+			autoReview: resolvedConfig.local.autoReview.value,
+			sandboxEnabled: resolvedConfig.local.sandboxEnabled.value,
+		};
 		const { Agent } = await loadCursorSdk();
 
 		installCursorMcpToolTimeoutOverride();
@@ -73,6 +85,7 @@ export async function prepareCursorProviderTurn(
 			cwd,
 			modelSelection: selection,
 			settingSources,
+			localSafety,
 			debugRecorder: sdkEventDebug,
 			onBridgeToolRequest: (request: CursorPiBridgeToolRequest) => {
 				if (liveRunForBridgeQueue && !liveRunForBridgeQueue.disposed) {

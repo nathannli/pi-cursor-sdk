@@ -24,7 +24,7 @@ import type {
 	CursorProviderTurnSend,
 	CursorProviderTurnSendResult,
 } from "./cursor-provider-turn-types.js";
-import { applyCursorUsage } from "./cursor-usage-accounting.js";
+import { applyCursorUsage, readCursorSdkTurnUsage } from "./cursor-usage-accounting.js";
 import { hasUsableText } from "./cursor-record-utils.js";
 export type CursorTurnTerminalEvent =
 	| {
@@ -44,7 +44,11 @@ function applyLiveRunOutcome(
 	switch (classifyCursorRunEmission(outcome)) {
 		case "finished":
 			prepared.sessionAgentLease.commitSend(context, prepared.meta.bootstrap);
-			cursorLiveRuns.markFinished(liveRun, outcome.kind === "finished" ? outcome.finalText : "");
+			cursorLiveRuns.markFinished(
+				liveRun,
+				outcome.kind === "finished" ? outcome.finalText : "",
+				outcome.kind === "finished" ? readCursorSdkTurnUsage(outcome.waitResult.usage) : undefined,
+			);
 			break;
 		case "cancelled":
 			cursorLiveRuns.markCancelled(liveRun, getCursorRunAbortMessage(outcome));
@@ -177,6 +181,7 @@ export class CursorRunFinalizer {
 				);
 				applyCursorUsage(partial, model, context, prepared.meta.promptInputTokens, {
 					turn: prepared.runtime.turnCoordinator.lastSdkTurnUsage,
+					run: readCursorSdkTurnUsage(outcome.waitResult.usage),
 				});
 				stream.push({ type: "done", reason: "stop", message: partial });
 				break;

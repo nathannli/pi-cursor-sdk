@@ -13,6 +13,7 @@ const state = {
 	sessionCwd: process.cwd(),
 	sessionFile: undefined as string | undefined,
 	sessionId: undefined as string | undefined,
+	projectTrusted: false,
 	sessionGeneration: 0,
 };
 
@@ -50,10 +51,15 @@ export function getCursorSessionCwd(): string {
 	return state.sessionCwd;
 }
 
-function setCursorSessionScope(cwd: string, sessionFile: string | undefined, sessionId?: string): void {
+export function getCursorSessionProjectTrusted(): boolean {
+	return state.projectTrusted;
+}
+
+function setCursorSessionScope(cwd: string, sessionFile: string | undefined, sessionId?: string, projectTrusted = false): void {
 	state.sessionCwd = cwd;
 	state.sessionFile = sessionFile;
 	state.sessionId = sessionId;
+	state.projectTrusted = projectTrusted;
 	state.sessionGeneration = nextSessionGeneration;
 	nextSessionGeneration += 1;
 	scopeGenerations.set(getCursorSessionScopeKey(), state.sessionGeneration);
@@ -63,6 +69,7 @@ function resetCursorSessionScope(): void {
 	state.sessionCwd = process.cwd();
 	state.sessionFile = undefined;
 	state.sessionId = undefined;
+	state.projectTrusted = false;
 	state.sessionGeneration = 0;
 	nextSessionGeneration = 1;
 	scopeGenerations.clear();
@@ -80,6 +87,7 @@ export function registerCursorSessionScope(pi: CursorSessionScopeExtensionApi): 
 			ctx.cwd,
 			ctx.sessionManager?.getSessionFile?.() ?? undefined,
 			ctx.sessionManager?.getSessionId?.() ?? undefined,
+			ctx.isProjectTrusted?.() === true,
 		);
 		if (previousScopeKey !== getCursorSessionScopeKey()) {
 			await scopeChangeHandler?.(previousScopeKey);

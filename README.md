@@ -276,6 +276,30 @@ When a new local Cursor SDK agent is created, the extension seeds the mode throu
 
 Cursor SDK `plan` mode can produce plan-oriented output and Cursor todo/plan activity, but those replay cards remain display-only. They do not drive pi's plan-mode extension, pi todos, or active tool state.
 
+## Cursor local agent config and safety controls
+
+`/cursor-refresh-config` calls the current pooled SDK agent's `agent.reload()` so Cursor reloads filesystem config such as local hooks, project MCP, and subagents without restarting pi. If no Cursor agent exists yet, the next Cursor run loads config normally.
+
+Cursor SDK local safety controls stay off by default. Enable them explicitly for one run:
+
+```bash
+PI_CURSOR_AUTO_REVIEW=1 PI_CURSOR_SANDBOX=1 pi --model cursor/composer-2-5
+pi --model cursor/composer-2-5 --cursor-auto-review --cursor-sandbox
+```
+
+Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trusted `.pi/cursor-sdk.json`:
+
+```json
+{
+  "local": {
+    "autoReview": true,
+    "sandboxOptions": { "enabled": true }
+  }
+}
+```
+
+Only enabled values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior.
+
 ## Images
 
 Images from the latest user message are forwarded to Cursor. Historical images are kept out of the transcript and appear only as `[image omitted from transcript]` placeholders, so follow-up questions about an earlier image should reattach the image or include a textual description. The extension advertises `text` and `image` input for Cursor models because Cursor's SDK accepts image messages and Cursor models are expected to support them.

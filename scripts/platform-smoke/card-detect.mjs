@@ -10,7 +10,11 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CARD_PATTERNS = [
-	{ id: "read", pattern: /^\s*read (?:\.\/)?package\.json\s*$/i },
+	{
+		id: "read",
+		pattern: /^\s*read\s+(?:(?:\.\/)?package\.json|.*[\\/]package\.json)\s*$/i,
+		wrappedPattern: /^\s*read\s+.*[\\/]package\.j(?:son|s)\s+on\s*$/i,
+	},
 	{ id: "grep", pattern: /^\s*grep \/pi-cursor-sdk\/ in\s+(?:(?:\S+[\\/])?README\.md)\s*$/i },
 	{ id: "find", pattern: /^\s*find README\.md in\s+\S+/i },
 	{ id: "list", pattern: /^\s*(?:find \* in src|find src\/\* in \.|Get-ChildItem -Name \.\/src)\s*/i },
@@ -18,7 +22,11 @@ const CARD_PATTERNS = [
 	{ id: "write", pattern: /^\s*\+.*beta\s*$/i },
 	{ id: "edit-diff", pattern: /^\s*\+.*gamma\s*$/i },
 	{ id: "shell-failure", pattern: /^\s*(?:native shell failure|Command exited with code 7)\s*$/i },
-	{ id: "bridge-read-success", pattern: /^\s*read (?:\.\/package\.json|.*[\\/]package\.j(?:son|s))\s*$/i },
+	{
+		id: "bridge-read-success",
+		pattern: /^\s*read\s+(?:\.\/package\.json|.*[\\/]package\.j(?:son|s))\s*$/i,
+		wrappedPattern: /^\s*read\s+.*[\\/]package\.j(?:son|s)\s+on\s*$/i,
+	},
 	{ id: "bridge-read-failure", pattern: /^\s*(?:read \.\/definitely-missing-platform-smoke-file\.txt|ENOENT: no such file)\s*/i },
 	{ id: "bridge-shell-success", pattern: /^\s*bridge visual smoke\s*$/i },
 	{ id: "footer-status", pattern: /\bcomposer-2-5\b|\bcomposer-2\.5\b/i },
@@ -29,6 +37,14 @@ function cleanLine(line) {
 		.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
 		.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
 		.replace(/\r/g, "");
+}
+
+function matchesCardAt(lines, index, card) {
+	card.pattern.lastIndex = 0;
+	if (card.pattern.test(lines[index])) return true;
+	if (!card.wrappedPattern) return false;
+	card.wrappedPattern.lastIndex = 0;
+	return card.wrappedPattern.test(lines.slice(index, index + 3).join(" "));
 }
 
 /**
@@ -44,8 +60,7 @@ export function detectCards(txtContent) {
 	for (let i = 0; i < lines.length; i++) {
 		for (const card of CARD_PATTERNS) {
 			if (seen.has(card.id)) continue;
-			card.pattern.lastIndex = 0;
-			if (!card.pattern.test(lines[i])) continue;
+			if (!matchesCardAt(lines, i, card)) continue;
 			seen.add(card.id);
 			cards.push({
 				id: card.id,

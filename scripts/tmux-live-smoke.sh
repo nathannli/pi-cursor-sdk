@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,8 +33,7 @@ cleanup() {
 trap cleanup EXIT
 
 print_help() {
-	cat <<EOF
-Partial live smoke runner for pi-cursor-sdk (subset of docs/cursor-live-smoke-checklist.md).
+	printf '%s\n' 'Partial live smoke runner for pi-cursor-sdk (subset of docs/cursor-live-smoke-checklist.md).
 
 Usage:
   ./scripts/tmux-live-smoke.sh
@@ -73,8 +72,7 @@ Options:
 
 Exit codes:
   0  all partial checks passed
-  1  prerequisite, smoke, safety, or JSONL validation failure
-EOF
+  1  prerequisite, smoke, safety, or JSONL validation failure'
 }
 
 log() { smoke_log "$@"; }

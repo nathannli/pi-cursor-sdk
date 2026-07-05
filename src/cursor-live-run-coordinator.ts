@@ -3,7 +3,9 @@ import type { SDKAgent } from "@cursor/sdk";
 import {
 	consumeCursorLiveToolResults,
 	createCursorLiveRunAccountingState,
+	recordCursorLiveSdkRunUsage,
 	recordCursorLiveSdkTurnEnded,
+	takeCursorLiveSdkRunUsage,
 	takeCursorLiveSdkTurnUsage,
 	takeCursorLiveTurnInputTokens,
 	type CursorLiveRunAccountingState,
@@ -78,7 +80,7 @@ export interface CursorLiveRunCoordinatorDeps {
 export interface CursorLiveRunCoordinator {
 	start(params: CursorLiveRunCreateParams): CursorLiveRun;
 	attachSdkRun(run: CursorLiveRun, sdkRun: CursorLiveSdkRun): void;
-	markFinished(run: CursorLiveRun, finalText: string): void;
+	markFinished(run: CursorLiveRun, finalText: string, runUsage?: CursorSdkTurnUsage): void;
 	markCancelled(run: CursorLiveRun, abortMessage?: string): void;
 	markError(run: CursorLiveRun, errorMessage: string): void;
 	recordSdkTurnEnded(run: CursorLiveRun, usage?: CursorSdkTurnUsage): void;
@@ -92,6 +94,7 @@ export interface CursorLiveRunCoordinator {
 	consumeToolResults(run: CursorLiveRun, context: Context, getReplayId: CursorReplayIdResolver): CursorLiveToolResultConsumption;
 	takeTurnInputTokens(run: CursorLiveRun, toolResultInputTokens: number): number;
 	takeSdkTurnUsage(run: CursorLiveRun): CursorSdkTurnUsage | undefined;
+	takeSdkRunUsage(run: CursorLiveRun): CursorSdkTurnUsage | undefined;
 	getPendingFromContext(context: Context, getReplayId: CursorReplayIdResolver): CursorLiveRun | undefined;
 	getActiveForScope(scopeKey?: string): CursorLiveRun | undefined;
 	isReady(run: CursorLiveRun): boolean;
@@ -310,11 +313,12 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			run.sdkRun = sdkRun;
 		},
 
-		markFinished(run, finalText): void {
+		markFinished(run, finalText, runUsage): void {
 			if (run.disposed) return;
 			run.finalText = finalText;
 			run.cancelled = false;
 			run.done = true;
+			run.accounting = recordCursorLiveSdkRunUsage(run.accounting, runUsage);
 			notifyProgress(run);
 			coordinator.requestIdleDispose(run);
 		},
@@ -406,6 +410,12 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			const taken = takeCursorLiveSdkTurnUsage(run.accounting);
 			run.accounting = taken.state;
 			return taken.sdkTurnUsage;
+		},
+
+		takeSdkRunUsage(run): CursorSdkTurnUsage | undefined {
+			const taken = takeCursorLiveSdkRunUsage(run.accounting);
+			run.accounting = taken.state;
+			return taken.sdkRunUsage;
 		},
 
 		getPendingFromContext(context, getReplayId): CursorLiveRun | undefined {

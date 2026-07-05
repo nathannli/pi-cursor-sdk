@@ -817,4 +817,91 @@ describe("cursor-session-agent", () => {
 		expect(createAgent).toHaveBeenCalledTimes(2);
 		expect(mockDispose).toHaveBeenCalledTimes(1);
 	});
+
+	it("passes only enabled local safety options to Agent.create", async () => {
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-safe",
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+
+		await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			settingSources: ["all"],
+			localSafety: { autoReview: true, sandboxEnabled: true },
+			createAgent,
+		});
+
+		expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({
+			local: { cwd: "/tmp/project", settingSources: ["all"], autoReview: true, sandboxOptions: { enabled: true } },
+		}));
+	});
+
+	it("omits disabled local safety options from Agent.create", async () => {
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-default-safe",
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+
+		await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			localSafety: { autoReview: false, sandboxEnabled: false },
+			createAgent,
+		});
+
+		expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ local: { cwd: "/tmp/project" } }));
+		expect(createAgent.mock.calls[0][0].local).not.toHaveProperty("autoReview");
+		expect(createAgent.mock.calls[0][0].local).not.toHaveProperty("sandboxOptions");
+	});
+
+	it("reloads the current ready SDK agent without recreating it", async () => {
+		const reload = vi.fn().mockResolvedValue(undefined);
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-reload",
+			reload,
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+
+		await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		});
+
+		await expect(sessionAgentTestUtils.refreshSessionCursorAgentConfig("/tmp/sessions/test.jsonl")).resolves.toBe("reloaded");
+		expect(reload).toHaveBeenCalledTimes(1);
+		expect(createAgent).toHaveBeenCalledTimes(1);
+	});
+
+	it("reports no agent or busy instead of creating during config refresh", async () => {
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		await expect(sessionAgentTestUtils.refreshSessionCursorAgentConfig("/tmp/sessions/test.jsonl")).resolves.toBe("no-agent");
+
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-busy-refresh",
+			reload: vi.fn().mockResolvedValue(undefined),
+			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
+		});
+		const lease = await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent",
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		});
+		lease.trackRunCompletion(new Promise(() => {}));
+
+		await expect(sessionAgentTestUtils.refreshSessionCursorAgentConfig("/tmp/sessions/test.jsonl")).resolves.toBe("busy");
+		expect(createAgent).toHaveBeenCalledTimes(1);
+	});
 });
