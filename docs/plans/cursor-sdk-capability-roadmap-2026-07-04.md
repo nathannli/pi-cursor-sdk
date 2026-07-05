@@ -26,7 +26,7 @@ Use these labels when this roadmap states SDK/runtime behavior or pi product int
 
 New behavior should start behind feature flags/config while current behavior remains the default. Use feature flags for maintainer validation and user/project config when the behavior is a real preference. After validation, defaults may flip, but keep an opt-out/fallback for a few releases when the behavior replaces a proven path such as MCP.
 
-**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, and fast-default migration. Project config loading is trust-gated. Remaining work: wire more settings through the resolver (cloud runtime, tool transport, env forwarding) and expand persistence/save flows.
+**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, and trust-gated project config loading. Runtime CLI/env/config/slash selection is wired only far enough to fail closed when cloud is selected; `Agent.create({ cloud })` is intentionally not wired. Remaining work: interactive cloud setup, persistence/save destinations, and actual cloud runtime option building.
 
 **Pi policy — target ordinary precedence** (enforced by `src/cursor-config.ts` and tests):
 
@@ -82,7 +82,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 
 | Slice | Status | Notes |
 | ----- | ------ | ----- |
-| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load. Cloud/tool-transport keys resolve but are not yet wired to runtime behavior. |
+| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, and `/cursor-runtime`. Explicit cloud runtime fails closed; actual cloud `Agent.create({ cloud })` remains unwired. |
 | `RunResult.usage` fallback | **Implemented** | Direct and live/native-replay drains prefer `turn-ended`; fall back to `waitResult.usage` with pi `total = input + output`. |
 | `agent.reload()` refresh | **Implemented** | `/cursor-refresh-config` calls pooled `agent.reload()` without recreating the agent. |
 | Local safety controls | **Implemented** | `autoReview` and `sandboxOptions.enabled` via CLI/env/config; defaults stay off. |
@@ -437,7 +437,7 @@ Safe first slices (landed on `cursor-sdk-capability-safe-slices`):
 
 Blockers before cloud implementation:
 
-- config precedence, user safety caps, and non-interactive fail-closed policy;
+- interactive first-cloud acknowledgement and project/user/session save-destination design (resolver precedence, user safety caps, and cloud-not-implemented fail-closed scaffolding are in place);
 - project/user/session persistence design and explicit save destinations;
 - runtime-aware cloud model availability UX using the single `cursor/*` provider with runtime annotations/filters;
 - repo/branch/direct-push policy, including validated `startingRef`, explicit direct push, missing/unpushed branch behavior, and protected-branch fallback; dirty local tree remains pi-owned detection;

@@ -25,7 +25,17 @@ import {
 	cursorFastDefaultsFromConfig,
 	getCursorSdkUserConfigPath,
 	CURSOR_AUTO_REVIEW_ENV,
+	CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV,
+	CURSOR_CLOUD_BRANCH_ENV,
+	CURSOR_CLOUD_CONTEXT_ENV,
+	CURSOR_CLOUD_DIRECT_PUSH_ENV,
+	CURSOR_CLOUD_ENV_ENV,
+	CURSOR_CLOUD_ENV_FROM_FILES_ENV,
+	CURSOR_CLOUD_REPO_ENV,
+	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
+	CURSOR_TOOL_TRANSPORT_ENV,
+	parseCursorSdkConfig,
 	loadCursorSdkUserConfig,
 	resolveCursorFastDefault,
 	saveCursorSdkUserConfig,
@@ -35,6 +45,7 @@ import {
 
 const FAST_ENTRY_TYPE = "cursor-fast-state";
 const MODE_ENTRY_TYPE = "cursor-mode-state";
+const RUNTIME_ENTRY_TYPE = "cursor-runtime-state";
 
 export type CursorAgentMode = AgentModeOption;
 
@@ -48,6 +59,10 @@ interface CursorFastEntryData {
 
 interface CursorModeEntryData {
 	mode: AgentModeOption;
+}
+
+interface CursorRuntimeEntryData {
+	runtime: "local" | "cloud";
 }
 
 type CursorRuntimeControlsExtensionApi = Pick<
@@ -66,7 +81,17 @@ let cliForceFast = false;
 let cliForceNoFast = false;
 let cliAutoReview = false;
 let cliSandbox = false;
+let cliCursorRuntime: string | undefined;
+let cliCursorToolTransport: string | undefined;
+let cliCursorCloudRepo: string | undefined;
+let cliCursorCloudBranch: string | undefined;
+let cliCursorCloudContext: string | undefined;
+let cliCursorCloudDirectPush = false;
+let cliCursorCloudAllowLocalState = false;
+let cliCursorCloudEnv: string | undefined;
+let cliCursorCloudEnvFromFiles = false;
 let sessionCursorAgentMode: AgentModeOption | undefined;
+let sessionCursorRuntime: "local" | "cloud" | undefined;
 let cliCursorModeState: CursorCliModeState = { kind: "unset" };
 const invalidCursorModeNotifiedSessionScopeKeys = new Set<string>();
 
@@ -92,6 +117,11 @@ function getCursorFastEntryModelId(data: CursorFastEntryData): string {
 
 function isCursorModeEntryData(value: unknown): value is CursorModeEntryData {
 	return isCursorAgentMode(asRecord(value)?.mode);
+}
+
+function isCursorRuntimeEntryData(value: unknown): value is CursorRuntimeEntryData {
+	const runtime = asRecord(value)?.runtime;
+	return runtime === "local" || runtime === "cloud";
 }
 
 function getConfigPath(): string {
@@ -124,6 +154,16 @@ function restoreSessionCursorMode(ctx: { sessionManager: Pick<ExtensionContext["
 		if (entry.type !== "custom" || entry.customType !== MODE_ENTRY_TYPE) continue;
 		if (isCursorModeEntryData(entry.data)) {
 			sessionCursorAgentMode = entry.data.mode;
+		}
+	}
+}
+
+function restoreSessionCursorRuntime(ctx: { sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> }): void {
+	sessionCursorRuntime = undefined;
+	for (const entry of ctx.sessionManager.getBranch()) {
+		if (entry.type !== "custom" || entry.customType !== RUNTIME_ENTRY_TYPE) continue;
+		if (isCursorRuntimeEntryData(entry.data)) {
+			sessionCursorRuntime = entry.data.runtime;
 		}
 	}
 }
@@ -186,11 +226,40 @@ export function getCursorProviderAgentModeOrThrow(): AgentModeOption {
 	return resolution.mode;
 }
 
+function stringFlagValue(value: boolean | string | undefined): string | undefined {
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function splitCliEnvNames(value: string | undefined): string[] | undefined {
+	return value ? value.split(",").map((name) => name.trim()).filter(Boolean) : undefined;
+}
+
+export function getCursorCliConfig(): CursorSdkConfig {
+	return parseCursorSdkConfig({
+		runtime: cliCursorRuntime,
+		toolTransport: cliCursorToolTransport,
+		cloud: {
+			repo: cliCursorCloudRepo,
+			branch: cliCursorCloudBranch,
+			contextHandoff: cliCursorCloudContext,
+			...(cliCursorCloudDirectPush ? { directPush: true } : {}),
+			...(cliCursorCloudAllowLocalState ? { allowLocalState: true } : {}),
+			envNames: splitCliEnvNames(cliCursorCloudEnv),
+			...(cliCursorCloudEnvFromFiles ? { envFromFiles: true } : {}),
+		},
+		local: {
+			...(cliAutoReview ? { autoReview: true } : {}),
+			...(cliSandbox ? { sandboxOptions: { enabled: true } } : {}),
+		},
+	}) ?? {};
+}
+
+export function getCursorSessionConfig(): CursorSdkConfig {
+	return sessionCursorRuntime ? { runtime: sessionCursorRuntime } : {};
+}
+
 export function getCursorCliLocalSafetyConfig(): CursorSdkConfig {
-	return {
-		...(cliAutoReview ? { local: { autoReview: true } } : {}),
-		...(cliSandbox ? { local: { ...(cliAutoReview ? { autoReview: true } : {}), sandboxOptions: { enabled: true } } } : {}),
-	};
+	return getCursorCliConfig();
 }
 
 function formatCursorStatus(fast: boolean | undefined): string {
@@ -259,6 +328,17 @@ function persistCursorModePreference(pi: Pick<ExtensionAPI, "appendEntry">, mode
 		pi.appendEntry<CursorModeEntryData>(MODE_ENTRY_TYPE, { mode });
 	} catch (error) {
 		sessionCursorAgentMode = previousMode;
+		throw error;
+	}
+}
+
+function persistCursorRuntimePreference(pi: Pick<ExtensionAPI, "appendEntry">, runtime: "local" | "cloud"): void {
+	const previousRuntime = sessionCursorRuntime;
+	sessionCursorRuntime = runtime;
+	try {
+		pi.appendEntry<CursorRuntimeEntryData>(RUNTIME_ENTRY_TYPE, { runtime });
+	} catch (error) {
+		sessionCursorRuntime = previousRuntime;
 		throw error;
 	}
 }
@@ -353,6 +433,60 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		default: "",
 	});
 
+	pi.registerFlag("cursor-runtime", {
+		description: `Select Cursor runtime for this run: local or cloud (or set ${CURSOR_RUNTIME_ENV})`,
+		type: "string",
+		default: "",
+	});
+
+	pi.registerFlag("cursor-tool-transport", {
+		description: `Select Cursor local pi-tool transport scaffold: mcp or customTools (or set ${CURSOR_TOOL_TRANSPORT_ENV})`,
+		type: "string",
+		default: "",
+	});
+
+	pi.registerFlag("cursor-cloud-repo", {
+		description: `Set Cursor cloud repository URL for this run (or set ${CURSOR_CLOUD_REPO_ENV})`,
+		type: "string",
+		default: "",
+	});
+
+	pi.registerFlag("cursor-cloud-branch", {
+		description: `Set Cursor cloud branch/ref for this run (or set ${CURSOR_CLOUD_BRANCH_ENV})`,
+		type: "string",
+		default: "",
+	});
+
+	pi.registerFlag("cursor-cloud-context", {
+		description: `Set Cursor cloud context handoff: never, fresh, or bootstrap (or set ${CURSOR_CLOUD_CONTEXT_ENV})`,
+		type: "string",
+		default: "",
+	});
+
+	pi.registerFlag("cursor-cloud-direct-push", {
+		description: `Allow Cursor cloud direct push for this run (or set ${CURSOR_CLOUD_DIRECT_PUSH_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+
+	pi.registerFlag("cursor-cloud-allow-local-state", {
+		description: `Allow Cursor cloud to proceed with local-only state for this run (or set ${CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+
+	pi.registerFlag("cursor-cloud-env", {
+		description: `Comma-separated local env var names to forward to Cursor cloud (or set ${CURSOR_CLOUD_ENV_ENV})`,
+		type: "string",
+		default: "",
+	});
+
+	pi.registerFlag("cursor-cloud-env-from-files", {
+		description: `Allow Cursor cloud env forwarding to read .env files (or set ${CURSOR_CLOUD_ENV_FROM_FILES_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+
 	pi.registerFlag("cursor-auto-review", {
 		description: `Enable Cursor SDK local Auto-review for this run (or set ${CURSOR_AUTO_REVIEW_ENV}=1)`,
 		type: "boolean",
@@ -403,6 +537,34 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			}
 			updateCursorStatus(ctx);
 			ctx.ui.notify(`Cursor fast ${next ? "enabled" : "disabled"}`, "info");
+		},
+	});
+
+	pi.registerCommand("cursor-runtime", {
+		description: "Set Cursor runtime for this session: local or cloud",
+		handler: async (args, ctx) => {
+			const usage = "Usage: /cursor-runtime local|cloud";
+			const raw = args.trim();
+			if (!raw) {
+				ctx.ui.notify(`Cursor runtime is ${sessionCursorRuntime ?? "local"}. ${usage}`, "info");
+				return;
+			}
+			if (raw !== "local" && raw !== "cloud") {
+				ctx.ui.notify(`Invalid Cursor runtime "${raw}". ${usage}`, "error");
+				return;
+			}
+			try {
+				persistCursorRuntimePreference(pi, raw);
+			} catch (error) {
+				ctx.ui.notify(`Failed to save Cursor runtime preference: ${error instanceof Error ? error.message : String(error)}`, "error");
+				return;
+			}
+			ctx.ui.notify(
+				raw === "cloud"
+					? "Cursor runtime set to cloud for this session. Cloud runtime is not implemented yet; Cursor runs fail closed until cloud support lands."
+					: "Cursor runtime set to local for this session.",
+				"info",
+			);
 		},
 	});
 
@@ -483,8 +645,18 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			cliForceNoFast = pi.getFlag("cursor-no-fast") === true;
 			cliAutoReview = pi.getFlag("cursor-auto-review") === true;
 			cliSandbox = pi.getFlag("cursor-sandbox") === true;
+			cliCursorRuntime = stringFlagValue(pi.getFlag("cursor-runtime"));
+			cliCursorToolTransport = stringFlagValue(pi.getFlag("cursor-tool-transport"));
+			cliCursorCloudRepo = stringFlagValue(pi.getFlag("cursor-cloud-repo"));
+			cliCursorCloudBranch = stringFlagValue(pi.getFlag("cursor-cloud-branch"));
+			cliCursorCloudContext = stringFlagValue(pi.getFlag("cursor-cloud-context"));
+			cliCursorCloudDirectPush = pi.getFlag("cursor-cloud-direct-push") === true;
+			cliCursorCloudAllowLocalState = pi.getFlag("cursor-cloud-allow-local-state") === true;
+			cliCursorCloudEnv = stringFlagValue(pi.getFlag("cursor-cloud-env"));
+			cliCursorCloudEnvFromFiles = pi.getFlag("cursor-cloud-env-from-files") === true;
 			restoreSessionFastPreferences(ctx);
 			restoreSessionCursorMode(ctx);
+			restoreSessionCursorRuntime(ctx);
 			restoreCliCursorMode(pi.getFlag("cursor-mode"));
 		},
 		sync: (ctx) => {
@@ -496,15 +668,26 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 
 function resetCursorModeStateForTests(): void {
 	sessionCursorAgentMode = undefined;
+	sessionCursorRuntime = undefined;
 	cliCursorModeState = { kind: "unset" };
 	cliAutoReview = false;
 	cliSandbox = false;
+	cliCursorRuntime = undefined;
+	cliCursorToolTransport = undefined;
+	cliCursorCloudRepo = undefined;
+	cliCursorCloudBranch = undefined;
+	cliCursorCloudContext = undefined;
+	cliCursorCloudDirectPush = false;
+	cliCursorCloudAllowLocalState = false;
+	cliCursorCloudEnv = undefined;
+	cliCursorCloudEnvFromFiles = false;
 	invalidCursorModeNotifiedSessionScopeKeys.clear();
 }
 
 export const __testUtils = {
 	FAST_ENTRY_TYPE,
 	MODE_ENTRY_TYPE,
+	RUNTIME_ENTRY_TYPE,
 	DEFAULT_CURSOR_AGENT_MODE,
 	getConfigPath,
 	loadGlobalFastPreferences,

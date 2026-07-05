@@ -8,6 +8,7 @@ import {
 	makeModel,
 	makeContext,
 	collectEvents,
+	getErrorEvent,
 	getTextEndEvent,
 	mockCreatedAgent,
 	createMockAgentPlatform,
@@ -119,6 +120,15 @@ describe("streamCursor prompt and model config", () => {
 		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 
 		expect(mockedCreate.mock.calls[0][0].local).toMatchObject({ autoReview: true, sandboxOptions: { enabled: true } });
+	});
+
+	it("fails closed when cloud runtime is selected before cloud implementation exists", async () => {
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+
+		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(getErrorEvent(events).error.errorMessage).toContain("Cursor cloud runtime is not implemented yet");
+		expect(mockedCreate).not.toHaveBeenCalled();
 	});
 
 	it("budgets oversized prompt history before Cursor Agent.send", async () => {

@@ -4,8 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	CURSOR_AUTO_REVIEW_ENV,
+	CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV,
+	CURSOR_CLOUD_BRANCH_ENV,
 	CURSOR_CLOUD_CONTEXT_ENV,
 	CURSOR_CLOUD_DIRECT_PUSH_ENV,
+	CURSOR_CLOUD_ENV_ENV,
+	CURSOR_CLOUD_ENV_FROM_FILES_ENV,
+	CURSOR_CLOUD_REPO_ENV,
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
 	cursorFastDefaultsFromConfig,
@@ -105,6 +110,22 @@ describe("Cursor SDK config resolver", () => {
 		expect(resolved).not.toHaveProperty("cappedBy");
 	});
 
+	it("caps project cloud runtime with user local runtime denial", () => {
+		const projectCloud = resolveCursorSdkConfig({
+			project: { runtime: "cloud" },
+			user: { runtime: "local" },
+		}).runtime;
+		const cliCloud = resolveCursorSdkConfig({
+			cli: { runtime: "cloud" },
+			user: { runtime: "local" },
+		}).runtime;
+
+		expect(projectCloud).toMatchObject({ value: "local", source: "user" });
+		expect(projectCloud.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: "cloud" });
+		expect(cliCloud).toMatchObject({ value: "cloud", source: "cli" });
+		expect(cliCloud).not.toHaveProperty("cappedBy");
+	});
+
 	it("applies user safety caps over explicit env allows", () => {
 		const resolved = resolveCursorSdkConfig({
 			env: { [CURSOR_CLOUD_DIRECT_PUSH_ENV]: "true" },
@@ -124,24 +145,100 @@ describe("Cursor SDK config resolver", () => {
 			project: { cloud: { directPush: true } },
 			user: { cloud: { directPush: false } },
 		}).cloud.directPush;
+		const allowLocalState = resolveCursorSdkConfig({
+			project: { cloud: { allowLocalState: true } },
+			user: { cloud: { allowLocalState: false } },
+		}).cloud.allowLocalState;
+		const envNames = resolveCursorSdkConfig({
+			project: { cloud: { envNames: ["GH_TOKEN"] } },
+			user: { cloud: { envNames: [] } },
+		}).cloud.envNames;
+		const filteredEnvNames = resolveCursorSdkConfig({
+			project: { cloud: { envNames: ["GH_TOKEN", "NODE_ENV", "NPM_TOKEN"] } },
+			user: { cloud: { envNames: ["NODE_ENV", "SAFE_FLAG"] } },
+		}).cloud.envNames;
 
 		expect(context).toMatchObject({ value: "never", source: "user" });
 		expect(context.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: "bootstrap" });
 		expect(directPush).toMatchObject({ value: false, source: "user" });
 		expect(directPush.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: true });
+		expect(allowLocalState).toMatchObject({ value: false, source: "user" });
+		expect(allowLocalState.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: true });
+		expect(envNames).toMatchObject({ value: [], source: "user" });
+		expect(envNames.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: ["GH_TOKEN"] });
+		expect(filteredEnvNames).toMatchObject({ value: ["NODE_ENV"], source: "user" });
+		expect(filteredEnvNames.cappedBy).toMatchObject({
+			source: "user",
+			cappedSource: "project",
+			cappedValue: ["GH_TOKEN", "NODE_ENV", "NPM_TOKEN"],
+		});
 	});
 
 	it("lets explicit one-shot CLI safety allows override user denials", () => {
 		const resolved = resolveCursorSdkConfig({
-			cli: { cloud: { contextHandoff: "bootstrap", directPush: true } },
+			cli: { cloud: { contextHandoff: "bootstrap", directPush: true, allowLocalState: true, envFromFiles: true } },
 			env: { [CURSOR_CLOUD_CONTEXT_ENV]: "fresh" },
-			user: { cloud: { contextHandoff: "never", directPush: false } },
+			user: { cloud: { contextHandoff: "never", directPush: false, allowLocalState: false, envFromFiles: false } },
 		}).cloud;
 
 		expect(resolved.contextHandoff).toMatchObject({ value: "bootstrap", source: "cli" });
 		expect(resolved.contextHandoff).not.toHaveProperty("cappedBy");
 		expect(resolved.directPush).toMatchObject({ value: true, source: "cli" });
 		expect(resolved.directPush).not.toHaveProperty("cappedBy");
+		expect(resolved.allowLocalState).toMatchObject({ value: true, source: "cli" });
+		expect(resolved.allowLocalState).not.toHaveProperty("cappedBy");
+		expect(resolved.envFromFiles).toMatchObject({ value: true, source: "cli" });
+		expect(resolved.envFromFiles).not.toHaveProperty("cappedBy");
+	});
+
+	it("filters env cloud env names through the user allowlist unless CLI explicitly overrides", () => {
+		const envFiltered = resolveCursorSdkConfig({
+			env: { [CURSOR_CLOUD_ENV_ENV]: "GH_TOKEN,NODE_ENV" },
+			user: { cloud: { envNames: ["NODE_ENV"] } },
+		}).cloud.envNames;
+		const cliOverride = resolveCursorSdkConfig({
+			cli: { cloud: { envNames: ["GH_TOKEN"] } },
+			user: { cloud: { envNames: ["NODE_ENV"] } },
+		}).cloud.envNames;
+
+		expect(envFiltered).toMatchObject({ value: ["NODE_ENV"], source: "user" });
+		expect(envFiltered.cappedBy).toMatchObject({ source: "user", cappedSource: "environment", cappedValue: ["GH_TOKEN", "NODE_ENV"] });
+		expect(cliOverride).toMatchObject({ value: ["GH_TOKEN"], source: "cli" });
+		expect(cliOverride).not.toHaveProperty("cappedBy");
+	});
+
+	it("resolves remaining cloud scaffold keys from env/config without secret values", () => {
+		const resolved = resolveCursorSdkConfig({
+			env: {
+				[CURSOR_CLOUD_REPO_ENV]: " https://github.com/acme/repo ",
+				[CURSOR_CLOUD_BRANCH_ENV]: " main ",
+				[CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV]: "true",
+				[CURSOR_CLOUD_ENV_ENV]: "GH_TOKEN,CURSOR_SECRET,bad-name, NODE_ENV ,GH_TOKEN",
+				[CURSOR_CLOUD_ENV_FROM_FILES_ENV]: "1",
+			},
+			project: { cloud: { repo: "project-repo", branch: "project-branch" } },
+		}).cloud;
+
+		expect(resolved.repo).toMatchObject({ value: "https://github.com/acme/repo", source: "environment" });
+		expect(resolved.branch).toMatchObject({ value: "main", source: "environment" });
+		expect(resolved.allowLocalState).toMatchObject({ value: true, source: "environment" });
+		expect(resolved.envNames).toMatchObject({ value: ["GH_TOKEN", "NODE_ENV"], source: "environment" });
+		expect(resolved.envFromFiles).toMatchObject({ value: true, source: "environment" });
+	});
+
+	it("lets session runtime override config but not CLI or env", () => {
+		expect(resolveCursorSdkConfig({ session: { runtime: "cloud" }, project: { runtime: "local" } }).runtime).toMatchObject({
+			value: "cloud",
+			source: "session",
+		});
+		expect(resolveCursorSdkConfig({ env: { [CURSOR_RUNTIME_ENV]: "local" }, session: { runtime: "cloud" } }).runtime).toMatchObject({
+			value: "local",
+			source: "environment",
+		});
+		expect(resolveCursorSdkConfig({ cli: { runtime: "local" }, session: { runtime: "cloud" } }).runtime).toMatchObject({
+			value: "local",
+			source: "cli",
+		});
 	});
 
 	it("resolves local safety controls by CLI, env, project, user, built-in order", () => {

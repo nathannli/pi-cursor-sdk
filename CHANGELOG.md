@@ -6,6 +6,7 @@
 
 - Add `/cursor-refresh-config` to call the current pooled Cursor SDK agent's `agent.reload()` for filesystem Cursor config refreshes without recreating the agent.
 - Add explicit local Cursor safety controls: `--cursor-auto-review` / `PI_CURSOR_AUTO_REVIEW` and `--cursor-sandbox` / `PI_CURSOR_SANDBOX`, plus `local.autoReview` and `local.sandboxOptions.enabled` config. Defaults stay off.
+- Add resolver/CLI/slash scaffolding for roadmap runtime/cloud/tool-transport config keys (`--cursor-runtime`, `/cursor-runtime`, cloud repo/branch/context/direct-push/local-state/env-name/env-file flags, and `--cursor-tool-transport`). Defaults stay local + loopback MCP, and explicit cloud runtime now fails closed with a cloud-not-implemented error instead of silently running local.
 
 ## 0.1.56 - 2026-07-04
 

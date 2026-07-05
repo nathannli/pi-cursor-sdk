@@ -350,6 +350,15 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	delete process.env.PI_CURSOR_PI_TOOL_BRIDGE;
 	delete process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS;
 	delete process.env.PI_CURSOR_TASK_PRESENTATION;
+	delete process.env.PI_CURSOR_RUNTIME;
+	delete process.env.PI_CURSOR_TOOL_TRANSPORT;
+	delete process.env.PI_CURSOR_CLOUD_REPO;
+	delete process.env.PI_CURSOR_CLOUD_BRANCH;
+	delete process.env.PI_CURSOR_CLOUD_CONTEXT;
+	delete process.env.PI_CURSOR_CLOUD_DIRECT_PUSH;
+	delete process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE;
+	delete process.env.PI_CURSOR_CLOUD_ENV;
+	delete process.env.PI_CURSOR_CLOUD_ENV_FROM_FILES;
 	delete process.env.PI_CURSOR_AUTO_REVIEW;
 	delete process.env.PI_CURSOR_SANDBOX;
 	process.env.PI_CURSOR_TOOL_MANIFEST = "0";

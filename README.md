@@ -291,6 +291,17 @@ Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trus
 
 ```json
 {
+  "runtime": "local",
+  "toolTransport": "mcp",
+  "cloud": {
+    "repo": "https://github.com/owner/repo",
+    "branch": "main",
+    "contextHandoff": "never",
+    "directPush": false,
+    "allowLocalState": false,
+    "envNames": ["NODE_ENV"],
+    "envFromFiles": false
+  },
   "local": {
     "autoReview": true,
     "sandboxOptions": { "enabled": true }
@@ -298,7 +309,9 @@ Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trus
 }
 ```
 
-Only enabled values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior.
+Cloud/runtime keys are resolver scaffolding only right now. Defaults stay local runtime, `toolTransport: "mcp"`, no inline cloud MCP, no local-state/env-file forwarding, and no customTools migration. If `runtime` is explicitly set to `cloud` with `--cursor-runtime cloud`, `PI_CURSOR_RUNTIME=cloud`, `/cursor-runtime cloud`, or config, the provider fails closed with a cloud-not-implemented error instead of silently running local. Cloud env config stores names only; names starting with `CURSOR_` are ignored.
+
+Only enabled local values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior.
 
 ## Images
 
@@ -372,7 +385,7 @@ Actual Cursor runs still need a key from `/login`, `CURSOR_API_KEY`, or `--api-k
 
 ## Limits
 
-- **Local Cursor SDK agents only.** This extension does not use Cursor cloud agents. Cloud pi tool bridging is out of scope because it needs a separate auth, transport, lifetime, and remote trust design.
+- **Local Cursor SDK agents only.** This extension does not use Cursor cloud agents yet. Cloud config/flags exist only to fail closed and preserve precedence; explicit cloud runtime selection errors instead of falling back to local. Cloud pi tool bridging is out of scope because it needs a separate auth, transport, lifetime, and remote trust design.
 - **The pi tool bridge is local and MCP-backed.** Bridgeable active pi tools are exposed to local Cursor agents through a tokenized `127.0.0.1` MCP endpoint; internal Cursor replay activity names are excluded, and overlapping built-in pi tools are hidden by default. Set `PI_CURSOR_PI_TOOL_BRIDGE=0` to disable it or `PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1` to expose overlapping built-ins too.
 - **Cursor native tool replay is display-only.** Replay renders recorded Cursor SDK activity and never re-runs Cursor-side commands, reapplies Cursor edits, calls MCP servers, or mutates pi state. Workflow tools such as Cursor mode/task/todo/plan activity are not pi workflow controls. See [Cursor native tool replay](docs/cursor-native-tool-replay.md) for supported replay cards, ordering, conflict handling, and opt-out flags.
 - **Cursor run state can span tool-use turns.** Within a pi session, the extension reuses one Cursor SDK agent across compatible follow-up turns and sends incremental prompts when context still matches. It recreates the agent when context diverges, after compaction or `/tree` navigation, on API key changes, after send errors, or on session shutdown. For bridged pi tools, the matching pi `toolResult` resolves into the same live Cursor SDK run without creating a new `Agent`, unless the run was disposed, aborted, or cancelled. Replay can also split one live Cursor SDK run across pi `toolUse` turns for display.
