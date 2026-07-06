@@ -10,19 +10,12 @@ export interface CursorCloudLocalState {
 	unpushed: boolean;
 }
 
-export interface CursorCloudOptionsBuildResult {
-	options: AgentOptions;
-	forwardedEnvNames: string[];
-}
-
 export interface CursorCloudPreflightIssue {
 	code:
-		| "missing_repo"
-		| "missing_branch"
 		| "cloud_ack_required"
 		| "context_handoff_required"
 		| "local_state_not_allowed"
-		| "env_from_files_not_implemented";
+		| "env_forwarding_not_implemented";
 	message: string;
 }
 
@@ -73,17 +66,9 @@ export function buildCursorCloudAgentOptions(options: {
 	modelSelection: ModelSelection;
 	agentMode: AgentModeOption;
 	resolvedConfig: CursorResolvedSdkConfig;
-	env?: Record<string, string | undefined>;
 	name?: string;
-}): CursorCloudOptionsBuildResult {
+}): AgentOptions {
 	const { resolvedConfig } = options;
-	const env = options.env ?? process.env;
-	const envVars = Object.fromEntries(
-		resolvedConfig.cloud.envNames.value.flatMap((name) => {
-			const value = env[name];
-			return value === undefined ? [] : [[name, value]];
-		}),
-	);
 	const cloud = {
 		...(resolvedConfig.cloud.repo.value
 			? {
@@ -96,17 +81,13 @@ export function buildCursorCloudAgentOptions(options: {
 				}
 			: {}),
 		...(resolvedConfig.cloud.directPush.value ? { workOnCurrentBranch: true } : {}),
-		...(Object.keys(envVars).length > 0 ? { envVars } : {}),
 	};
 	return {
-		options: {
-			apiKey: options.apiKey,
-			model: options.modelSelection,
-			mode: options.agentMode,
-			...(options.name ? { name: options.name } : {}),
-			cloud,
-		},
-		forwardedEnvNames: Object.keys(envVars).sort(),
+		apiKey: options.apiKey,
+		model: options.modelSelection,
+		mode: options.agentMode,
+		...(options.name ? { name: options.name } : {}),
+		cloud,
 	};
 }
 
@@ -121,18 +102,6 @@ export function preflightCursorCloudRuntime(options: {
 		issues.push({
 			code: "cloud_ack_required",
 			message: "Cursor cloud runtime requires first-use acknowledgement; run /cursor-runtime cloud in an interactive session or pass --cursor-cloud-ack / PI_CURSOR_CLOUD_ACK=1.",
-		});
-	}
-	if (!resolvedConfig.cloud.repo.value) {
-		issues.push({
-			code: "missing_repo",
-			message: "Cursor cloud runtime requires --cursor-cloud-repo or PI_CURSOR_CLOUD_REPO.",
-		});
-	}
-	if (!resolvedConfig.cloud.branch.value) {
-		issues.push({
-			code: "missing_branch",
-			message: "Cursor cloud runtime requires --cursor-cloud-branch or PI_CURSOR_CLOUD_BRANCH.",
 		});
 	}
 	if (options.hasPriorContext && resolvedConfig.cloud.contextHandoff.value === "never") {
@@ -151,10 +120,10 @@ export function preflightCursorCloudRuntime(options: {
 			message: "Cursor cloud runtime cannot see dirty or unpushed local state; pass --cursor-cloud-allow-local-state only after accepting that risk.",
 		});
 	}
-	if (resolvedConfig.cloud.envFromFiles.value) {
+	if (resolvedConfig.cloud.envNames.value.length > 0 || resolvedConfig.cloud.envFromFiles.value) {
 		issues.push({
-			code: "env_from_files_not_implemented",
-			message: "Cursor cloud env file forwarding is not implemented; pass explicit --cursor-cloud-env names or use Cursor-native environment setup.",
+			code: "env_forwarding_not_implemented",
+			message: "Cursor cloud env forwarding is not implemented; use Cursor-native environment setup such as .cursor/environment.json or dashboard-managed secrets.",
 		});
 	}
 	return { ok: issues.length === 0, issues };

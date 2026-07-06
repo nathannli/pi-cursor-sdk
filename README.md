@@ -302,15 +302,6 @@ Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trus
 {
   "runtime": "local",
   "toolTransport": "mcp",
-  "cloud": {
-    "repo": "https://github.com/owner/repo",
-    "branch": "main",
-    "contextHandoff": "never",
-    "directPush": false,
-    "allowLocalState": false,
-    "envNames": ["NODE_ENV"],
-    "envFromFiles": false
-  },
   "local": {
     "autoReview": true,
     "sandboxOptions": { "enabled": true }
@@ -318,7 +309,7 @@ Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trus
 }
 ```
 
-Cloud/runtime keys are resolver scaffolding only right now. Defaults stay local runtime, `toolTransport: "mcp"`, no inline cloud MCP, no local-state/env-file forwarding, and no customTools migration. If `runtime` is explicitly set to `cloud` with `--cursor-runtime cloud`, `PI_CURSOR_RUNTIME=cloud`, `/cursor-runtime cloud`, or config, the provider fails closed with cloud preflight remediation instead of silently running local. `/cursor-runtime cloud` records session acknowledgement; use `/cursor-runtime cloud --save-user` for a persistent personal acknowledgement or `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` for non-interactive runs. Project config may save a cloud runtime default but not first-use acknowledgement. Cloud env config stores names only; names starting with `CURSOR_` are ignored.
+Cloud/runtime keys are resolver scaffolding only right now. Defaults stay local runtime, `toolTransport: "mcp"`, no inline cloud MCP, no local-state/env-file forwarding, and no customTools migration. If `runtime` is explicitly set to `cloud` with `--cursor-runtime cloud`, `PI_CURSOR_RUNTIME=cloud`, `/cursor-runtime cloud`, or config, the provider fails closed with cloud preflight remediation instead of silently running local. `/cursor-runtime cloud` records session acknowledgement; use `/cursor-runtime cloud --save-user` for a persistent personal acknowledgement or `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` for non-interactive runs. Project config may save a cloud runtime default but not first-use acknowledgement or repo/branch/env/context/direct-push/local-state preferences. Cloud repo/branch/context/direct-push/local-state overrides are CLI/env/user/session only; cloud env forwarding is not implemented yet, so env-name config fails closed with Cursor-native environment setup guidance.
 
 Only enabled local safety values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior. Local force is one-shot/manual-only through CLI/env and is passed only to the next `Agent.send({ local: { force: true } })`.
 
