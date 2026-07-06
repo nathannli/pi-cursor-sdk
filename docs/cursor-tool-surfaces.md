@@ -46,11 +46,11 @@ PI_CURSOR_TOOL_MANIFEST=0 pi --model cursor/composer-2-5
 
 Current defaults:
 
-- Local runtime is the default and the only implemented runtime.
-- The pi bridge uses loopback MCP and remains the canonical Pi-tool transport.
+- Local runtime is the default.
+- The pi bridge uses loopback MCP and remains the canonical Pi-tool transport for local Cursor agents.
 - `local.customTools` is a future opt-in spike path, not a replacement default, because cancellation/process cleanup parity is not proven.
-- Explicit cloud runtime selection currently fails closed and requires first-use acknowledgement (`/cursor-runtime cloud`, `/cursor-runtime cloud --save-user`, `--cursor-cloud-ack`, or `PI_CURSOR_CLOUD_ACK=1`). Project config may save a cloud runtime default but not the acknowledgement. When cloud runtime support lands, cloud agents do **not** get local pi tools through loopback MCP or `local.customTools`; cloud Pi-tool access would require a separate secure remote bridge and a new product decision.
-- Inline cloud MCP is not exposed in the initial cloud runtime plan because live probes showed first-run/replacement/resume behavior was not deterministic enough.
+- Explicit cloud runtime selection requires first-use acknowledgement (`/cursor-runtime cloud`, `/cursor-runtime cloud --save-user`, `--cursor-cloud-ack`, or `PI_CURSOR_CLOUD_ACK=1`) plus preflight. Project config may save a cloud runtime default but not the acknowledgement. Cloud runs use fresh context by default and do **not** get local pi tools through loopback MCP or `local.customTools`; cloud Pi-tool access would require a separate secure remote bridge and a new product decision.
+- Inline cloud MCP is not exposed in the initial cloud runtime because live probes showed first-run/replacement/resume behavior was not deterministic enough.
 
 ## Cursor settings vs pi toggles
 

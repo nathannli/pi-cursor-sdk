@@ -23,6 +23,8 @@ import type {
 	CursorProviderTurnRunnerParams,
 	CursorProviderTurnSend,
 	CursorProviderTurnSendResult,
+	LiveCursorProviderTurnRuntime,
+	LocalCursorProviderTurnPrepareResult,
 } from "./cursor-provider-turn-types.js";
 import { applyCursorUsage } from "./cursor-usage-accounting.js";
 import { hasUsableText } from "./cursor-record-utils.js";
@@ -39,6 +41,7 @@ function applyLiveRunOutcome(
 	prepared: CursorProviderTurnPrepareResult,
 	context: CursorProviderTurnRunnerParams["context"],
 ): void {
+	if (prepared.runtimeTarget !== "local") throw new Error("Cursor live runs require a local prepared turn");
 	if (prepared.runtime.kind !== "live" || prepared.runtime.liveRun.disposed) return;
 	const { liveRun } = prepared.runtime;
 	switch (classifyCursorRunEmission(outcome)) {
@@ -69,7 +72,7 @@ export interface CursorRunFinalizerParams {
 
 export interface StartCursorLiveRunCompletionParams {
 	send: CursorProviderTurnSend;
-	prepared: CursorProviderTurnPrepareResult;
+	prepared: LocalCursorProviderTurnPrepareResult & { runtime: LiveCursorProviderTurnRuntime };
 	modelId: string;
 	discardIncompleteTools: (outcome: IncompleteCursorToolRunOutcomeInput) => void;
 }
@@ -84,6 +87,7 @@ export class CursorRunFinalizer {
 		const sdkEventDebug = this.params.sdkEventDebug();
 		const { send, prepared, modelId, discardIncompleteTools } = startParams;
 		const { run, cursorAgentMessageOffset } = send;
+		if (prepared.runtimeTarget !== "local") throw new Error("startLiveRunCompletion requires a local prepared turn");
 		if (prepared.runtime.kind !== "live") throw new Error("startLiveRunCompletion requires a live run");
 		const { liveRun } = prepared.runtime;
 		const waitCompletion = awaitFinalizeCursorRunOutcome({
@@ -114,7 +118,7 @@ export class CursorRunFinalizer {
 					sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? runnerParams.options?.apiKey),
 				);
 			});
-		// Mark the pooled agent busy as soon as the SDK run exists so auto-compaction summarization
+		// Mark the pooled local agent busy as soon as the SDK run exists so auto-compaction summarization
 		// (and other concurrent acquires) wait for run.wait() instead of hitting AgentBusyError.
 		prepared.sessionAgentLease.trackRunCompletion(waitCompletion);
 		return { waitCompletion, prepared };
@@ -151,6 +155,9 @@ export class CursorRunFinalizer {
 				.catch(() => {});
 			return;
 		}
+		if (prepared?.runtimeTarget === "cloud") {
+			await prepared.agent[Symbol.asyncDispose]?.().catch(() => {});
+		}
 		await this.finalizeSdkEventDebugBestEffort();
 		this.safeCleanup(() => this.params.sdkProcessErrorGuard.dispose());
 	}
@@ -163,15 +170,15 @@ export class CursorRunFinalizer {
 		prepared.runtime.turnCoordinator.closeTraceBlock();
 		switch (classifyCursorRunEmission(outcome)) {
 			case "cancelled":
-				await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
+				if (prepared.runtimeTarget === "local") await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
 				this.pushTerminalError(partial, "aborted", getCursorRunAbortMessage(outcome));
 				break;
 			case "failed":
-				await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
+				if (prepared.runtimeTarget === "local") await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
 				this.pushTerminalError(partial, "error", outcome.kind === "error" ? outcome.errorMessage : "Cursor SDK run failed.");
 				break;
 			case "finished":
-				prepared.sessionAgentLease.commitSend(context, prepared.meta.bootstrap);
+				if (prepared.runtimeTarget === "local") prepared.sessionAgentLease.commitSend(context, prepared.meta.bootstrap);
 				prepared.runtime.turnCoordinator.flushText(
 					outcome.kind === "finished" && hasUsableText(outcome.finalText) ? [outcome.finalText] : [],
 				);
@@ -194,8 +201,8 @@ export class CursorRunFinalizer {
 		const activeLiveRun = prepared?.runtime.liveRun;
 		if (activeLiveRun && !activeLiveRun.disposed) {
 			await cursorLiveRuns.release(activeLiveRun);
-		} else {
-			await abandonSessionCursorAgent(prepared?.sessionAgentScopeKey);
+		} else if (prepared?.runtimeTarget === "local") {
+			await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
 		}
 		if (error instanceof CursorLiveRunAbortError) {
 			this.params.sdkProcessErrorGuard.suppressAbortErrors();

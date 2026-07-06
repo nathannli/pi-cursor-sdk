@@ -108,7 +108,7 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 		resolvedApiKey: params.resolvedApiKey,
 		optionsApiKey: params.optionsApiKey,
 	});
-	if (isCursorRunFinishedSuccessfully(outcome)) {
+	if (params.prepared.runtimeTarget === "local" && isCursorRunFinishedSuccessfully(outcome)) {
 		await replayCursorTranscriptWebToolCalls(
 			params.run.agentId,
 			params.prepared.cwd,
@@ -119,7 +119,7 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 	}
 	params.prepared.runtime.turnCoordinator.discardIncompleteStartedToolCalls(outcome.incompleteTools);
 	await params.sdkEventDebug?.captureRunArtifacts(params.run);
-	if (params.cacheContextWindow !== false) {
+	if (params.prepared.runtimeTarget === "local" && params.cacheContextWindow !== false) {
 		await cacheSdkContextWindow(params.contextWindowAgentId ?? params.run.agentId, params.modelId, params.prepared.cwd);
 	}
 	return outcome;

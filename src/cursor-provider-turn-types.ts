@@ -56,24 +56,39 @@ export interface LiveCursorProviderTurnRuntime extends CursorProviderTurnRuntime
 
 export type CursorProviderTurnRuntime = DirectCursorProviderTurnRuntime | LiveCursorProviderTurnRuntime;
 
-/**
- * Single owned model for a prepared provider turn.
- *
- * Send, finalize, and cleanup phases receive this immutable object instead of
- * keeping parallel liveRun/turnCoordinator/resource bags in sync by convention.
- */
-export interface CursorProviderTurnPrepareResult {
+interface CursorProviderTurnPrepareResultBase {
 	agent: SDKAgent;
 	cwd: string;
 	payload: CursorProviderTurnSendPayload;
 	meta: CursorProviderTurnSendMeta;
 	contextWindowAgentId: string;
 	textDeltas: string[];
+	restoreCursorSdkOutputFilter: () => void;
+}
+
+export interface LocalCursorProviderTurnPrepareResult extends CursorProviderTurnPrepareResultBase {
+	runtimeTarget: "local";
+	runtime: CursorProviderTurnRuntime;
 	sessionAgentScopeKey: string;
 	sessionAgentLease: SessionCursorAgentLease;
-	restoreCursorSdkOutputFilter: () => void;
-	runtime: CursorProviderTurnRuntime;
 }
+
+export interface CloudCursorProviderTurnPrepareResult extends CursorProviderTurnPrepareResultBase {
+	runtimeTarget: "cloud";
+	runtime: DirectCursorProviderTurnRuntime;
+	sessionAgentScopeKey?: undefined;
+	sessionAgentLease?: undefined;
+}
+
+/**
+ * Single owned model for a prepared provider turn.
+ *
+ * Send, finalize, and cleanup phases receive this immutable object instead of
+ * keeping parallel liveRun/turnCoordinator/resource bags in sync by convention.
+ */
+export type CursorProviderTurnPrepareResult =
+	| LocalCursorProviderTurnPrepareResult
+	| CloudCursorProviderTurnPrepareResult;
 
 export interface CursorProviderTurnSend {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;

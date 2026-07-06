@@ -624,7 +624,7 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			const saved = saveUser ? " Saved to user config." : saveProject ? " Saved to project config; cloud acknowledgement remains session/user-scoped." : "";
 			ctx.ui.notify(
 				raw === "cloud"
-					? `Cursor runtime set to cloud for this session and first-use cloud risk acknowledged. Cloud runtime is not implemented yet; Cursor runs fail closed until cloud support lands.${saved}`
+					? `Cursor runtime set to cloud for this session and first-use cloud risk acknowledged. Cloud runs use fresh context by default, no pi bridge, and no pi env forwarding.${saved}`
 					: `Cursor runtime set to local for this session.${saved}`,
 				"info",
 			);

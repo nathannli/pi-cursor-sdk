@@ -42,10 +42,12 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		abortRegistration?.signal.addEventListener("abort", abortListener, { once: true });
 		throwIfAborted();
 		let cursorAgentMessageOffset: number | undefined;
-		try {
-			cursorAgentMessageOffset = await countCursorAgentMessages(agent.agentId, cwd);
-		} catch (error) {
-			sdkEventDebug?.recordError("cursor_agent_message_count", error);
+		if (prepared.runtimeTarget === "local") {
+			try {
+				cursorAgentMessageOffset = await countCursorAgentMessages(agent.agentId, cwd);
+			} catch (error) {
+				sdkEventDebug?.recordError("cursor_agent_message_count", error);
+			}
 		}
 		throwIfAborted();
 		sdkEventDebug?.recordSendMeta({
@@ -65,7 +67,7 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		sdkEventDebug?.recordProviderEvent("agent_send_start", payload);
 		const sendOptions: SendOptions = {
 			mode: meta.agentMode,
-			...(meta.localForce ? { local: { force: true } } : {}),
+			...(prepared.runtimeTarget === "local" && meta.localForce ? { local: { force: true } } : {}),
 			onDelta: (args) => {
 				sdkEventDebug?.recordOnDelta(args.update);
 				turnCoordinator.handleDelta(args.update);

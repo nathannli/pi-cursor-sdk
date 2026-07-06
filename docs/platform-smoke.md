@@ -1,6 +1,6 @@
 # Platform Smoke Gate
 
-Status: current release gate for Cursor provider/runtime changes. The Crabbox runner, packed-install platform-build suite, and real live PTY/ConPTY suite runner are implemented for macOS, Ubuntu, and Windows native targets with one-lease-per-target orchestration.
+Status: current local-runtime release gate for Cursor provider/runtime changes. Cloud-runtime changes also require the opt-in `npm run smoke:cloud` lane. The Crabbox runner, packed-install platform-build suite, and real live PTY/ConPTY suite runner are implemented for macOS, Ubuntu, and Windows native targets with one-lease-per-target orchestration.
 
 Branch introduced by: `feat/crabbox-platform-smoke`
 
@@ -10,7 +10,7 @@ Crabbox best-practice baseline applied from `~/Projects/crabbox`: Crabbox owns l
 
 ## Decision
 
-Crabbox is the required platform smoke runner for `pi-cursor-sdk` releases that touch Cursor provider/runtime behavior.
+Crabbox is the required local platform smoke runner for `pi-cursor-sdk` releases that touch Cursor provider/runtime behavior. PRs that touch actual cloud runtime execution must also run `npm run smoke:cloud`.
 
 Inner-loop checks remain useful, but they are not release gates:
 
@@ -19,10 +19,16 @@ npm run verify
 npm pack --dry-run
 ```
 
-The required release gate is exactly:
+The required local release gate is exactly:
 
 ```bash
 npm run smoke:platform:all
+```
+
+Cloud-runtime changes additionally require:
+
+```bash
+npm run smoke:cloud
 ```
 
 `smoke:platform:all` runs `smoke:platform:doctor` first and only starts the target matrix after doctor passes. Maintainers may still run `npm run smoke:platform:doctor` by itself for setup diagnosis.
@@ -35,7 +41,7 @@ No partial adoption exists. The release evidence must include macOS, Ubuntu, and
 ## Non-negotiable constraints
 
 - No GitHub Actions dependency.
-- No cloud provider dependency.
+- No cloud provider dependency in the default local platform gate; cloud-runtime changes use the separate opt-in cloud lane.
 - No Crabbox broker/coordinator dependency.
 - No release gate that runs on only one operating system.
 - No release gate that proves command behavior but not TUI visual behavior.
@@ -137,21 +143,27 @@ Runtime budget is part of the contract:
 
 Ubuntu is covered as its own local-container target, and Windows native remains a full visual TUI target.
 
-## Optional cloud smoke lane
+## Opt-in cloud smoke lane
 
-Cloud validation is intentionally separate from `smoke:platform:all`. The required release gate keeps **no cloud provider dependency** until cloud runtime support is implemented and the project explicitly adopts a cloud lane.
+Cloud validation is intentionally separate from `smoke:platform:all`. The required release gate keeps **no cloud provider dependency**; cloud runtime PRs must also run the opt-in cloud lane when they touch actual cloud execution.
 
-When cloud runtime work begins, add an opt-in cloud smoke command rather than folding cloud checks into the default platform matrix. The lane must fail closed when requested but unavailable:
+Run:
+
+```bash
+npm run smoke:cloud
+```
+
+The current lane is intentionally minimal: it starts one non-interactive cloud run with explicit acknowledgement, fresh context, no pi bridge, no env forwarding, SDK event-debug contract checks, and cloud-agent archival cleanup. It must fail closed when requested but unavailable:
 
 - missing cloud-capable credentials, repo access, or cloud entitlement → report **blocked**, not skipped-ready;
 - no non-interactive prompts; every needed cloud choice must come from CLI/env/config;
-- use a throwaway repo/branch and clean up remote agents/branches/PRs where the SDK/API allows;
 - do not expose inline cloud MCP in the first cloud runtime lane;
-- do not forward local env values unless the scenario explicitly allowlists names and verifies behavior without printing values;
-- assert local-only dirty/unpushed state warnings before a cloud send;
-- assert default cloud branch/PR behavior, explicit direct-push opt-in, missing-branch failure, cancel/archive/delete cleanup, and cloud artifact/usage reporting when SDK/API support is available.
+- do not forward local env values;
+- archive the throwaway cloud agent when the SDK/API returns an agent id.
 
-This lane is a future cloud-runtime release gate, not a substitute for the local macOS/Ubuntu/Windows `smoke:platform:all` gate.
+Future expanded cloud smoke work should add throwaway repo/branch coverage, dirty/unpushed warning assertions, branch/PR behavior, explicit direct-push opt-in, missing-branch failure, cancel/delete cleanup, and cloud artifact/usage reporting when those features are wired into pi.
+
+This lane is a cloud-runtime release gate, not a substitute for the local macOS/Ubuntu/Windows `smoke:platform:all` gate.
 
 ## Files and scripts
 
@@ -185,7 +197,8 @@ Package scripts:
   "smoke:platform:macos": "node scripts/platform-smoke.mjs run --target macos",
   "smoke:platform:ubuntu": "node scripts/platform-smoke.mjs run --target ubuntu",
   "smoke:platform:windows-native": "node scripts/platform-smoke.mjs run --target windows-native",
-  "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native"
+  "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native",
+  "smoke:cloud": "node scripts/cloud-runtime-smoke.mjs"
 }
 ```
 
@@ -991,19 +1004,26 @@ Update:
 
 They must state:
 
-- required release gate is `npm run smoke:platform:all`;
+- required local release gate is `npm run smoke:platform:all`;
+- cloud-runtime changes additionally require `npm run smoke:cloud`;
 - legacy smoke scripts are inner-loop/debug helpers;
 - `tmux` visual smoke is not the canonical cross-platform gate.
 
 ## Release bar
 
-A provider/runtime release is ready only after this exact command passes on the maintainer machine:
+A local provider/runtime release is ready only after this exact command passes on the maintainer machine:
 
 ```bash
 npm run smoke:platform:all
 ```
 
-The command runs doctor first and then all required targets and suites in one full gate execution.
+Cloud-runtime releases additionally require:
+
+```bash
+npm run smoke:cloud
+```
+
+`smoke:platform:all` runs doctor first and then all required local targets and suites in one full gate execution.
 
 ## Gate replacement criteria
 

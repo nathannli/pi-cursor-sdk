@@ -1,10 +1,10 @@
 # Cursor Live Smoke Checklist
 
-> **Platform Smoke (new):** The required cross-platform release gate is `npm run smoke:platform:doctor && npm run smoke:platform:all`. See [docs/platform-smoke.md](./platform-smoke.md) for the full contract. The manual checks below remain useful inner-loop/debug tools but are not the required release gate.
+> **Platform Smoke:** The required local cross-platform release gate is `npm run smoke:platform:doctor && npm run smoke:platform:all`. Cloud-runtime changes also require `npm run smoke:cloud`. See [docs/platform-smoke.md](./platform-smoke.md) for the full contract. The manual checks below remain useful inner-loop/debug tools but are not the required release gate.
 
 ## Purpose
 
-Use this manual checklist during development and debugging of Cursor provider/runtime changes. Unit tests and mocks are necessary, but they are not enough for this extension. See [Cursor testing lessons](./cursor-testing-lessons.md) for auth/isolated-harness pitfalls and the plan-mode replay regression that motivated recent hardening. Always assume every runtime surface is in scope. For release readiness, run the platform gate in [docs/platform-smoke.md](./platform-smoke.md); this checklist is inner-loop evidence only.
+Use this manual checklist during development and debugging of Cursor provider/runtime changes. Unit tests and mocks are necessary, but they are not enough for this extension. See [Cursor testing lessons](./cursor-testing-lessons.md) for auth/isolated-harness pitfalls and the plan-mode replay regression that motivated recent hardening. For release readiness, run the local platform gate in [docs/platform-smoke.md](./platform-smoke.md), plus `npm run smoke:cloud` for cloud-runtime changes; this checklist is inner-loop evidence only.
 
 ## Inner-loop rule
 
