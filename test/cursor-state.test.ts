@@ -765,6 +765,7 @@ describe("Cursor runtime state", () => {
 		await commands.get("cursor-runtime")!.handler("cloud", commandCtx);
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.RUNTIME_ENTRY_TYPE, { runtime: "cloud", cloudAcknowledged: true });
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a");
 		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("first-use cloud risk acknowledged"), "info");
 	});
 

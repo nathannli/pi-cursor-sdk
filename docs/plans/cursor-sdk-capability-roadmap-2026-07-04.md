@@ -282,7 +282,7 @@ pi --cursor-runtime cloud --model cursor/composer-2-5
 
 Also provide `/cursor-runtime` for interactive use.
 
-**Validated — current status:** footer reports `cursor-fast:on|off|n/a` (+ optional `· plan`), anchored in `src/cursor-state.ts`, `docs/cursor-model-ux-spec.md`, tests, and `AGENTS.md`. **Pi policy — future UX:** runtime-aware status strings (`cursor:local · fast:on · plan`) require code/tests/UX docs together; not a doc-only rename.
+**Validated — current status:** footer reports `cursor-fast:on|off|n/a` (+ optional `· plan`), anchored in `src/cursor-state.ts`, `docs/cursor-model-ux-spec.md`, tests, and `AGENTS.md`. **Implemented partial cloud UX:** session cloud runtime selected with `/cursor-runtime cloud` makes `cursor-fast` report `n/a`; broader runtime-aware status strings (`cursor:local · fast:on · plan`) still require code/tests/UX docs together, not a doc-only rename.
 
 ### Non-interactive cloud policy
 
@@ -314,7 +314,7 @@ Cloud should feel like the current local Cursor provider as much as possible:
 - Initial model-picker decision: keep one `cursor/*` provider and make it runtime-aware with annotations/filters, not a separate `cursor-cloud/*` provider. Revisit only if the one-provider UX proves confusing.
 - **Validated:** live `Cursor.models.list()` returned 32 models; params include `fast`, `thinking`, `context`, `effort`, `reasoning`; no `maxMode` param ID. **Validated:** cloud docs — curated models, always Max Mode, no toggle, API pricing. **Pi policy:** Max Mode is implicit cloud runtime/billing disclosure, not a pi toggle. Param support comes from `Cursor.models.list()`; do not blanket-ban `:fast`/thinking/context if the catalog lists them.
 - `/model` should show cloud availability when runtime is cloud, `/cursor-runtime cloud` should warn if the current model/variant is not cloud-compatible, and `--list-models cursor` should include runtime availability or accept a runtime filter. Run-start validation remains the safety net, not the primary UX.
-- Treat Cursor-only local state such as `cursor-fast` as `n/a` in cloud.
+- Treat Cursor-only local state such as `cursor-fast` as `n/a` in cloud. **Implemented partial:** `/cursor-runtime cloud` updates the current session footer to `cursor-fast:n/a`; broader config/env-sourced runtime status UX remains future work.
 - Abort cancels the cloud run by default in both interactive and non-interactive modes, matching local abort semantics and pi's expectation that abort is fast. Add an explicit detach/keep-running command or config later; do not prompt in the abort path.
 - The first-run setup flow should include one non-blocking cost row: “Cloud Agents run in Max Mode and are billed at Cursor API pricing; Cursor may require spend-limit setup on first use.” Do not repeat this as a generic billing warning unless an auth/billing error blocks the run.
 

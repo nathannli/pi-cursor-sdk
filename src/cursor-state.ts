@@ -313,7 +313,7 @@ function updateCursorStatus(ctx: Pick<ExtensionContext, "model" | "ui">, model =
 		return;
 	}
 	const metadata = getCursorModelMetadata(model.id);
-	const fast = metadata?.supportsFast ? getEffectiveFast(model.id) : undefined;
+	const fast = sessionCursorRuntime === "cloud" ? undefined : metadata?.supportsFast ? getEffectiveFast(model.id) : undefined;
 	ctx.ui.setStatus("cursor", formatCursorStatus(fast));
 }
 
@@ -620,6 +620,7 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 				ctx.ui.notify(`Failed to save Cursor runtime preference: ${error instanceof Error ? error.message : String(error)}`, "error");
 				return;
 			}
+			updateCursorStatus(ctx);
 			const saved = saveUser ? " Saved to user config." : saveProject ? " Saved to project config; cloud acknowledgement remains session/user-scoped." : "";
 			ctx.ui.notify(
 				raw === "cloud"
