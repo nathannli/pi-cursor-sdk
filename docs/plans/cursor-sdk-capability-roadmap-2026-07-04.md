@@ -364,8 +364,8 @@ Do not prompt for local env forwarding on first cloud run. Cursor's native cloud
 - At run time, read current values from process env only for explicitly allowlisted names by default.
 - Reading `.env.local` / `.env` for cloud forwarding is an extra explicit opt-in such as `--cursor-cloud-env-from-files`; it must not happen merely because names are allowlisted.
 - User-level `cloudEnvForwarding: "disabled"` or equivalent must beat project config.
-- **Validated:** allowlisted `envVars` reached a cloud shell. SDK transcript/tool output redacted the value as `[REDACTED]`, so pi must verify by behavior/exit status or file-size-style checks, never by printing secret values.
-- **Validated gap / SDK footgun:** when `cloud.envVars` is used, the pre-send `agent.agentId` can be a ghost ID not found by get/delete; record post-send `run.agentId` instead.
+- **Validated, refreshed 2026-07-06:** allowlisted `envVars` reached a cloud shell in a no-edit throwaway run (`env-present` final text). SDK transcript/tool output redacted the value as `[REDACTED]`, so pi must verify by behavior/exit status or file-size-style checks, never by printing secret values.
+- **Validated gap / SDK footgun, refreshed 2026-07-06:** when `cloud.envVars` is used, the pre-send `agent.agentId` was a ghost ID (`Agent.get()` returned `agent_not_found`); after first `send`, both `agent.agentId` and `run.agentId` changed to the real server ID. Record post-send `run.agentId` instead.
 - If pi forwards env vars, omit caller-supplied cloud `agentId` and use SDK/API idempotency keys for duplicate-create protection instead.
 - If a cloud run fails because an env var is missing, show a hint toward Cursor-native environment setup and the explicit pi env-forwarding command/config.
 
@@ -395,22 +395,22 @@ Switching an existing pi session from local runtime to cloud can send prior pi c
 
 ### Cloud auth, PRs, artifacts, and lifecycle
 
-- **Validated — read-only live probes:** `Cursor.me()` OK with user-scoped key; `Cursor.models.list()` 32 models; `Cursor.repositories.list()` 191 repos; `Agent.list({ runtime: 'cloud' })` OK. Bad key → `AuthenticationError` / 401 “Invalid User API Key”.
+- **Validated — read-only live probes, refreshed 2026-07-06:** `Cursor.me()` OK with user-scoped key; `Cursor.models.list()` 32 models; `Cursor.repositories.list()` 191 repos and listed this repo; `Agent.list({ runtime: 'cloud' })` OK. Bad key → 401 `Invalid User API Key`.
 - **Validated:** types include `IntegrationNotConnectedError` with `helpUrl` and `provider`. API overview: Cloud Agents API accepts user or service-account keys; Admin API keys are for Enterprise admin/metrics, not Cloud Agents operational auth.
 - **Validated:** protected branch behavior uses normal Cursor branch/PR fallback rather than direct-pushing the protected branch. **Validated:** an archived controlled repo let the run finish with a branch-local commit and final text saying push failed with GitHub 403 because the repo was archived/read-only. **Validated:** an unsupported GitLab URL failed during send with `ConfigurationError` / `validation_error` while verifying the branch and left only a ghost pre-send agent ID. No roadmap-specific account-failure probe remains; implementation should handle entitlement and provider-connection variants through generic SDK/API error mapping plus the documented `IntegrationNotConnectedError` type.
 - Cloud mode requires a Cursor API key accepted by Cursor cloud APIs. If local auth works but cloud auth is missing or unsupported, show a cloud-specific auth error. Use a user API key or service-account API key; Admin API keys for Enterprise admin/metrics are not Cloud Agents operational auth keys.
 - Cloud also requires the user's plan/entitlements, an SCM integration connected for the repository provider, and read-write repository access. Catch `IntegrationNotConnectedError` and show its dashboard/help URL. `Cursor.repositories.list()` is only a weak URL precheck because SDK repository items contain just `url`; it cannot prove branch existence, write access, default branch, provider state, repo permissions, or protected-branch policy. Actual authority remains `Agent.create()` / send errors.
-- **Validated:** `Agent.create({ cloud, model })` calls model validation when `model` is set; bogus model returned `ConfigurationError` code `invalid_model` with no agent created. **Validated gap:** `createCloudAgent` does not call the helper; direct callers bypass preflight. Helper is not a public export. **Pi policy:** pi must preflight for any path that might call `createCloudAgent` directly.
+- **Validated, refreshed 2026-07-06:** `Agent.create({ cloud, model })` calls model validation when `model` is set; bogus model returned `ConfigurationError` code `invalid_model` with no agent created. **Validated gap:** `createCloudAgent` does not call the helper; direct callers bypass preflight. Helper is not a public export. **Pi policy:** pi must preflight for any path that might call `createCloudAgent` directly.
 - Name SDK agents from the pi session title/name when available via `AgentOptions.name`, so Cursor cloud UI and `Agent.list()` are understandable.
 - Expose cloud `env.type` selection (`cloud`, `pool`, `machine`) through config/flags before relying on non-default environments.
 - Do not impose a pi-specific PR policy. Pass through Cursor SDK defaults, expose cloud PR options in config/flags, and show the PR URL if Cursor creates one.
 - Leave cloud agents alive/archiveable after normal pi exit.
 - No SDK/API cloud agent/run URL is validated here; for now show agent/run IDs plus branch/PR URL. Add URL display only after SDK/API evidence exists.
 - **Validated — read-only:** list/get agent, list/get run (`git.branches`, `prUrl`), `listArtifacts` (path/size/updatedAt), run supports `stream`/`cancel`.
-- **Validated gap + raw API works:** API docs expose `GET /v1/agents/{id}/usage`; the public SDK still has no wrapper and live run handles had no `usage`, but raw `GET /v1/agents/{agentId}/usage` returned `totalUsage` and per-run usage for the real post-send agent ID. Use an explicit raw API helper if implemented; do not assume cloud usage from public run handles until SDK exposes it.
+- **Validated gap + raw API works, refreshed 2026-07-06:** API docs expose `GET /v1/agents/{id}/usage`; the public SDK still has no wrapper and a no-edit cloud run had no `RunResult.usage` / `run.usage`, but raw `GET /v1/agents/{agentId}/usage` returned `totalUsage` and per-run usage for the real post-send agent ID. Use an explicit raw API helper if implemented; do not assume cloud usage from public run handles until SDK exposes it.
 - Show artifact path/size lists when available. Treat artifact download as cloud-only until a local-runtime SDK contract says otherwise.
 - **Validated:** `run.cancel()` returned cancelled and `Agent.getRun()` reported cancelled with `durationMs`. `Agent.archive()` returned `archived:true`; `Agent.delete()` succeeded and later `Agent.get()` returned `agent_not_found`.
-- **Validated artifact limits:** `listArtifacts()` returned `[]` for generated-file runs, including a run that wrote `artifacts/pi-probe-artifact-*.txt` in the workspace. `downloadArtifact("definitely-missing-artifact.txt")` returned validation error because artifact paths must live under `artifacts/`; downloading the generated workspace file returned `artifact_not_found`. Treat artifact support as passive list/download only for API-produced artifacts; do not assume writing a repo/workspace `artifacts/` file creates a downloadable SDK artifact.
+- **Validated artifact limits, refreshed 2026-07-06:** `listArtifacts()` returned `[]` for a fresh no-edit run and earlier generated-file runs, including a run that wrote `artifacts/pi-probe-artifact-*.txt` in the workspace. `downloadArtifact("definitely-missing-artifact.txt")` returned validation error because artifact paths must live under `artifacts/`; downloading the generated workspace file returned `artifact_not_found`. Treat artifact support as passive list/download only for API-produced artifacts; do not assume writing a repo/workspace `artifacts/` file creates a downloadable SDK artifact.
 - Do not auto-download cloud artifacts by default. Users inspect/download from Cursor UI or a future explicit download command.
 - When Cursor pushes a branch or opens a PR, show the pushed branch name, PR URL if present, and a one-line fetch/checkout hint so users can find the work without hunting through the dashboard.
 
@@ -440,16 +440,32 @@ Safe first slices (landed on `cursor-sdk-capability-safe-slices`):
 3. Explicit `agent.reload()` command — **done (`/cursor-refresh-config`)**.
 4. Safety flag/config exposure for `autoReview` and `sandboxOptions`, preserving off-by-default behavior — **done**.
 
-Blockers before cloud implementation:
+Cloud implementation readiness before grill-me decisions:
 
-- interactive first-cloud acknowledgement and project/user/session save-destination design (resolver precedence, user safety caps, and cloud-not-implemented fail-closed scaffolding are in place);
-- project/user/session persistence design and explicit save destinations;
-- runtime-aware cloud model availability UX using the single `cursor/*` provider with runtime annotations/filters;
-- repo/branch/direct-push policy, including validated `startingRef`, explicit direct push, missing/unpushed branch behavior, and protected-branch fallback; dirty local tree remains pi-owned detection;
-- cloud auth/entitlement/repo preflight and error mapping strategy — **partial:** fail-closed local preflight, first-use acknowledgement scaffold, cloud option builder, and model-availability metadata blocker are documented; SDK cloud auth/model/repo API checks remain;
-- cloud `envVars` handling, including validated shell presence with redaction and the post-send `run.agentId` rule;
-- explicit cloud MCP policy: initial pi cloud runtime should not expose inline `mcpServers`; future support needs option-builder tests and new SDK/API evidence because live probes showed surprising persistence and replacement failure;
-- opt-in live cloud smoke matrix in `docs/platform-smoke.md` — **documented as future optional lane**; the required `smoke:platform:all` gate still has no cloud provider dependency.
+| Area | Proof status | Remaining blocker | Next action |
+| ---- | ------------ | ----------------- | ----------- |
+| First-use acknowledgement | **Implemented scaffold** | Full interactive setup flow content and defaults are product decisions. | Grill user on setup copy, defaults, and save choices. |
+| Persistence / save destinations | **Implemented partial** | Runtime + user ack save paths exist; repo/branch/context/env preference save rules are undecided. | Grill user on what may save to session/user/project. |
+| Model availability UX | **SDK metadata gap validated** | Public model catalog has no local/cloud availability field; create-time preflight is authoritative. | Decide interim UX: show unknown/cloud-not-yet-validated vs maintain a captured allow/deny table. |
+| Repo / branch / direct push | **SDK behavior validated** | Interactive inference/confirmation and dirty/unpushed warning cadence are decisions. | Grill user on branch default, warning frequency, and protected-branch display. |
+| Auth / entitlement / repo errors | **Fresh read-only/no-send proof gathered** | Cannot exhaust every account/provider entitlement; implementation needs generic SDK error mapping and optional live smoke. | Implement mapping around `AuthenticationError`, `IntegrationNotConnectedError`, `ConfigurationError`, and API validation errors. |
+| Env vars | **Fresh no-edit cloud-send proof gathered** | Decide whether pi should support env forwarding at cloud-runtime launch or punt users to Cursor-native env setup initially. | If enabled, record post-send `run.agentId`, never pre-send ghost IDs, and use raw usage only through an explicit helper. |
+| Inline cloud MCP | **Validated gap / policy decided** | Unsupported for initial cloud runtime. | Do not expose inline cloud MCP; revisit only with a deterministic SDK contract. |
+| Cloud usage/artifacts/lifecycle | **Fresh usage/artifact proof gathered; old cleanup probes validated** | Decide whether to show raw cloud usage now or wait for public SDK support. | Passive artifact list only; no auto-download. |
+| Cloud smoke | **Future optional lane documented** | Needs actual cloud runtime first. | Add opt-in cloud smoke after runtime lands; keep out of required `smoke:platform:all` until adopted. |
+
+Grill-me decision backlog before cloud runtime wiring:
+
+1. First setup flow: should it be one confirmation with smart defaults, or step-by-step prompts for repo, branch, context, and save destination?
+2. Context handoff: default to fresh cloud agent every time, or allow project/user default to bootstrap from current pi context after one disclosure?
+3. Save destinations: which fields may be saved to project config (`runtime`, `repo`, `branch`, `contextHandoff`, `envNames`) and which must stay user/session only?
+4. Branch default: current branch as `startingRef` when pushed, or remote default branch unless explicitly overridden?
+5. Dirty/unpushed warning cadence: warn once per dirty-state fingerprint, every send, or only when cloud would start from stale remote state?
+6. Env forwarding: ship explicit pi env forwarding at first cloud runtime, or direct users to Cursor-native `.cursor/environment.json` / dashboard env until later?
+7. Usage display: call raw `/v1/agents/{id}/usage` for cloud runs now, or wait for a public SDK wrapper?
+8. Runtime/model UX: keep status as `cursor-fast:n/a` for cloud for now, or rename footer/status to explicit `cursor:cloud` / `cursor:local` before launch?
+9. Agent lifecycle: leave cloud agents alive/archiveable after normal pi exit, or add an explicit cleanup/archive prompt/command in the first launch slice?
+10. Smoke policy: should the opt-in cloud smoke lane be required before any cloud-runtime PR can merge, or only before release?
 
 Blockers before resume implementation:
 
@@ -533,6 +549,7 @@ Docs to update before landing behavior changes:
 
 - SDK official docs captured 2026-07-04 and refreshed 2026-07-05 from `https://cursor.com/docs/sdk/typescript` / `https://cursor.com/docs/sdk/typescript.md`. Cloud agent docs refreshed 2026-07-05 from `https://cursor.com/docs/cloud-agent`, `https://cursor.com/docs/cloud-agent/api/endpoints`, `https://cursor.com/docs/cloud-agent/setup`, `https://cursor.com/docs/cloud-agent/capabilities`, `https://cursor.com/docs/cloud-agent/choose-runtime`, `https://cursor.com/docs/cloud-agent/security-network`, `https://cursor.com/docs/cloud-agent/settings`, and `https://cursor.com/docs/cloud-agent/best-practices`. Official docs are behavior guidance and may lag package text; installed `@cursor/sdk@1.0.23` types/source and contract probes are the implementation contract for this repo.
 - Live probes on 2026-07-05 used real Composer 2.5 local and cloud agents against temporary workspaces/repos, including protected-branch, archived-repo, artifact, env, direct-push, missing-branch, MCP, cancel/archive/delete, usage, resume, force, and customTools cancellation cases. Temporary GitHub repos and cloud agents were deleted after probes.
+- Fresh probes on 2026-07-06 refreshed `@cursor/sdk@1.0.23` cloud facts: read-only `Cursor.me`/models/repositories/agent-list, invalid-key auth error, invalid-model create-time preflight, `envVars` + `agentId` guard, and one no-edit env-var cloud send. The throwaway cloud agent was deleted after the probe; the run produced no branch/PR and `listArtifacts()` returned `[]`.
 - Installed SDK: `@cursor/sdk@1.0.23`.
 - SDK type anchors:
   - `node_modules/@cursor/sdk/dist/esm/options.d.ts` — `LocalAgentOptions.customTools`, `autoReview`, `sandboxOptions`, `enableAgentRetries`, `LocalSendOptions.force`, `idempotencyKey`, `AgentOptions.name`, cloud options, `workOnCurrentBranch`, `repos[].startingRef`, and cloud `env.type`.
