@@ -82,7 +82,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 
 | Slice | Status | Notes |
 | ----- | ------ | ----- |
-| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, and `/cursor-runtime`. Explicit cloud runtime fails closed; actual cloud `Agent.create({ cloud })` remains unwired. |
+| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, and `/cursor-runtime`. Explicit cloud runtime fails closed after preflight remediation; actual cloud `Agent.create({ cloud })` remains unwired. |
 | `RunResult.usage` fallback | **Rejected for pi message usage** | Direct and live/native-replay drains use real `turn-ended` only when the counts fit the selected model window; otherwise they fall back to bounded pi estimates. `RunResult.usage` can describe full local agent context and must not feed compaction/context totals. |
 | `agent.reload()` refresh | **Implemented** | `/cursor-refresh-config` calls pooled `agent.reload()` without recreating the agent. |
 | Local safety controls | **Implemented** | `autoReview` and `sandboxOptions.enabled` via CLI/env/config; defaults stay off. |
@@ -445,7 +445,7 @@ Blockers before cloud implementation:
 - project/user/session persistence design and explicit save destinations;
 - runtime-aware cloud model availability UX using the single `cursor/*` provider with runtime annotations/filters;
 - repo/branch/direct-push policy, including validated `startingRef`, explicit direct push, missing/unpushed branch behavior, and protected-branch fallback; dirty local tree remains pi-owned detection;
-- cloud auth/entitlement/repo preflight and error mapping strategy;
+- cloud auth/entitlement/repo preflight and error mapping strategy — **partial:** fail-closed local preflight and cloud option builder exist; SDK cloud auth/model/repo API checks remain;
 - cloud `envVars` handling, including validated shell presence with redaction and the post-send `run.agentId` rule;
 - explicit cloud MCP policy: initial pi cloud runtime should not expose inline `mcpServers`; future support needs option-builder tests and new SDK/API evidence because live probes showed surprising persistence and replacement failure;
 - opt-in live cloud smoke matrix in `docs/platform-smoke.md` — **documented as future optional lane**; the required `smoke:platform:all` gate still has no cloud provider dependency.

@@ -26,6 +26,11 @@ import {
 } from "./cursor-state.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
+import {
+	formatCursorCloudPreflightError,
+	inspectCursorCloudLocalState,
+	preflightCursorCloudRuntime,
+} from "./cursor-cloud-options.js";
 import { loadCursorSdkConfig, resolveCursorSdkConfig } from "./cursor-config.js";
 import { getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-env.js";
@@ -76,6 +81,12 @@ export async function prepareCursorProviderTurn(
 			project: loadedConfig.project,
 		});
 		if (resolvedConfig.runtime.value === "cloud") {
+			const preflight = preflightCursorCloudRuntime({
+				resolvedConfig,
+				localState: inspectCursorCloudLocalState(cwd),
+				hasPriorContext: context.messages.length > 1,
+			});
+			if (!preflight.ok) throw new Error(formatCursorCloudPreflightError(preflight));
 			throw new Error(
 				"Cursor cloud runtime is not implemented yet. Use --cursor-runtime local or /cursor-runtime local to run with the local Cursor SDK agent.",
 			);
