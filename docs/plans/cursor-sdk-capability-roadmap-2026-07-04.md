@@ -448,7 +448,7 @@ Blockers before cloud implementation:
 - cloud auth/entitlement/repo preflight and error mapping strategy;
 - cloud `envVars` handling, including validated shell presence with redaction and the post-send `run.agentId` rule;
 - explicit cloud MCP policy: initial pi cloud runtime should not expose inline `mcpServers`; future support needs option-builder tests and new SDK/API evidence because live probes showed surprising persistence and replacement failure;
-- opt-in live cloud smoke matrix in `docs/platform-smoke.md` (**validated:** platform smoke currently has no cloud provider dependency).
+- opt-in live cloud smoke matrix in `docs/platform-smoke.md` — **documented as future optional lane**; the required `smoke:platform:all` gate still has no cloud provider dependency.
 
 Blockers before resume implementation:
 
@@ -524,7 +524,7 @@ Docs to update before landing behavior changes:
 - `CHANGELOG.md` for user-visible behavior and flag changes.
 - `docs/cursor-model-ux-spec.md` for runtime-aware model/status UX.
 - `docs/cursor-tool-surfaces.md` for MCP/customTools/cloud Pi-tool availability.
-- `docs/platform-smoke.md` for opt-in cloud smoke matrix (currently no cloud provider dependency).
+- `docs/platform-smoke.md` for opt-in cloud smoke matrix — **documented as a future optional lane; currently no cloud provider dependency**.
 - `docs/cursor-testing-lessons.md` for any new SDK/cloud contract lesson.
 - `docs/cursor-live-smoke-checklist.md` and `docs/cursor-dogfood-checklist.md` for user-visible smoke flows.
 
