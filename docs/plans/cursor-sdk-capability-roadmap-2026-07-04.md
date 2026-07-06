@@ -83,7 +83,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 | Slice | Status | Notes |
 | ----- | ------ | ----- |
 | Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, and `/cursor-runtime`. Explicit cloud runtime fails closed; actual cloud `Agent.create({ cloud })` remains unwired. |
-| `RunResult.usage` fallback | **Rejected for pi message usage** | Direct and live/native-replay drains prefer real `turn-ended`; when absent, fall back to bounded pi estimates. `RunResult.usage` can describe full local agent context and must not feed compaction/context totals. |
+| `RunResult.usage` fallback | **Rejected for pi message usage** | Direct and live/native-replay drains use real `turn-ended` only when the counts fit the selected model window; otherwise they fall back to bounded pi estimates. `RunResult.usage` can describe full local agent context and must not feed compaction/context totals. |
 | `agent.reload()` refresh | **Implemented** | `/cursor-refresh-config` calls pooled `agent.reload()` without recreating the agent. |
 | Local safety controls | **Implemented** | `autoReview` and `sandboxOptions.enabled` via CLI/env/config; defaults stay off. |
 | Manual local force recovery | **Implemented** | `--cursor-local-force` and `PI_CURSOR_LOCAL_FORCE` explicitly pass `send({ local: { force: true } })`; persistent project/user config cannot enable force by default, and no automatic retry/staleness recovery is added. |
@@ -221,7 +221,7 @@ Required resume probes/tests before flipping defaults:
 | MCP bridge Pi tool through real pi lifecycle  | **Validated**                      | Loopback-style `mcpServers` must be re-supplied on resume; missing resupply can finish as assistant-visible MCP failure.                                                   |
 | Fork isolation                                | **Pi policy**                      | Resume implementation must add branch identity tests for `/tree`, `/fork`, `/clone`, session import, and compaction; there is no SDK contract left to probe before coding. |
 | Post-compaction new SDK agent                 | **Pi policy**                      | Compaction boundary is pi-owned.                                                                                                                                           |
-| Usage fallback without `turn-ended`           | **Validated gap / pi policy**      | Local Composer 2.5 returns `RunResult.usage`, but real long-session evidence shows it can represent full agent context and poison pi compaction totals. Use bounded pi estimates when `turn-ended` is absent. |
+| Usage fallback without `turn-ended`           | **Validated gap / pi policy**      | Local Composer 2.5 returns `RunResult.usage`, but real long-session evidence shows it can represent full agent context and poison pi compaction totals. Use bounded pi estimates when `turn-ended` is absent or outside the selected model window. |
 | Empty delete filters rejected                 | **Validated gap in SDK**           | Pi must guard before SDK store calls.                                                                                                                                      |
 
 ## Local force and retry behavior
@@ -258,8 +258,9 @@ Do not auto-force when another live pi process may legitimately own the active r
 
 **Pi policy — fallback:**
 
-- Use real `turn-ended` usage when available and recompute pi `total = input + output`.
+- Use real `turn-ended` usage when available, when it fits the selected model window, and recompute pi `total = input + output`.
 - Do **not** use `RunResult.usage` for pi assistant message usage, context occupancy, or compaction totals when `turn-ended` is absent. Use bounded local prompt/output estimates instead.
+- If `turn-ended` reports usage outside the selected model window, treat it as full-agent-context usage and fall back to bounded estimates rather than poisoning compaction/session totals.
 - Surface SDK `reasoningTokens` only if pi has a safe usage field for it. Until then, keep it in debug/metadata rather than changing user-visible accounting semantics.
 
 Regression coverage lives in `test/cursor-usage-accounting.test.ts`, `test/cursor-provider-stream-usage.test.ts`, and `test/cursor-provider-replay-live-run.test.ts`.

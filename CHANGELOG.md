@@ -11,7 +11,7 @@
 
 ### Fixed
 
-- Stop applying Cursor SDK `RunResult.usage` to pi assistant messages when no per-turn `turn-ended` usage is available; long local sessions can report full-agent-context usage there, which can poison compaction/session token totals. Pi now falls back to bounded local estimates unless real per-turn SDK usage is present.
+- Stop applying Cursor SDK `RunResult.usage` to pi assistant messages when no per-turn `turn-ended` usage is available; long local sessions can report full-agent-context usage there, which can poison compaction/session token totals. Pi now falls back to bounded local estimates unless real per-turn SDK usage is present and fits the selected model window.
 
 ## 0.1.56 - 2026-07-04
 
