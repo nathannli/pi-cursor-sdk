@@ -199,6 +199,7 @@ describe("streamCursor prompt and model config", () => {
 		process.env.PI_CURSOR_CLOUD_REPO = "https://github.com/example/repo.git";
 		process.env.PI_CURSOR_CLOUD_BRANCH = "main";
 		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
 
 		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 

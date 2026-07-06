@@ -26,7 +26,7 @@ Use these labels when this roadmap states SDK/runtime behavior or pi product int
 
 New behavior should start behind feature flags/config while current behavior remains the default. Use feature flags for maintainer validation and user/project config when the behavior is a real preference. After validation, defaults may flip, but keep an opt-out/fallback for a few releases when the behavior replaces a proven path such as MCP.
 
-**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, and trust-gated project config loading. Runtime CLI/env/config/slash selection is wired only far enough to fail closed when cloud is selected; `Agent.create({ cloud })` is intentionally not wired. Remaining work: interactive cloud setup, persistence/save destinations, and actual cloud runtime option building.
+**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, first-use cloud acknowledgement, explicit save destinations, and trust-gated project config loading. Runtime CLI/env/config/slash selection is wired only far enough to fail closed when cloud is selected; `Agent.create({ cloud })` is intentionally not wired. Remaining work: full interactive cloud setup and actual cloud runtime execution.
 
 **Pi policy — target ordinary precedence** (enforced by `src/cursor-config.ts` and tests):
 
@@ -47,6 +47,7 @@ Minimum config contract before implementation:
 | Setting group        | CLI / env                                                                                | Config key                          | Class                             | Notes                                                                                                                                                                  |
 | -------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime              | `--cursor-runtime`, `PI_CURSOR_RUNTIME`                                                  | `runtime`                           | ordinary + first-cloud safety ack | `local` remains built-in default.                                                                                                                                      |
+| First cloud ack      | `--cursor-cloud-ack`, `PI_CURSOR_CLOUD_ACK`; `/cursor-runtime cloud`                     | `cloud.acknowledged`                | user/session/CLI/env only         | Project config cannot provide first-use acknowledgement.                                                                                                               |
 | Cloud repo           | `--cursor-cloud-repo`, `PI_CURSOR_CLOUD_REPO`                                            | `cloud.repo`                        | ordinary                          | Repo URL only, no credentials.                                                                                                                                         |
 | Cloud branch/ref     | `--cursor-cloud-branch`, `PI_CURSOR_CLOUD_BRANCH`                                        | `cloud.branch`                      | ordinary unless direct push       | Per-work-item by default; project save must be explicit.                                                                                                               |
 | Direct push          | `--cursor-cloud-direct-push`, `PI_CURSOR_CLOUD_DIRECT_PUSH`                              | `cloud.directPush`                  | safety-sensitive                  | Maps to `workOnCurrentBranch`; default false.                                                                                                                          |
@@ -82,7 +83,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 
 | Slice | Status | Notes |
 | ----- | ------ | ----- |
-| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, and `/cursor-runtime`. Explicit cloud runtime fails closed after preflight remediation; actual cloud `Agent.create({ cloud })` remains unwired. |
+| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, first-use acknowledgement, save destinations, and `/cursor-runtime`. Explicit cloud runtime fails closed after preflight remediation; actual cloud `Agent.create({ cloud })` remains unwired. |
 | `RunResult.usage` fallback | **Rejected for pi message usage** | Direct and live/native-replay drains use real `turn-ended` only when the counts fit the selected model window; otherwise they fall back to bounded pi estimates. `RunResult.usage` can describe full local agent context and must not feed compaction/context totals. |
 | `agent.reload()` refresh | **Implemented** | `/cursor-refresh-config` calls pooled `agent.reload()` without recreating the agent. |
 | Local safety controls | **Implemented** | `autoReview` and `sandboxOptions.enabled` via CLI/env/config; defaults stay off. |
@@ -299,7 +300,7 @@ The error should name the missing decision and show the shortest safe command to
 
 - Built-in default is local runtime.
 - Cloud can be selected with CLI flag, env var, slash command, project config, or user config using the target precedence above once the resolver exists.
-- Project config may propose cloud runtime defaults, but first use by a user must still require TUI acknowledgement or an explicit user/CLI/env non-interactive allow.
+- Project config may propose cloud runtime defaults, but first use by a user must still require TUI acknowledgement or an explicit user/CLI/env non-interactive allow. **Implemented scaffold:** `/cursor-runtime cloud` records session acknowledgement, `/cursor-runtime cloud --save-user` persists a personal acknowledgement, `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` cover non-interactive acknowledgement, and project config cannot supply `cloud.acknowledged`.
 - Runtime slash commands apply to the current session immediately. Saving a project default requires an explicit save flag/subcommand and is the only path that writes project config.
 - Cloud mode notes that Pi-local tools are unavailable as part of the first-run cloud setup flow. If future recurring warnings are added because cloud output references unavailable Pi tools, that recurring warning may be permanently silenced in user config.
 
@@ -445,7 +446,7 @@ Blockers before cloud implementation:
 - project/user/session persistence design and explicit save destinations;
 - runtime-aware cloud model availability UX using the single `cursor/*` provider with runtime annotations/filters;
 - repo/branch/direct-push policy, including validated `startingRef`, explicit direct push, missing/unpushed branch behavior, and protected-branch fallback; dirty local tree remains pi-owned detection;
-- cloud auth/entitlement/repo preflight and error mapping strategy — **partial:** fail-closed local preflight and cloud option builder exist; SDK cloud auth/model/repo API checks remain;
+- cloud auth/entitlement/repo preflight and error mapping strategy — **partial:** fail-closed local preflight, first-use acknowledgement scaffold, and cloud option builder exist; SDK cloud auth/model/repo API checks remain;
 - cloud `envVars` handling, including validated shell presence with redaction and the post-send `run.agentId` rule;
 - explicit cloud MCP policy: initial pi cloud runtime should not expose inline `mcpServers`; future support needs option-builder tests and new SDK/API evidence because live probes showed surprising persistence and replacement failure;
 - opt-in live cloud smoke matrix in `docs/platform-smoke.md` — **documented as future optional lane**; the required `smoke:platform:all` gate still has no cloud provider dependency.
