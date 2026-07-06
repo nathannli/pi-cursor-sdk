@@ -8,6 +8,7 @@
 - Add explicit local Cursor safety controls: `--cursor-auto-review` / `PI_CURSOR_AUTO_REVIEW` and `--cursor-sandbox` / `PI_CURSOR_SANDBOX`, plus `local.autoReview` and `local.sandboxOptions.enabled` config. Defaults stay off.
 - Add one-shot manual local stuck-run recovery with `--cursor-local-force` / `PI_CURSOR_LOCAL_FORCE`, wired only to the next `Agent.send(..., { local: { force: true } })`; no persistent config default, retry loop, or automatic force recovery is added.
 - Add minimal explicit Cursor cloud runtime execution after first-use acknowledgement and safety preflight. Defaults stay local + loopback MCP; cloud runs use fresh context by default, skip the pi bridge/local MCP/env forwarding, leave cloud agents alive for Cursor-managed cleanup, and keep project config limited to the runtime default for the initial cloud slice.
+- Show Cursor runtime directly in the interactive status footer (`cursor:local · fast:on|off|n/a`, `cursor:cloud · fast:n/a`) so cloud opt-in is visible.
 
 ### Fixed
 

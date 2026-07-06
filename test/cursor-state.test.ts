@@ -85,6 +85,7 @@ function createCursorRuntimeHarness(options: {
 	cursorFastFlag?: boolean;
 	cursorNoFastFlag?: boolean;
 	cursorModeFlag?: boolean | string;
+	cursorRuntimeFlag?: string;
 	mode?: ExtensionContext["mode"];
 	hasUI?: boolean;
 	cwd?: string;
@@ -94,6 +95,7 @@ function createCursorRuntimeHarness(options: {
 			"cursor-fast": options.cursorFastFlag ?? false,
 			"cursor-no-fast": options.cursorNoFastFlag ?? false,
 			"cursor-mode": options.cursorModeFlag ?? "",
+			"cursor-runtime": options.cursorRuntimeFlag ?? "",
 		},
 	});
 	const ctx = createExtensionTestContext({
@@ -123,11 +125,14 @@ function createCursorRuntimeHarness(options: {
 
 describe("Cursor runtime state", () => {
 	let tmpAgentDir: string;
+	let originalCursorRuntime: string | undefined;
 	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 
 	beforeEach(() => {
 		tmpAgentDir = mkdtempSync(join(tmpdir(), "pi-cursor-state-"));
 		process.env.PI_CODING_AGENT_DIR = tmpAgentDir;
+		originalCursorRuntime = process.env.PI_CURSOR_RUNTIME;
+		delete process.env.PI_CURSOR_RUNTIME;
 		__testUtils.sessionFastPreferences.clear();
 		__testUtils.resetCursorModeStateForTests();
 		modelDiscoveryTestUtils.registerModelItems(modelItems);
@@ -139,6 +144,11 @@ describe("Cursor runtime state", () => {
 		} else {
 			process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 		}
+		if (originalCursorRuntime === undefined) {
+			delete process.env.PI_CURSOR_RUNTIME;
+		} else {
+			process.env.PI_CURSOR_RUNTIME = originalCursorRuntime;
+		}
 		rmSync(tmpAgentDir, { recursive: true, force: true });
 		vi.clearAllMocks();
 	});
@@ -149,7 +159,7 @@ describe("Cursor runtime state", () => {
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
 		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "agent" });
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 	});
 
 	it("forces Cursor SDK plan mode with --cursor-mode without writing session state", async () => {
@@ -158,7 +168,7 @@ describe("Cursor runtime state", () => {
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
 		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "plan" });
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off · plan");
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
 
@@ -181,7 +191,7 @@ describe("Cursor runtime state", () => {
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
 		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "agent" });
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
 
@@ -191,7 +201,7 @@ describe("Cursor runtime state", () => {
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith('Invalid --cursor-mode "review". Use "agent" or "plan".', "error");
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off · mode invalid");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off · mode invalid");
 		expect(resolveCursorAgentMode()).toEqual({
 			kind: "invalid",
 			raw: "review",
@@ -230,7 +240,7 @@ describe("Cursor runtime state", () => {
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.MODE_ENTRY_TYPE, { mode: "plan" });
 		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "plan" });
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off · plan");
 		expect(ctx.ui.notify).toHaveBeenCalledWith(
 			"Cursor mode set to plan; cleared invalid --cursor-mode override",
 			"info",
@@ -301,7 +311,7 @@ describe("Cursor runtime state", () => {
 		);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith('Invalid --cursor-mode "review". Use "agent" or "plan".', "error");
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on · mode invalid");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on · mode invalid");
 	});
 
 	it("rejects invalid --cursor-mode for Cursor provider runs", async () => {
@@ -325,7 +335,7 @@ describe("Cursor runtime state", () => {
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.MODE_ENTRY_TYPE, { mode: "plan" });
 		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "plan" });
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off · plan");
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor mode set to plan", "info");
 	});
 
@@ -350,7 +360,7 @@ describe("Cursor runtime state", () => {
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.MODE_ENTRY_TYPE, { mode: "agent" });
 		expect(resolveCursorAgentMode()).toEqual({ kind: "valid", mode: "agent" });
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor mode set to agent", "info");
 	});
 
@@ -368,13 +378,13 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on · plan");
 	});
 
 	it("updates Cursor mode status when switching between Cursor models", async () => {
 		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "composer-2", cursorModeFlag: "plan" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on · plan");
 
 		await pi.invokeEventWithContext(
 			"model_select",
@@ -387,14 +397,14 @@ describe("Cursor runtime state", () => {
 			ctx,
 		);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off · plan");
 	});
 
 	it("toggles fast per session and writes the global default", async () => {
 		const { pi, ctx, commandCtx, commands } = createCursorRuntimeHarness({ modelId: "composer-2" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 
 		await commands.get("cursor-fast")!.handler("", commandCtx);
 
@@ -402,7 +412,7 @@ describe("Cursor runtime state", () => {
 			modelId: "composer-2",
 			fast: false,
 		});
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("composer-2")).toBe(false);
 		expect(JSON.parse(readFileSync(__testUtils.getConfigPath(), "utf-8"))).toEqual({
 			fastDefaults: { "composer-2": false },
@@ -413,7 +423,7 @@ describe("Cursor runtime state", () => {
 		const { pi, ctx, commandCtx, commands } = createCursorRuntimeHarness({ modelId: "composer-2-5" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 
 		await commands.get("cursor-fast")!.handler("", commandCtx);
 
@@ -444,7 +454,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("composer-2-5")).toBe(false);
 	});
 
@@ -466,7 +476,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("composer-2-5")).toBe(false);
 	});
 
@@ -480,7 +490,7 @@ describe("Cursor runtime state", () => {
 		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Failed to save Cursor fast preference"), "error");
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 		expect(getEffectiveFastForModelId("composer-2")).toBe(true);
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -496,7 +506,7 @@ describe("Cursor runtime state", () => {
 		await commands.get("cursor-fast")!.handler("", commandCtx);
 
 		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Failed to save Cursor fast preference"), "error");
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 		expect(getEffectiveFastForModelId("composer-2")).toBe(true);
 		expect(JSON.parse(readFileSync(__testUtils.getConfigPath(), "utf-8"))).toEqual({
 			fastDefaults: { "composer-2": true },
@@ -520,7 +530,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("composer-2")).toBe(false);
 	});
 
@@ -530,7 +540,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 		expect(getEffectiveFastForModelId("gpt-5.5@1m")).toBe(true);
 	});
 
@@ -540,7 +550,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 		expect(getEffectiveFastForModelId("composer-2:fast")).toBe(true);
 	});
 
@@ -550,7 +560,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("composer-2:slow")).toBe(false);
 	});
 
@@ -573,7 +583,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 		expect(getEffectiveFastForModelId("gpt-5.5@1m")).toBe(true);
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -583,7 +593,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("composer-2")).toBe(false);
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -593,7 +603,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("composer-2")).toBe(false);
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -603,7 +613,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:n/a");
 		expect(getEffectiveFastForModelId("gemini-3.1-pro")).toBeUndefined();
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -613,7 +623,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a · plan");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:n/a · plan");
 		expect(getEffectiveFastForModelId("gemini-3.1-pro")).toBeUndefined();
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -674,7 +684,7 @@ describe("Cursor runtime state", () => {
 	it("clears Cursor status when model_select moves from Cursor fast model to non-cursor model", async () => {
 		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "composer-2" });
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 
 		await pi.invokeEventWithContext(
 			"model_select",
@@ -698,7 +708,7 @@ describe("Cursor runtime state", () => {
 			pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx),
 		).resolves.toBeUndefined();
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:off");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
 		expect(getEffectiveFastForModelId("gpt-5.5@1m")).toBe(false);
 	});
 
@@ -709,7 +719,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 		expect(getEffectiveFastForModelId("gpt-5.5@1m")).toBe(true);
 	});
 
@@ -718,7 +728,7 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:n/a");
 		expect(getEffectiveFastForModelId("gemini-3.1-pro")).toBeUndefined();
 		expect(pi.appendEntry).not.toHaveBeenCalled();
 	});
@@ -743,7 +753,7 @@ describe("Cursor runtime state", () => {
 		ctx.model = makeModel("composer-2");
 		await pi.invokeEventWithContext("turn_start", { type: "turn_start", turnIndex: 1, timestamp: Date.now() }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
 	});
 
 	it("recognizes cursor-sdk api models when updating footer status", async () => {
@@ -755,7 +765,76 @@ describe("Cursor runtime state", () => {
 
 		await pi.invokeEventWithContext("turn_start", { type: "turn_start", turnIndex: 1, timestamp: Date.now() }, ctx);
 
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:on");
+	});
+
+	it("shows cloud runtime status from CLI runtime selection", async () => {
+		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m", cursorRuntimeFlag: "cloud" });
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:cloud · fast:n/a");
+	});
+
+	it("shows cloud runtime status from env runtime selection", async () => {
+		process.env.PI_CURSOR_RUNTIME = " cloud ";
+		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m" });
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:cloud · fast:n/a");
+	});
+
+	it("shows cloud runtime status from user config", async () => {
+		writeFileSync(__testUtils.getConfigPath(), JSON.stringify({ runtime: "cloud" }));
+		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m" });
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:cloud · fast:n/a");
+	});
+
+	it("shows cloud runtime status from trusted project config", async () => {
+		const cwd = join(tmpAgentDir, "project-runtime-status");
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "cursor-sdk.json"), JSON.stringify({ runtime: "cloud" }));
+		const { pi, ctx } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m", cwd });
+
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:cloud · fast:n/a");
+	});
+
+	it("lets CLI runtime override persisted session runtime in status", async () => {
+		const cloudSessionEntry: SessionEntry = {
+			type: "custom",
+			id: "runtime-entry",
+			parentId: null,
+			timestamp: new Date(0).toISOString(),
+			customType: __testUtils.RUNTIME_ENTRY_TYPE,
+			data: { runtime: "cloud", cloudAcknowledged: true },
+		};
+		const localSessionEntry: SessionEntry = {
+			...cloudSessionEntry,
+			id: "runtime-entry-local",
+			data: { runtime: "local" },
+		};
+		const localOverride = createCursorRuntimeHarness({
+			modelId: "gpt-5.5@1m",
+			cursorRuntimeFlag: "local",
+			branch: [cloudSessionEntry],
+		});
+		await localOverride.pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, localOverride.ctx);
+		expect(localOverride.ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:local · fast:off");
+
+		__testUtils.resetCursorModeStateForTests();
+		const cloudOverride = createCursorRuntimeHarness({
+			modelId: "gpt-5.5@1m",
+			cursorRuntimeFlag: "cloud",
+			branch: [localSessionEntry],
+		});
+		await cloudOverride.pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, cloudOverride.ctx);
+		expect(cloudOverride.ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:cloud · fast:n/a");
 	});
 
 	it("persists /cursor-runtime as session runtime state", async () => {
@@ -765,7 +844,7 @@ describe("Cursor runtime state", () => {
 		await commands.get("cursor-runtime")!.handler("cloud", commandCtx);
 
 		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.RUNTIME_ENTRY_TYPE, { runtime: "cloud", cloudAcknowledged: true });
-		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:n/a");
+		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:cloud · fast:n/a");
 		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("first-use cloud risk acknowledged"), "info");
 	});
 
