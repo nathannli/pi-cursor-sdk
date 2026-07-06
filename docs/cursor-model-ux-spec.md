@@ -372,7 +372,7 @@ Rules:
 - Toggle unsuffixed models with `/cursor-fast`; do not persist a new default while a virtual fast alias is selected.
 - Store per-session and global per-base-model preferences for unsuffixed models.
 - When calling `Agent.create()` or `agent.send()`, include the selected `fast` value in Cursor model params.
-- Show fast-capable models as `cursor-fast:on` or `cursor-fast:off` through `ctx.ui.setStatus()` while a Cursor model is active.
+- Show fast-capable local models as `cursor:local · fast:on` or `cursor:local · fast:off` through `ctx.ui.setStatus()` while a Cursor model is active; cloud runtime shows `cursor:cloud · fast:n/a`.
 - Keep `--cursor-fast` and `--cursor-no-fast` as explicit process-level force flags.
 
 Reason:
@@ -383,8 +383,8 @@ Reason:
 Status examples:
 
 ```text
-cursor-fast:off
-cursor-fast:on
+cursor:local · fast:off
+cursor:local · fast:on
 ```
 
 ## Cursor SDK Mode Behavior
@@ -412,9 +412,10 @@ Rules:
 Status examples:
 
 ```text
-cursor-fast:n/a · plan
-cursor-fast:off · plan
-cursor-fast:on · plan
+cursor:local · fast:n/a · plan
+cursor:local · fast:off · plan
+cursor:local · fast:on · plan
+cursor:cloud · fast:n/a · plan
 ```
 
 ## Footer Behavior
@@ -423,7 +424,7 @@ Hard requirement:
 
 - Leave pi's default footer intact.
 - Do not use `ctx.ui.setFooter()` for the first pass.
-- Use `ctx.ui.setStatus()` only while a Cursor model is active, showing Cursor-only state that pi cannot show natively, such as `cursor-fast:on`, `cursor-fast:off`, and non-default Cursor SDK `plan` mode.
+- Use `ctx.ui.setStatus()` only while a Cursor model is active, showing Cursor-only state that pi cannot show natively, such as `cursor:local`, `cursor:cloud`, local `fast:on|off|n/a`, and non-default Cursor SDK `plan` mode.
 - Non-cursor models must have no Cursor status.
 
 Reason:
@@ -437,13 +438,13 @@ Expected native footer behavior:
 - provider/model is shown by pi from the selected `cursor` model,
 - thinking level is shown by pi when `reasoning` is true,
 - context usage is computed from `contextWindow`,
-- extension status adds only Cursor-only text such as `cursor-fast:n/a`, `cursor-fast:n/a · plan`, `cursor-fast:off`, `cursor-fast:on`, or `cursor-fast:on · plan`.
+- extension status adds only Cursor-only text such as `cursor:local · fast:n/a`, `cursor:local · fast:off`, `cursor:local · fast:on · plan`, or `cursor:cloud · fast:n/a`.
 
 `ctx.ui.setStatus()` adds an extension status line in the default footer. It does not patch the built-in model segment. The native shape is closer to:
 
 ```text
 ...                                      (cursor) gpt-5.5@1m • medium
-cursor-fast:off · plan
+cursor:local · fast:off · plan
 ```
 
 not:
@@ -573,14 +574,14 @@ Initial Cursor default for Composer 2.5:
 pi model: cursor/composer-2-5
 Cursor params: fast=true
 pi thinking: off
-Cursor status: cursor-fast:on
+Cursor status: cursor:local · fast:on
 ```
 
 Toggle fast:
 
 ```text
 Cursor params: fast=false
-Cursor status: cursor-fast:off
+Cursor status: cursor:local · fast:off
 ```
 
 `shift+tab`: no-op because the model is not reasoning-capable.
@@ -593,7 +594,7 @@ Initial Cursor default:
 pi model: cursor/gpt-5.5@1m
 Cursor params: context=1m; reasoning=medium; fast=false
 pi thinking: medium
-Cursor status: cursor-fast:off
+Cursor status: cursor:local · fast:off
 ```
 
 After selecting the 272k variant:
@@ -608,7 +609,7 @@ After fast toggle:
 
 ```text
 Cursor params: context=272k; reasoning=medium; fast=true
-Cursor status: cursor-fast:on
+Cursor status: cursor:local · fast:on
 ```
 
 After `shift+tab` to xhigh:
@@ -626,7 +627,7 @@ Initial Cursor default:
 pi model: cursor/gpt-5.3-codex
 Cursor params: reasoning=high; fast=true
 pi thinking: high
-Cursor status: cursor-fast:on
+Cursor status: cursor:local · fast:on
 ```
 
 After `shift+tab` to low:
@@ -707,8 +708,8 @@ Before calling done:
    - launch interactive with Cursor
    - verify default pi footer remains unchanged
    - verify Cursor status appears only for Cursor models
-   - verify Cursor fast-capable models show `cursor-fast:on` or `cursor-fast:off`
-   - verify Cursor `plan` status appears only in non-default mode and combines with status as `cursor-fast:n/a · plan`, `cursor-fast:on · plan`, or `cursor-fast:off · plan`
+   - verify Cursor fast-capable local models show `cursor:local · fast:on` or `cursor:local · fast:off`
+   - verify Cursor `plan` status appears only in non-default mode and combines with status as `cursor:local · fast:n/a · plan`, `cursor:local · fast:on · plan`, `cursor:local · fast:off · plan`, or `cursor:cloud · fast:n/a · plan`
    - verify non-cursor footer/status unchanged
    - verify `shift+tab` uses pi native thinking
    - verify context changes through native model selection

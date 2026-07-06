@@ -93,7 +93,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - CODE IS TRUTH: claims about behavior must be backed by current source code, installed dependency code/types, contract tests, or captured command output. If evidence is missing, say `unknown`; do not infer, soften, or fill gaps with assumptions.
 - Before every commit and before every push, run a thermo-nuclear/deep maintainability review on the exact diff being committed or pushed. Remediate every material finding and repeat the review until there are no remaining material findings. Do not commit or push without this review evidence.
 - Keep pi-native abstractions first: context is a model variant, thinking uses pi thinking metadata, and Cursor-only `fast` is extension state/status.
-- Preserve the default pi footer; use extension status only for Cursor-only state such as `cursor-fast:on`, `cursor-fast:off`, and `cursor-fast:n/a`.
+- Preserve the default pi footer; use extension status only for Cursor-only state such as `cursor:local · fast:on`, `cursor:local · fast:off`, and `cursor:cloud · fast:n/a`.
 - Stop discovery once package scripts, README, config files, tests, and the relevant `src/` modules explain the task. Do not broad-search `node_modules` unless debugging a dependency API.
 - Ask the user before changing public UX, published package metadata, dependency families, or behavior that requires a migration. Otherwise proceed and verify locally.
 

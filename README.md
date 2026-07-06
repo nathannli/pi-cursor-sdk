@@ -239,15 +239,16 @@ Composer 2 and Composer 2.5 can default to fast. Use `--cursor-no-fast` or a `:s
 In interactive mode, the footer shows Cursor status only while a Cursor model is active. Fast-capable models show fast state explicitly, and fast and plan mode share one Cursor status value so they do not overwrite each other:
 
 ```text
-cursor-fast:n/a
-cursor-fast:n/a · plan
-cursor-fast:off
-cursor-fast:on
-cursor-fast:off · plan
-cursor-fast:on · plan
+cursor:local · fast:n/a
+cursor:local · fast:n/a · plan
+cursor:local · fast:off
+cursor:local · fast:on
+cursor:local · fast:off · plan
+cursor:local · fast:on · plan
+cursor:cloud · fast:n/a
 ```
 
-`cursor-fast:off` means fast mode is off. `cursor-fast:n/a` means the active Cursor model does not expose a fast parameter. If you do not see `plan`, Cursor SDK mode is the default `agent` mode.
+`cursor:local` / `cursor:cloud` shows the selected Cursor runtime. `fast:off` means fast mode is off. `fast:n/a` means the active runtime/model does not expose a local fast toggle. If you do not see `plan`, Cursor SDK mode is the default `agent` mode.
 
 ## Cursor SDK mode
 
@@ -439,9 +440,9 @@ pi install npm:pi-cursor-sdk
 
 That does not mean the model cannot think. It means the Cursor SDK does not expose a pi-controllable thinking parameter for that model. The model may still think internally and may still emit thinking deltas that pi renders natively.
 
-### I do not see `cursor-fast:on` / `cursor-fast:off` or `plan` in the footer
+### I do not see `cursor:local` / `cursor:cloud` or `plan` in the footer
 
-The Cursor footer appears only while a Cursor model is active. Fast-capable models show `cursor-fast:on` or `cursor-fast:off`; Cursor models without a fast parameter show `cursor-fast:n/a`. Cursor SDK mode is the default `agent` mode when `plan` is absent. When both are active, pi shows one combined Cursor status such as `cursor-fast:on · plan` or `cursor-fast:n/a · plan`.
+The Cursor footer appears only while a Cursor model is active. Fast-capable local models show `cursor:local · fast:on` or `cursor:local · fast:off`; Cursor models without a fast parameter show `cursor:local · fast:n/a`. Cloud runtime shows `cursor:cloud · fast:n/a`. Cursor SDK mode is the default `agent` mode when `plan` is absent. When both are active, pi shows one combined Cursor status such as `cursor:local · fast:on · plan` or `cursor:cloud · fast:n/a · plan`.
 
 ### My Cursor app settings or rules do not seem to apply
 

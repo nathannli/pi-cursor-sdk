@@ -38,8 +38,10 @@ import {
 	CURSOR_SANDBOX_ENV,
 	CURSOR_TOOL_TRANSPORT_ENV,
 	parseCursorSdkConfig,
+	loadCursorSdkConfig,
 	loadCursorSdkProjectConfig,
 	loadCursorSdkUserConfig,
+	resolveCursorSdkConfig,
 	mergeCursorSdkConfig,
 	resolveCursorFastDefault,
 	saveCursorSdkProjectConfig,
@@ -296,8 +298,20 @@ export function getCursorCliLocalSafetyConfig(): CursorSdkConfig {
 	return getCursorCliConfig();
 }
 
-function formatCursorStatus(fast: boolean | undefined): string {
-	const parts = [fast === true ? "cursor-fast:on" : fast === false ? "cursor-fast:off" : "cursor-fast:n/a"];
+type CursorStatusContext = Pick<ExtensionContext, "cwd"> & Partial<Pick<ExtensionContext, "isProjectTrusted">>;
+
+function getCursorStatusRuntime(ctx: CursorStatusContext): "local" | "cloud" {
+	const loadedConfig = loadCursorSdkConfig({ cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted?.() === true });
+	return resolveCursorSdkConfig({
+		cli: getCursorCliConfig(),
+		session: getCursorSessionConfig(),
+		user: loadedConfig.user,
+		project: loadedConfig.project,
+	}).runtime.value;
+}
+
+function formatCursorStatus(runtime: "local" | "cloud", fast: boolean | undefined): string {
+	const parts = [`cursor:${runtime}`, fast === true ? "fast:on" : fast === false ? "fast:off" : "fast:n/a"];
 	const modeResolution = resolveCursorAgentMode();
 	if (modeResolution.kind === "invalid") {
 		parts.push("mode invalid");
@@ -307,14 +321,15 @@ function formatCursorStatus(fast: boolean | undefined): string {
 	return parts.join(" · ");
 }
 
-function updateCursorStatus(ctx: Pick<ExtensionContext, "model" | "ui">, model = ctx.model): void {
+function updateCursorStatus(ctx: CursorStatusContext & Pick<ExtensionContext, "model" | "ui">, model = ctx.model): void {
 	if (!model || !isCursorModel(model)) {
 		ctx.ui.setStatus("cursor", undefined);
 		return;
 	}
 	const metadata = getCursorModelMetadata(model.id);
-	const fast = sessionCursorRuntime === "cloud" ? undefined : metadata?.supportsFast ? getEffectiveFast(model.id) : undefined;
-	ctx.ui.setStatus("cursor", formatCursorStatus(fast));
+	const runtime = getCursorStatusRuntime(ctx);
+	const fast = runtime === "cloud" ? undefined : metadata?.supportsFast ? getEffectiveFast(model.id) : undefined;
+	ctx.ui.setStatus("cursor", formatCursorStatus(runtime, fast));
 }
 
 function getCurrentCursorMetadata(ctx: Pick<ExtensionContext, "model">) {
