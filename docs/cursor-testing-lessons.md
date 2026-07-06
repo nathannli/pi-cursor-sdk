@@ -159,6 +159,17 @@ The scan fails only on **persisted error messages**, not arbitrary substring mat
 
 Successful tool results are ignored even when file contents mention those strings (for example a `read` of `docs/cursor-testing-lessons.md` during plan-strip smoke).
 
+## Usage and compaction JSONL lessons
+
+Session summaries can hide per-message usage bugs. When investigating token or compaction regressions, inspect assistant message `usage` rows directly:
+
+- `usage.input`, `usage.output`, `usage.cacheRead`, and `usage.cacheWrite` are additive spend-style counters for the assistant turn.
+- `usage.totalTokens` is pi context occupancy for that turn, not a value to sum across all assistant messages.
+- No single assistant message should persist SDK/full-agent-context-sized usage outside the selected model window.
+- Real bad-session evidence should be reduced to a sanitized fixture, like `test/fixtures/cursor-run-usage-compaction-poison.jsonl`, instead of committing raw session JSONL.
+
+The compaction poison fixture mirrors the observed failure shape: one assistant message with `RunResult`-sized input/cache-read counts near 1M immediately before compaction. Regression coverage should prove that such usage falls back to bounded pi estimates before it reaches `AssistantMessage.usage`.
+
 ### False-positive edge case (2026-05-23)
 
 Plan-strip live smoke can make Cursor `read` testing docs that *document* replay failure strings. A naive whole-record JSON scan reported four failures from one successful `read` toolResult (`isError: false`).
