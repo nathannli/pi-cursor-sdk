@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { InteractionUpdateSchema, TurnEndedUpdateSchema } from "@cursor/sdk";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai/compat";
@@ -6,6 +7,7 @@ import {
 	applyCursorUsage,
 	estimateCursorAssistantSessionOutputTokens,
 	estimateCursorContextTotalTokens,
+	isCursorSdkUsageSafeForPiMessage,
 	readCursorSdkTurnUsage,
 	readCursorSdkTurnUsageFromUpdate,
 } from "../src/cursor-usage-accounting.js";
@@ -48,7 +50,7 @@ describe("cursor usage accounting", () => {
 		expect(estimateCursorAssistantSessionOutputTokens(withToolCall)).toBeGreaterThan(estimateCursorAssistantSessionOutputTokens(textOnly));
 	});
 
-	it("applies real SDK usage when a turn reports it", () => {
+	it("applies real SDK usage when a turn reports usage within the model window", () => {
 		const model = makeModel();
 		const context: Context = {
 			systemPrompt: "Be helpful.",
@@ -65,6 +67,60 @@ describe("cursor usage accounting", () => {
 		expect(partial.usage.cacheRead).toBe(24_000);
 		expect(partial.usage.cacheWrite).toBe(123);
 		expect(partial.usage.totalTokens).toBe(25_432 + 612);
+	});
+
+	it("rejects SDK usage whose pi total would exceed the selected model window", () => {
+		const model = makeModel();
+		const context: Context = {
+			systemPrompt: "Be helpful.",
+			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+		};
+		const partial = makeAssistantMessage([{ type: "text", text: "Hello back." }]);
+		const overWindowUsage = {
+			inputTokens: model.contextWindow,
+			outputTokens: 1,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+		};
+
+		expect(isCursorSdkUsageSafeForPiMessage(overWindowUsage, model)).toBe(false);
+
+		applyCursorUsage(partial, model, context, 7, { turn: overWindowUsage });
+
+		expect(partial.usage.input).toBe(7);
+		expect(partial.usage.totalTokens).toBeLessThan(model.contextWindow);
+	});
+
+	it("rejects full-run-sized SDK usage before it can poison compaction totals", () => {
+		const fixturePath = new URL("./fixtures/cursor-run-usage-compaction-poison.jsonl", import.meta.url);
+		const poisonedMessage = readFileSync(fixturePath, "utf8")
+			.trim()
+			.split(/\r?\n/)
+			.map((line) => JSON.parse(line) as { message?: { usage?: { input: number; output: number; cacheRead: number; cacheWrite: number } } })
+			.find((entry) => entry.message?.usage)?.message?.usage;
+		expect(poisonedMessage).toMatchObject({ input: 1_125_429, cacheRead: 1_015_493 });
+
+		const model = makeModel();
+		const context: Context = {
+			systemPrompt: "Be helpful.",
+			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+		};
+		const partial = makeAssistantMessage([{ type: "text", text: "Hello back." }]);
+		const poisonedSdkUsage = {
+			inputTokens: poisonedMessage!.input,
+			outputTokens: poisonedMessage!.output,
+			cacheReadTokens: poisonedMessage!.cacheRead,
+			cacheWriteTokens: poisonedMessage!.cacheWrite,
+		};
+
+		expect(isCursorSdkUsageSafeForPiMessage(poisonedSdkUsage, model)).toBe(false);
+
+		applyCursorUsage(partial, model, context, 7, { turn: poisonedSdkUsage });
+
+		expect(partial.usage.cacheRead).toBe(0);
+		expect(partial.usage.cacheWrite).toBe(0);
+		expect(partial.usage.input).toBe(7);
+		expect(partial.usage.totalTokens).toBeLessThan(model.contextWindow);
 	});
 
 	it("reads the installed Cursor SDK turn-ended usage update contract", () => {

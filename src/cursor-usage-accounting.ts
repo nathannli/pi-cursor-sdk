@@ -84,6 +84,16 @@ export function estimateCursorContextTotalTokens(partial: AssistantMessage, mode
 	return estimateCursorContextTokens(withAssistantMessage(context, partial), getCursorPromptOptions(model));
 }
 
+export function isCursorSdkUsageSafeForPiMessage(turnUsage: CursorSdkTurnUsage, model: Model<Api>): boolean {
+	return (
+		turnUsage.inputTokens <= model.contextWindow &&
+		turnUsage.cacheReadTokens <= model.contextWindow &&
+		turnUsage.cacheWriteTokens <= model.contextWindow &&
+		turnUsage.outputTokens <= model.maxTokens &&
+		turnUsage.inputTokens + turnUsage.outputTokens <= model.contextWindow
+	);
+}
+
 export function applyCursorSdkUsage(partial: AssistantMessage, turnUsage: CursorSdkTurnUsage): void {
 	partial.usage.input = turnUsage.inputTokens;
 	partial.usage.output = turnUsage.outputTokens;
@@ -112,7 +122,7 @@ export function applyCursorUsage(
 	sdkUsage?: { turn?: CursorSdkTurnUsage },
 ): void {
 	const usage = sdkUsage?.turn;
-	if (usage) {
+	if (usage && isCursorSdkUsageSafeForPiMessage(usage, model)) {
 		applyCursorSdkUsage(partial, usage);
 		return;
 	}
