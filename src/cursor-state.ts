@@ -25,6 +25,7 @@ import {
 	cursorFastDefaultsFromConfig,
 	getCursorSdkUserConfigPath,
 	CURSOR_AUTO_REVIEW_ENV,
+	CURSOR_LOCAL_FORCE_ENV,
 	CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV,
 	CURSOR_CLOUD_BRANCH_ENV,
 	CURSOR_CLOUD_CONTEXT_ENV,
@@ -81,6 +82,8 @@ let cliForceFast = false;
 let cliForceNoFast = false;
 let cliAutoReview = false;
 let cliSandbox = false;
+let cliLocalForce = false;
+let envLocalForceConsumed = false;
 let cliCursorRuntime: string | undefined;
 let cliCursorToolTransport: string | undefined;
 let cliCursorCloudRepo: string | undefined;
@@ -250,12 +253,26 @@ export function getCursorCliConfig(): CursorSdkConfig {
 		local: {
 			...(cliAutoReview ? { autoReview: true } : {}),
 			...(cliSandbox ? { sandboxOptions: { enabled: true } } : {}),
+			...(cliLocalForce ? { force: true } : {}),
 		},
 	}) ?? {};
 }
 
 export function getCursorSessionConfig(): CursorSdkConfig {
 	return sessionCursorRuntime ? { runtime: sessionCursorRuntime } : {};
+}
+
+export function consumeCursorLocalForceOverride(resolved: { value: boolean; source: string }): boolean {
+	if (!resolved.value) return false;
+	if (resolved.source === "cli") {
+		cliLocalForce = false;
+		return true;
+	}
+	if (resolved.source === "environment" && !envLocalForceConsumed) {
+		envLocalForceConsumed = true;
+		return true;
+	}
+	return false;
 }
 
 export function getCursorCliLocalSafetyConfig(): CursorSdkConfig {
@@ -499,6 +516,12 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		default: false,
 	});
 
+	pi.registerFlag("cursor-local-force", {
+		description: `Force-expire a stuck local Cursor SDK run before sending this run (or set ${CURSOR_LOCAL_FORCE_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+
 	pi.registerCommand("cursor-fast", {
 		description: "Toggle Cursor fast mode for the selected Cursor model",
 		handler: async (_args, ctx) => {
@@ -645,6 +668,7 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			cliForceNoFast = pi.getFlag("cursor-no-fast") === true;
 			cliAutoReview = pi.getFlag("cursor-auto-review") === true;
 			cliSandbox = pi.getFlag("cursor-sandbox") === true;
+			cliLocalForce = pi.getFlag("cursor-local-force") === true;
 			cliCursorRuntime = stringFlagValue(pi.getFlag("cursor-runtime"));
 			cliCursorToolTransport = stringFlagValue(pi.getFlag("cursor-tool-transport"));
 			cliCursorCloudRepo = stringFlagValue(pi.getFlag("cursor-cloud-repo"));
@@ -672,6 +696,8 @@ function resetCursorModeStateForTests(): void {
 	cliCursorModeState = { kind: "unset" };
 	cliAutoReview = false;
 	cliSandbox = false;
+	cliLocalForce = false;
+	envLocalForceConsumed = false;
 	cliCursorRuntime = undefined;
 	cliCursorToolTransport = undefined;
 	cliCursorCloudRepo = undefined;

@@ -9,7 +9,6 @@ export interface CursorLiveRunAccountingState {
 	sdkTurnEnded: boolean;
 	sdkTurnUsageApplied: boolean;
 	sdkTurnUsage?: CursorSdkTurnUsage;
-	sdkRunUsage?: CursorSdkTurnUsage;
 }
 
 export interface CursorLiveToolResultConsumption {
@@ -48,24 +47,6 @@ export function takeCursorLiveSdkTurnUsage(state: CursorLiveRunAccountingState):
 			sdkTurnUsageApplied: state.sdkTurnUsageApplied || sdkTurnUsage !== undefined,
 		},
 		sdkTurnUsage,
-	};
-}
-
-export function recordCursorLiveSdkRunUsage(
-	state: CursorLiveRunAccountingState,
-	sdkRunUsage?: CursorSdkTurnUsage,
-): CursorLiveRunAccountingState {
-	return sdkRunUsage ? { ...state, sdkRunUsage } : state;
-}
-
-export function takeCursorLiveSdkRunUsage(state: CursorLiveRunAccountingState): {
-	state: CursorLiveRunAccountingState;
-	sdkRunUsage?: CursorSdkTurnUsage;
-} {
-	const { sdkRunUsage, ...nextState } = state;
-	return {
-		state: { ...nextState, sdkRunUsage: undefined },
-		sdkRunUsage: state.sdkTurnUsageApplied ? undefined : sdkRunUsage,
 	};
 }
 

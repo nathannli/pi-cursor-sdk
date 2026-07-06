@@ -15,6 +15,7 @@ export const CURSOR_CLOUD_ENV_ENV = "PI_CURSOR_CLOUD_ENV";
 export const CURSOR_CLOUD_ENV_FROM_FILES_ENV = "PI_CURSOR_CLOUD_ENV_FROM_FILES";
 export const CURSOR_AUTO_REVIEW_ENV = "PI_CURSOR_AUTO_REVIEW";
 export const CURSOR_SANDBOX_ENV = "PI_CURSOR_SANDBOX";
+export const CURSOR_LOCAL_FORCE_ENV = "PI_CURSOR_LOCAL_FORCE";
 
 export type CursorConfigSource = "cli" | "environment" | "project" | "user" | "session" | "model-alias" | "builtin";
 export type CursorConfigTrustLevel = "one-shot" | "environment" | "trusted-project" | "user" | "session" | "model-catalog" | "builtin";
@@ -41,6 +42,7 @@ export interface CursorSdkConfig {
 		sandboxOptions?: {
 			enabled?: boolean;
 		};
+		force?: boolean;
 	};
 }
 
@@ -75,6 +77,7 @@ export interface CursorResolvedSdkConfig {
 	local: {
 		autoReview: CursorResolvedSetting<boolean>;
 		sandboxEnabled: CursorResolvedSetting<boolean>;
+		force: CursorResolvedSetting<boolean>;
 	};
 }
 
@@ -200,6 +203,7 @@ export function parseCursorSdkConfig(value: unknown): CursorSdkConfig | undefine
 		const parsedLocal: NonNullable<CursorSdkConfig["local"]> = {};
 		if (typeof local.autoReview === "boolean") parsedLocal.autoReview = local.autoReview;
 		if (typeof local.sandbox === "boolean") parsedLocal.sandbox = local.sandbox;
+		if (typeof local.force === "boolean") parsedLocal.force = local.force;
 		const sandboxOptions = asRecord(local.sandboxOptions);
 		if (typeof sandboxOptions?.enabled === "boolean") parsedLocal.sandboxOptions = { enabled: sandboxOptions.enabled };
 		if (Object.keys(parsedLocal).length > 0) config.local = parsedLocal;
@@ -348,10 +352,12 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 	}
 	const autoReview = parseEnvBoolean(env[CURSOR_AUTO_REVIEW_ENV]);
 	const sandbox = parseEnvBoolean(env[CURSOR_SANDBOX_ENV]);
-	if (autoReview !== undefined || sandbox !== undefined) {
+	const force = parseEnvBoolean(env[CURSOR_LOCAL_FORCE_ENV]);
+	if (autoReview !== undefined || sandbox !== undefined || force !== undefined) {
 		config.local = {
 			...(autoReview !== undefined ? { autoReview } : {}),
 			...(sandbox !== undefined ? { sandboxOptions: { enabled: sandbox } } : {}),
+			...(force !== undefined ? { force } : {}),
 		};
 	}
 	return config;
@@ -479,6 +485,11 @@ export function resolveCursorSdkConfig(options: ResolveCursorSdkConfigOptions = 
 				valueFrom("environment", env.local?.sandboxOptions?.enabled ?? env.local?.sandbox),
 				valueFrom("project", project?.local?.sandboxOptions?.enabled ?? project?.local?.sandbox),
 				valueFrom("user", user?.local?.sandboxOptions?.enabled ?? user?.local?.sandbox),
+				valueFrom("builtin", false),
+			]),
+			force: resolveOrdinary([
+				valueFrom("cli", cli?.local?.force),
+				valueFrom("environment", env.local?.force),
 				valueFrom("builtin", false),
 			]),
 		},

@@ -287,6 +287,15 @@ PI_CURSOR_AUTO_REVIEW=1 PI_CURSOR_SANDBOX=1 pi --model cursor/composer-2-5
 pi --model cursor/composer-2-5 --cursor-auto-review --cursor-sandbox
 ```
 
+For manual stuck-run recovery only, explicitly force-expire the active persisted local SDK run before sending:
+
+```bash
+PI_CURSOR_LOCAL_FORCE=1 pi --model cursor/composer-2-5
+pi --model cursor/composer-2-5 --cursor-local-force
+```
+
+This maps to the next `agent.send(..., { local: { force: true } })` only. It is not a retry loop and does not cancel another live process's existing run handle; use it only when you know the persisted local run is wedged.
+
 Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trusted `.pi/cursor-sdk.json`:
 
 ```json
@@ -311,7 +320,7 @@ Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trus
 
 Cloud/runtime keys are resolver scaffolding only right now. Defaults stay local runtime, `toolTransport: "mcp"`, no inline cloud MCP, no local-state/env-file forwarding, and no customTools migration. If `runtime` is explicitly set to `cloud` with `--cursor-runtime cloud`, `PI_CURSOR_RUNTIME=cloud`, `/cursor-runtime cloud`, or config, the provider fails closed with a cloud-not-implemented error instead of silently running local. Cloud env config stores names only; names starting with `CURSOR_` are ignored.
 
-Only enabled local values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior.
+Only enabled local safety values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior. Local force is one-shot/manual-only through CLI/env and is passed only to the next `Agent.send({ local: { force: true } })`.
 
 ## Images
 

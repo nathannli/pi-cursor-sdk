@@ -37,6 +37,7 @@ export interface CursorProviderTurnSendMeta {
 	bridgeEnabled: boolean;
 	nativeReplayId: string;
 	agentMode: AgentModeOption;
+	localForce: boolean;
 }
 
 interface CursorProviderTurnRuntimeBase {

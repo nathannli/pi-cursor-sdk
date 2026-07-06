@@ -13,6 +13,7 @@ import {
 	CURSOR_CLOUD_REPO_ENV,
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
+	CURSOR_LOCAL_FORCE_ENV,
 	cursorFastDefaultsFromConfig,
 	getCursorSdkProjectConfigPath,
 	getCursorSdkUserConfigPath,
@@ -242,28 +243,36 @@ describe("Cursor SDK config resolver", () => {
 	});
 
 	it("resolves local safety controls by CLI, env, project, user, built-in order", () => {
-		const user = { local: { autoReview: true, sandboxOptions: { enabled: true } } };
-		const project = { local: { autoReview: false, sandbox: false } };
+		const user = { local: { autoReview: true, sandboxOptions: { enabled: true }, force: true } };
+		const project = { local: { autoReview: false, sandbox: false, force: true } };
 
 		expect(resolveCursorSdkConfig().local.autoReview).toMatchObject({ value: false, source: "builtin" });
+		expect(resolveCursorSdkConfig().local.force).toMatchObject({ value: false, source: "builtin" });
 		expect(resolveCursorSdkConfig({ user }).local.sandboxEnabled).toMatchObject({ value: true, source: "user" });
 		expect(resolveCursorSdkConfig({ user, project }).local.autoReview).toMatchObject({ value: false, source: "project" });
+		expect(resolveCursorSdkConfig({ user, project }).local.force).toMatchObject({ value: false, source: "builtin" });
 		expect(
-			resolveCursorSdkConfig({ env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "true" }, user, project }).local,
+			resolveCursorSdkConfig({
+				env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "true", [CURSOR_LOCAL_FORCE_ENV]: "1" },
+				user,
+				project,
+			}).local,
 		).toMatchObject({
 			autoReview: expect.objectContaining({ value: true, source: "environment" }),
 			sandboxEnabled: expect.objectContaining({ value: true, source: "environment" }),
+			force: expect.objectContaining({ value: true, source: "environment" }),
 		});
 		expect(
 			resolveCursorSdkConfig({
-				cli: { local: { autoReview: false, sandboxOptions: { enabled: false } } },
-				env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "1" },
+				cli: { local: { autoReview: false, sandboxOptions: { enabled: false }, force: false } },
+				env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "1", [CURSOR_LOCAL_FORCE_ENV]: "1" },
 				user,
 				project,
 			}).local,
 		).toMatchObject({
 			autoReview: expect.objectContaining({ value: false, source: "cli" }),
 			sandboxEnabled: expect.objectContaining({ value: false, source: "cli" }),
+			force: expect.objectContaining({ value: false, source: "cli" }),
 		});
 	});
 });

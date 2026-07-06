@@ -52,6 +52,67 @@ describe("streamCursor prompt and model config", () => {
 		expect(mockedCreate.mock.calls[0][0].local).toEqual({ cwd: process.cwd(), settingSources: ["all"] });
 	});
 
+	it("does not force local sends by default", async () => {
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({ send: mockSend });
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockSend.mock.calls[0]?.[1]).not.toHaveProperty("local");
+	});
+
+	it("passes explicit local force to Agent.send only", async () => {
+		process.env.PI_CURSOR_LOCAL_FORCE = "1";
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({ send: mockSend });
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate.mock.calls[0][0].local).not.toHaveProperty("force");
+		expect(mockSend.mock.calls[0]?.[1]).toMatchObject({ local: { force: true } });
+		expect(mockSend.mock.calls[0]?.[1]).not.toHaveProperty("idempotencyKey");
+		expect(mockSend.mock.calls[1]?.[1]).not.toHaveProperty("local");
+	});
+
+	it("passes CLI local force through Agent.send", async () => {
+		const pi = createPiHarness({ flagValues: { "cursor-local-force": true } });
+		registerCursorRuntimeControls(pi);
+		await pi.runSessionStart({ model: makeModel("gpt-5.5@1m") });
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({ send: mockSend });
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockSend.mock.calls[0]?.[1]).toMatchObject({ local: { force: true } });
+		expect(mockSend.mock.calls[1]?.[1]).not.toHaveProperty("local");
+	});
+
 	it("passes enabled local safety controls from env into Agent.create", async () => {
 		process.env.PI_CURSOR_AUTO_REVIEW = "1";
 		process.env.PI_CURSOR_SANDBOX = "true";
@@ -124,6 +185,7 @@ describe("streamCursor prompt and model config", () => {
 
 	it("fails closed when cloud runtime is selected before cloud implementation exists", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_LOCAL_FORCE = "1";
 
 		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 
