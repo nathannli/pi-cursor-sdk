@@ -38,9 +38,9 @@ New behavior should start behind feature flags/config while current behavior rem
 
 **Validated — current fast-only precedence** (`~/.pi/agent/cursor-sdk.json` shape is `{ fastDefaults: Record<string, boolean> }`, mode `0o600`, non-secret): CLI flags → virtual alias override → session custom → global file → model default. Migrate through the resolver; do not strand this behavior.
 
-**Pi policy — safety caps:** stricter precedence; lower-trust sources may tighten but never loosen safety controls. User denials win over project defaults for cloud runtime auto-selection, sending prior pi context to cloud, env forwarding, direct push / `workOnCurrentBranch`, and any future remote Pi bridge. Precedence: explicit one-shot CLI allow > user deny/cap > explicit env allow > project default > built-in safe default. Worked example: project `cloudContextHandoff: "bootstrap"` + user `cloudContextHandoff: "never"` → effective `never`; project `cloud.directPush: true` + user deny → direct push blocked.
+**Pi policy — safety caps:** stricter precedence; lower-trust sources may tighten but never loosen safety controls. For the first cloud-runtime slice, project config may save runtime only. User denials win over project runtime defaults and over session/user/env defaults for sending prior pi context to cloud, env forwarding, direct push / `workOnCurrentBranch`, local-state allows, and any future remote Pi bridge; only an explicit one-shot CLI allow can override a user denial for that invocation. Precedence for safety-sensitive cloud choices: explicit one-shot CLI allow > user deny/cap > explicit env allow > session/user allow > built-in safe default. Project config is intentionally absent from that safety-sensitive chain.
 
-**Validated — non-interactive contract:** pi print/JSON/RPC modes must not prompt. **Pi policy:** project config in non-interactive mode is ignored without saved project trust/`--approve`; `--no-approve` must ignore project cloud defaults. Non-interactive cloud runs fail closed unless all required choices are supplied by CLI/env/config and are not blocked by user safety caps.
+**Validated — non-interactive contract:** pi print/JSON/RPC modes must not prompt. **Pi policy:** project config in non-interactive mode is ignored without saved project trust/`--approve`; `--no-approve` must ignore project cloud defaults. Non-interactive cloud runs fail closed unless required pi-owned safety choices are supplied by CLI/env/user/session state and are not blocked by user safety caps.
 
 Minimum config contract before implementation:
 
@@ -48,13 +48,13 @@ Minimum config contract before implementation:
 | -------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime              | `--cursor-runtime`, `PI_CURSOR_RUNTIME`                                                  | `runtime`                           | ordinary + first-cloud safety ack | `local` remains built-in default.                                                                                                                                      |
 | First cloud ack      | `--cursor-cloud-ack`, `PI_CURSOR_CLOUD_ACK`; `/cursor-runtime cloud`                     | `cloud.acknowledged`                | user/session/CLI/env only         | Project config cannot provide first-use acknowledgement.                                                                                                               |
-| Cloud repo           | `--cursor-cloud-repo`, `PI_CURSOR_CLOUD_REPO`                                            | `cloud.repo`                        | ordinary                          | Repo URL only, no credentials.                                                                                                                                         |
-| Cloud branch/ref     | `--cursor-cloud-branch`, `PI_CURSOR_CLOUD_BRANCH`                                        | `cloud.branch`                      | ordinary unless direct push       | Per-work-item by default; project save must be explicit.                                                                                                               |
-| Direct push          | `--cursor-cloud-direct-push`, `PI_CURSOR_CLOUD_DIRECT_PUSH`                              | `cloud.directPush`                  | safety-sensitive                  | Maps to `workOnCurrentBranch`; default false.                                                                                                                          |
-| Local-only state     | `--cursor-cloud-allow-local-state`, `PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE`                  | `cloud.allowLocalState`             | safety-sensitive                  | Needed for dirty/unpushed state in non-interactive mode.                                                                                                               |
-| Context handoff      | `--cursor-cloud-context`, `PI_CURSOR_CLOUD_CONTEXT`                                      | `cloud.contextHandoff`              | safety-sensitive                  | `fresh` or `bootstrap`; user `never` cap wins.                                                                                                                         |
-| Env forwarding names | `--cursor-cloud-env`, `PI_CURSOR_CLOUD_ENV`                                              | `cloud.envNames`                    | safety-sensitive                  | Names only; never store values.                                                                                                                                        |
-| Env file reading     | `--cursor-cloud-env-from-files`, `PI_CURSOR_CLOUD_ENV_FROM_FILES`                        | `cloud.envFromFiles`                | safety-sensitive                  | Extra opt-in; disabled by default.                                                                                                                                     |
+| Cloud repo           | `--cursor-cloud-repo`, `PI_CURSOR_CLOUD_REPO`                                            | `cloud.repo`                        | explicit override                  | Repo URL only, no credentials. Reserved for CLI/env/user/session override in the first cloud-runtime slice; do not project-save.                                        |
+| Cloud branch/ref     | `--cursor-cloud-branch`, `PI_CURSOR_CLOUD_BRANCH`                                        | `cloud.branch`                      | explicit override                  | Pass only when explicit. Reserved for CLI/env/user/session override in the first cloud-runtime slice; do not infer or project-save.                                     |
+| Direct push          | `--cursor-cloud-direct-push`, `PI_CURSOR_CLOUD_DIRECT_PUSH`                              | `cloud.directPush`                  | safety-sensitive                  | Maps to `workOnCurrentBranch`; default false. One-shot/user/session only in the first cloud-runtime slice; do not project-save.                                         |
+| Local-only state     | `--cursor-cloud-allow-local-state`, `PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE`                  | `cloud.allowLocalState`             | safety-sensitive                  | Needed for dirty/unpushed state. One-shot/user/session only in the first cloud-runtime slice; do not project-save.                                                      |
+| Context handoff      | `--cursor-cloud-context`, `PI_CURSOR_CLOUD_CONTEXT`                                      | `cloud.contextHandoff`              | safety-sensitive                  | Fresh by default. `bootstrap` is user/session/CLI/env only in the first cloud-runtime slice; do not project-save bootstrap.                                             |
+| Env forwarding names | `--cursor-cloud-env`, `PI_CURSOR_CLOUD_ENV`                                              | `cloud.envNames`                    | reserved future work              | Names only, never values. Parse/save shape is reserved; preflight fails while pi env forwarding is not implemented.                                                     |
+| Env file reading     | `--cursor-cloud-env-from-files`, `PI_CURSOR_CLOUD_ENV_FROM_FILES`                        | `cloud.envFromFiles`                | reserved future work              | Extra opt-in; disabled by default and not implemented in the first cloud-runtime slice.                                                                                 |
 | Cloud MCP (reserved) | —                                                                                        | —                                   | safety-sensitive future work      | Do not expose inline cloud MCP in the initial cloud runtime; future support needs new SDK/API evidence for deterministic first-run, replacement, and resume semantics. |
 | Tool transport       | `--cursor-tool-transport`, `PI_CURSOR_TOOL_TRANSPORT`                                    | `toolTransport`                     | ordinary with fallback            | `mcp` remains canonical until customTools parity is proven.                                                                                                            |
 | Local safety         | `--cursor-auto-review`, `PI_CURSOR_AUTO_REVIEW`; `--cursor-sandbox`, `PI_CURSOR_SANDBOX` | `local.autoReview`, `local.sandbox` | ordinary safety feature           | Defaults stay off to preserve current behavior.                                                                                                                        |
@@ -65,8 +65,8 @@ Config files:
 - **Validated:** user config stays in `~/.pi/agent/cursor-sdk.json` and must not store secret values.
 - **Validated:** project config path uses pi `CONFIG_DIR_NAME` (default `.pi`); intended path is `.pi/cursor-sdk.json`.
 - **Validated + pi policy:** `.pi/cursor-sdk.json` is trust-gated via `ctx.isProjectTrusted()` / pi project trust flow. Add an explicit load gate in implementation.
-- **Pi policy:** `.pi/cursor-sdk.json` is shareable only when a repo commits `.pi/`; this repo ignores `.pi/`, so docs must not assume versioned team sharing. It must not store secret values. It may store repo URLs, runtime preferences, tool-transport preferences, env variable names, and similar non-secret project preferences. Per-work-item state such as the active cloud branch/ref does not belong in project config unless the user explicitly saves it as a project default.
-- **Pi policy:** first-run confirmation does not automatically write project config. Flows that learn repo/runtime defaults should offer explicit choices: use for this session, save for me, or save for project.
+- **Pi policy:** `.pi/cursor-sdk.json` is shareable only when a repo commits `.pi/`; this repo ignores `.pi/`, so docs must not assume versioned team sharing. It must not store secret values. For the first cloud-runtime slice, project config may save runtime only; do not project-save repo URLs, branch/ref, context bootstrap, env variable names, direct-push allows, local-state allows, or cleanup preferences.
+- **Pi policy:** first-run confirmation does not automatically write project config. Initial cloud first-use disclosure should offer at most runtime save choices; Cursor Cloud owns repo, branch, env, lifecycle, dashboard, and cleanup setup.
 - **Pi policy:** session custom entries are state, not config. They may record SDK agent IDs and acknowledgements, but they must not override user safety caps.
 
 Slash commands:
@@ -268,7 +268,7 @@ Regression coverage lives in `test/cursor-usage-accounting.test.ts`, `test/curso
 
 ## Cloud agents support plan
 
-Cloud support is a new explicit runtime mode, not a replacement for local mode.
+Cloud support is a new explicit runtime mode, not a replacement for local mode. All existing local-only user routes must remain behaviorally unchanged: same default runtime, model IDs, fast-mode behavior, loopback MCP bridge, native replay display, visual smoke expectations, and local validation gates. Cloud work must be testable through explicit opt-in paths without forcing users or maintainers to worry that local Cursor agent behavior changed.
 
 Interface:
 
@@ -286,29 +286,28 @@ Also provide `/cursor-runtime` for interactive use.
 
 ### Non-interactive cloud policy
 
-Non-interactive cloud runs must never prompt. They fail closed with a specific error and exact remediation flags/config when any required decision is missing or unsafe:
+Non-interactive cloud runs must never prompt. They fail closed only when pi-owned safety decisions are missing or unsafe:
 
-- no confirmed repo: require `--cursor-cloud-repo` / `PI_CURSOR_CLOUD_REPO` / config;
-- missing or unsafe branch/ref: require `--cursor-cloud-branch` / `PI_CURSOR_CLOUD_BRANCH` / config;
-- dirty or unpushed local-only state: require an explicit override such as `--cursor-cloud-allow-local-state` / `PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE=true` / config; dirty-tree detection is pi-owned, and missing/unpushed branch refs are validated cloud errors;
-- prior pi context would be sent to cloud: require `--cursor-cloud-context=fresh|bootstrap` / `PI_CURSOR_CLOUD_CONTEXT` / config, with user `never` caps honored;
-- direct push to the current branch: require an explicit direct-push opt-in, not just a visible upstream branch (**validated:** `workOnCurrentBranch: true` direct-pushed to the selected branch).
+- first-use cloud acknowledgement is missing: require `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` or a user/session acknowledgement;
+- prior pi context would be sent to cloud: default to a fresh cloud agent; require an explicit user/session opt-in to bootstrap from current pi context;
+- dirty or unpushed local-only state exists: warn/fail once per dirty-state fingerprint unless explicitly allowed for that send/session; dirty-tree detection is pi-owned because Cursor Cloud cannot see local-only work;
+- direct push to the current branch: require an explicit one-shot or user/session opt-in if pi ever exposes `workOnCurrentBranch`; do not persist direct-push or local-state risk allows in project config.
 
-The error should name the missing decision and show the shortest safe command to proceed.
+Repo, branch, env, cleanup, and lifecycle setup belong to Cursor Cloud by default. Pi may pass explicit CLI/env/user overrides, but it should not infer, prompt for, or project-save those choices in the initial cloud runtime. SDK/API errors remain authoritative for repo/provider/branch access.
 
 ### Runtime defaults and persistence
 
-- Built-in default is local runtime.
-- Cloud can be selected with CLI flag, env var, slash command, project config, or user config using the target precedence above once the resolver exists.
-- Project config may propose cloud runtime defaults, but first use by a user must still require TUI acknowledgement or an explicit user/CLI/env non-interactive allow. **Implemented scaffold:** `/cursor-runtime cloud` records session acknowledgement, `/cursor-runtime cloud --save-user` persists a personal acknowledgement, `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` cover non-interactive acknowledgement, and project config cannot supply `cloud.acknowledged`.
-- Runtime slash commands apply to the current session immediately. Saving a project default requires an explicit save flag/subcommand and is the only path that writes project config.
-- Cloud mode notes that Pi-local tools are unavailable as part of the first-run cloud setup flow. If future recurring warnings are added because cloud output references unavailable Pi tools, that recurring warning may be permanently silenced in user config.
+- Built-in default is local runtime, and local behavior must stay unchanged unless cloud is explicitly selected.
+- Cloud can be selected with CLI flag, env var, slash command, project config, or user config using the target precedence above once the resolver exists. Those cloud paths must not alter current local-only routes.
+- Project config may save only the runtime default (`runtime: "cloud"` / `"local"`) for the initial cloud runtime. First use by a user must still require TUI acknowledgement or an explicit user/CLI/env non-interactive allow. **Implemented scaffold:** `/cursor-runtime cloud` records session acknowledgement, `/cursor-runtime cloud --save-user` persists a personal acknowledgement, `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` cover non-interactive acknowledgement, and project config cannot supply `cloud.acknowledged`.
+- Runtime slash commands apply to the current session immediately. Saving a project default requires an explicit save flag/subcommand and is the only path that writes project config. Do not project-save repo, branch/ref, direct-push, local-state allow, context bootstrap, env names, or cleanup preferences in the first cloud-runtime slice.
+- Cloud mode notes that Pi-local tools are unavailable as part of first-use disclosure. If future recurring warnings are added because cloud output references unavailable Pi tools, that recurring warning may be permanently silenced in user config.
 
 ### Cloud UX expectations
 
 Cloud should feel like the current local Cursor provider as much as possible:
 
-- Show footer/status so users always know whether the current agent is local or cloud.
+- Show footer/status so users always know whether the current agent is local or cloud. **Decision 2026-07-06:** use explicit runtime status such as `cursor:local · fast:on|off|n/a · plan` and `cursor:cloud · fast:n/a` before cloud launch.
 - Show local-like activity/tool cards for cloud activity when the SDK reports it.
 - Stream with the same shape as local runs where possible; cloud SDK surfaces support the same delta/step/stream style and should use the same pi display path when possible.
 - Initial model-picker decision: keep one `cursor/*` provider and make it runtime-aware with annotations/filters, not a separate `cursor-cloud/*` provider. Revisit only if the one-provider UX proves confusing.
@@ -322,43 +321,37 @@ Cloud should feel like the current local Cursor provider as much as possible:
 
 **Validated:** existing pi primitives can implement first-run setup: `ctx.ui.select/confirm/input/editor/notify`, `ctx.ui.setStatus`, `appendEntry`, `registerCommand`, `getAgentDir()`, `ctx.isProjectTrusted()`. Do not invent a new TUI abstraction unless these prove insufficient.
 
-Start with one structured setup flow using existing prompt/status/slash-command surfaces that summarizes smart defaults and warnings, then asks for one confirmation when defaults are safe:
+Start with one short first-use disclosure, not a repo/branch/env wizard. The disclosure should say:
 
-- inferred repo and whether it is confirmed;
-- selected branch/ref, preferring the current branch as the starting ref when remotely visible;
-- whether the run uses this choice for the session, saves for the user, or saves for the project;
-- env forwarding defaulting to none;
-- Pi-local tools unavailable in cloud;
-- whether prior pi context will be sent or a fresh cloud agent will start;
-- dirty-tree/unpushed-commit status;
-- the one-line Max Mode / API-pricing note.
+- Cursor Cloud owns repo, branch, environment, lifecycle, dashboard, and cleanup setup;
+- Pi-local tools are unavailable in cloud;
+- prior pi context is **not** sent by default; the first cloud run starts fresh unless the user explicitly chooses bootstrap;
+- dirty/unpushed local-only work is not visible to Cursor Cloud;
+- Cloud Agents run in Max Mode and are billed at Cursor API pricing.
 
-Store first-run acknowledgement in user/global Cursor SDK state, not project config, unless the user explicitly saves a project default. Non-interactive mode never shows this setup flow and fails closed unless cloud was already allowed by config/CLI/env and user safety caps.
+Store first-run acknowledgement in user/global Cursor SDK state, not project config. Non-interactive mode never shows this setup flow and fails closed unless cloud was already allowed by CLI/env/user/session and user safety caps.
 
-Escalate to focused follow-up prompts only when a smart default is unsafe or missing, such as no usable remote, dirty/unpushed local state, or an existing local session whose context would be sent to cloud. Dirty/unpushed warnings should appear in the setup flow, on the first affected send, and when the dirty/unpushed state changes; steady-state dirty work should degrade to a footer/status indicator so users are not trained to click through the same warning every run.
+Escalate to focused follow-up prompts only for pi-owned safety edges: context bootstrap, dirty/unpushed local state, or explicit direct-push/local-state overrides. Dirty/unpushed warnings should appear once per dirty-state fingerprint; steady-state dirty work should degrade to a footer/status indicator so users are not trained to click through the same warning every run.
 
 ### Cloud repo, branch, and local-state honesty
 
-- Infer the cloud repo from the current git remote. For multi-remote repos, prefer the current branch's tracked upstream remote, then `origin`, then prompt.
-- Confirm the inferred repo in the first-run setup flow before the first cloud run.
-- Confirmation alone does not persist the repo. Offer explicit session, save-for-me, and save-for-project choices; persist to project config only on save-for-project.
-- Support `--cursor-cloud-repo` to override.
+- Do not infer or prompt for a cloud repo by default in the initial runtime. Let Cursor Cloud's own setup/defaults handle repo selection, or let the SDK/API return the authoritative repo/provider error.
+- Support explicit `--cursor-cloud-repo` / `PI_CURSOR_CLOUD_REPO` for power users and automation. Treat it as a one-shot/user/session override, not a project default in the initial runtime.
 - **Validated:** types/API docs — `repos[].startingRef`, `workOnCurrentBranch` default false creates new `cursor/...` branch from `startingRef`. **Validated:** live runs created separate Cursor branches/PRs when direct push was not requested.
-- **Pi policy:** prefer current branch as `startingRef` by default; do not set `workOnCurrentBranch: true` unless the user explicitly opts into pushing commits to that existing branch. **Validated:** explicit `workOnCurrentBranch: true` direct-pushed to the selected branch and produced no PR URL.
+- **Pi policy:** do not set `startingRef` by inference in the initial runtime; pass it only from explicit CLI/env/user/session input. Do not set `workOnCurrentBranch: true` unless the user explicitly opts into pushing commits to that existing branch. **Validated:** explicit `workOnCurrentBranch: true` direct-pushed to the selected branch and produced no PR URL.
 - **Validated:** missing/unpushed `startingRef` fails with `[validation_error] Branch ... does not exist` and no server agent remains. **Pi policy:** dirty local tree is not visible to Cloud API and must be detected by pi before send. **Validated:** with GitHub branch protection requiring PR review, explicit `workOnCurrentBranch: true` did not push to protected `main`; Cursor created a `cursor/...` branch and PR instead, and `main` stayed unchanged.
 - **Validated:** public `Agent.get()` cloud shape exposes `repos: string[]` only; no `startingRef`/`workOnCurrentBranch`. Use run `git.branches[]` or raw API if branch policy fields are needed.
-- If the current branch is not visible remotely, prompt between the remote default branch and an explicit branch/ref.
-- Do not persist the active branch/ref in shareable project config by default. Branch choice is usually per-developer/per-work-item state. Persist it only when the user explicitly saves a project default, or store it in session/user config for personal defaults.
-- Support `--cursor-cloud-branch` to override and a separate explicit direct-push flag/config if `workOnCurrentBranch` is exposed.
-- Before a cloud send, detect local uncommitted changes and commits not pushed to the selected remote/ref. Warn that cloud cannot see local-only work on the first affected send and whenever that local-only state changes, then let the user continue, switch branch/ref, or stop. Use a footer/status indicator for unchanged dirty/unpushed state after the warning has been acknowledged.
+- Do not infer or project-save an active branch/ref by default. If a branch/ref is supplied explicitly, pass it as `startingRef`; otherwise let Cursor Cloud/SDK defaults decide or fail with an SDK/API error.
+- Support `--cursor-cloud-branch` as an explicit override and a separate direct-push flag if `workOnCurrentBranch` is exposed. Direct push must remain one-shot/user/session scoped; no project default in the initial runtime.
+- Before a cloud send, detect local uncommitted changes and commits not pushed to the selected remote/ref when pi can observe them. Warn that cloud cannot see local-only work once per dirty-state fingerprint, then show a footer/status indicator for unchanged dirty/unpushed state.
 
 ### Cloud environment and env vars
 
 Do not prompt for local env forwarding on first cloud run. Cursor's native cloud environment setup is `.cursor/environment.json`, dashboard-managed secrets, snapshots, Dockerfiles, and agent-led setup. Prefer those paths rather than building a parallel secret-management system in pi.
 
 - Default env forwarding is none.
-- Add explicit `/cursor-cloud-env` and config support for users who need to forward local env values.
-- Persist only allowlisted variable names, never secret values. Always preview variable names, not values.
+- Do not ship pi env forwarding in the first cloud-runtime slice. Prefer Cursor-native environment setup and show guidance toward `.cursor/environment.json`, dashboard-managed secrets, snapshots, Dockerfiles, and agent-led setup.
+- Keep `cloud.envNames` as reserved parsed config for future work. Until pi env forwarding is implemented, preflight should fail if env names are set rather than silently ignoring them. Persist only allowlisted variable names, never secret values, when this feature later ships.
 - **Validated:** reject names starting with `CURSOR_`; `envVars` cannot combine with caller-supplied `agentId`. API docs mark session `envVars` as beta and say unsupported accounts may silently ignore them.
 - **Validated:** SDK exposes agent-scoped `CloudAgentOptions.envVars` and run-scoped `SendOptions.cloud.envVars`. Raw API create-time `runEnvVars` exists in `V1CreateAgentRequest`, not public `AgentOptions`.
 - At run time, read current values from process env only for explicitly allowlisted names by default.
@@ -366,16 +359,16 @@ Do not prompt for local env forwarding on first cloud run. Cursor's native cloud
 - User-level `cloudEnvForwarding: "disabled"` or equivalent must beat project config.
 - **Validated, refreshed 2026-07-06:** allowlisted `envVars` reached a cloud shell in a no-edit throwaway run (`env-present` final text). SDK transcript/tool output redacted the value as `[REDACTED]`, so pi must verify by behavior/exit status or file-size-style checks, never by printing secret values.
 - **Validated gap / SDK footgun, refreshed 2026-07-06:** when `cloud.envVars` is used, the pre-send `agent.agentId` was a ghost ID (`Agent.get()` returned `agent_not_found`); after first `send`, both `agent.agentId` and `run.agentId` changed to the real server ID. Record post-send `run.agentId` instead.
-- If pi forwards env vars, omit caller-supplied cloud `agentId` and use SDK/API idempotency keys for duplicate-create protection instead.
-- If a cloud run fails because an env var is missing, show a hint toward Cursor-native environment setup and the explicit pi env-forwarding command/config.
+- If pi forwards env vars in a later slice, omit caller-supplied cloud `agentId` and use SDK/API idempotency keys for duplicate-create protection instead.
+- If a cloud run fails because an env var is missing, show a hint toward Cursor-native environment setup first; mention explicit pi env forwarding only after that feature exists.
 
 ### Local-to-cloud context handoff
 
 Switching an existing pi session from local runtime to cloud can send prior pi context to Cursor cloud. That context may include local file contents, tool outputs, paths, and secrets accidentally read earlier in the session.
 
 - Any mid-session switch from local runtime to cloud with prior context must disclose what kind of prior context may be sent and offer at least two choices: start fresh with no prior pi transcript, or bootstrap cloud from the current pi context. This is per-switch, not only first-run-per-project, because the leak risk recurs in later sessions.
-- The handoff preference can be remembered in user/project config to reduce friction, but the default must be explicit and safe.
-- Non-interactive cloud switch must fail closed unless config explicitly allows sending current pi context to cloud.
+- The handoff preference can be remembered in user/session state to reduce friction, but the default must be explicit and safe. Do not let project config save `bootstrap` in the initial runtime.
+- Non-interactive cloud switch must start fresh unless a user/session/CLI/env option explicitly allows sending current pi context to cloud.
 - Keep the cloud bootstrap bounded by the same prompt-budget and redaction rules as local, but do not pretend that makes the handoff secret-free.
 - Negative privacy checklist for handoff: no env values, local MCP server config, active Pi tool metadata, local-only custom entries, or user-denied cloud state may be copied by default. Compaction summaries and tool outputs count as cloud-bound context and require the same consent as raw transcript context.
 
@@ -404,10 +397,10 @@ Switching an existing pi session from local runtime to cloud can send prior pi c
 - Name SDK agents from the pi session title/name when available via `AgentOptions.name`, so Cursor cloud UI and `Agent.list()` are understandable.
 - Expose cloud `env.type` selection (`cloud`, `pool`, `machine`) through config/flags before relying on non-default environments.
 - Do not impose a pi-specific PR policy. Pass through Cursor SDK defaults, expose cloud PR options in config/flags, and show the PR URL if Cursor creates one.
-- Leave cloud agents alive/archiveable after normal pi exit.
+- Leave cloud agents alive/archiveable after normal pi exit. Do not add a cleanup/archive prompt or command in the first cloud-runtime slice; users can use Cursor UI until a later explicit cleanup feature is justified.
 - No SDK/API cloud agent/run URL is validated here; for now show agent/run IDs plus branch/PR URL. Add URL display only after SDK/API evidence exists.
 - **Validated — read-only:** list/get agent, list/get run (`git.branches`, `prUrl`), `listArtifacts` (path/size/updatedAt), run supports `stream`/`cancel`.
-- **Validated gap + raw API works, refreshed 2026-07-06:** API docs expose `GET /v1/agents/{id}/usage`; the public SDK still has no wrapper and a no-edit cloud run had no `RunResult.usage` / `run.usage`, but raw `GET /v1/agents/{agentId}/usage` returned `totalUsage` and per-run usage for the real post-send agent ID. Use an explicit raw API helper if implemented; do not assume cloud usage from public run handles until SDK exposes it.
+- **Validated gap + raw API works, refreshed 2026-07-06:** API docs expose `GET /v1/agents/{id}/usage`; the public SDK still has no wrapper and a no-edit cloud run had no `RunResult.usage` / `run.usage`, but raw `GET /v1/agents/{agentId}/usage` returned `totalUsage` and per-run usage for the real post-send agent ID. **Decision 2026-07-06:** raw usage may be shown through an explicit helper, but it must remain display/report-only and must not feed pi message usage or compaction totals.
 - Show artifact path/size lists when available. Treat artifact download as cloud-only until a local-runtime SDK contract says otherwise.
 - **Validated:** `run.cancel()` returned cancelled and `Agent.getRun()` reported cancelled with `durationMs`. `Agent.archive()` returned `archived:true`; `Agent.delete()` succeeded and later `Agent.get()` returned `agent_not_found`.
 - **Validated artifact limits, refreshed 2026-07-06:** `listArtifacts()` returned `[]` for a fresh no-edit run and earlier generated-file runs, including a run that wrote `artifacts/pi-probe-artifact-*.txt` in the workspace. `downloadArtifact("definitely-missing-artifact.txt")` returned validation error because artifact paths must live under `artifacts/`; downloading the generated workspace file returned `artifact_not_found`. Treat artifact support as passive list/download only for API-produced artifacts; do not assume writing a repo/workspace `artifacts/` file creates a downloadable SDK artifact.
@@ -440,32 +433,24 @@ Safe first slices (landed on `cursor-sdk-capability-safe-slices`):
 3. Explicit `agent.reload()` command — **done (`/cursor-refresh-config`)**.
 4. Safety flag/config exposure for `autoReview` and `sandboxOptions`, preserving off-by-default behavior — **done**.
 
-Cloud implementation readiness before grill-me decisions:
+Cloud implementation decisions after grill-me mode (2026-07-06):
 
-| Area | Proof status | Remaining blocker | Next action |
-| ---- | ------------ | ----------------- | ----------- |
-| First-use acknowledgement | **Implemented scaffold** | Full interactive setup flow content and defaults are product decisions. | Grill user on setup copy, defaults, and save choices. |
-| Persistence / save destinations | **Implemented partial** | Runtime + user ack save paths exist; repo/branch/context/env preference save rules are undecided. | Grill user on what may save to session/user/project. |
-| Model availability UX | **SDK metadata gap validated** | Public model catalog has no local/cloud availability field; create-time preflight is authoritative. | Decide interim UX: show unknown/cloud-not-yet-validated vs maintain a captured allow/deny table. |
-| Repo / branch / direct push | **SDK behavior validated** | Interactive inference/confirmation and dirty/unpushed warning cadence are decisions. | Grill user on branch default, warning frequency, and protected-branch display. |
-| Auth / entitlement / repo errors | **Fresh read-only/no-send proof gathered** | Cannot exhaust every account/provider entitlement; implementation needs generic SDK error mapping and optional live smoke. | Implement mapping around `AuthenticationError`, `IntegrationNotConnectedError`, `ConfigurationError`, and API validation errors. |
-| Env vars | **Fresh no-edit cloud-send proof gathered** | Decide whether pi should support env forwarding at cloud-runtime launch or punt users to Cursor-native env setup initially. | If enabled, record post-send `run.agentId`, never pre-send ghost IDs, and use raw usage only through an explicit helper. |
-| Inline cloud MCP | **Validated gap / policy decided** | Unsupported for initial cloud runtime. | Do not expose inline cloud MCP; revisit only with a deterministic SDK contract. |
-| Cloud usage/artifacts/lifecycle | **Fresh usage/artifact proof gathered; old cleanup probes validated** | Decide whether to show raw cloud usage now or wait for public SDK support. | Passive artifact list only; no auto-download. |
-| Cloud smoke | **Future optional lane documented** | Needs actual cloud runtime first. | Add opt-in cloud smoke after runtime lands; keep out of required `smoke:platform:all` until adopted. |
+| Area | Decision | Implementation effect |
+| ---- | -------- | --------------------- |
+| Local UX/default preservation | Current local-only Cursor routes stay behaviorally unchanged; cloud support is explicit opt-in only. | Cloud implementation PRs must prove local default/runtime/tool/status/visual behavior did not change. |
+| Pi vs Cursor ownership | Pi chooses runtime and guards safety/context. Cursor Cloud owns repo, branch, env, lifecycle, dashboard, and cleanup setup. | Remove roadmap pressure to build a repo/branch/env wizard in pi. |
+| First-use acknowledgement | One short disclosure with no repo/branch/env prompts. | Keep `/cursor-runtime cloud`, `--cursor-cloud-ack`, and user/session ack; project config cannot acknowledge. |
+| Persistence / save destinations | Project config may save runtime only in the first cloud-runtime slice. | Do not project-save repo, branch/ref, direct-push, local-state allows, context bootstrap, env names, or cleanup preferences. |
+| Context handoff | Fresh cloud agent by default. Bootstrap requires explicit user/session/CLI/env opt-in. | Non-interactive cloud defaults to fresh unless explicitly allowed. Project config cannot save bootstrap initially. |
+| Repo / branch / direct push | No inferred defaults in pi. Explicit overrides may be passed; otherwise Cursor Cloud/SDK owns defaults or errors. | `--cursor-cloud-repo` / `--cursor-cloud-branch` stay power-user overrides, not project defaults. Direct push stays one-shot/user/session only. |
+| Dirty/unpushed local state | Warn once per dirty-state fingerprint, then show status. | Avoid repeated click-through warnings. |
+| Env vars | No pi env forwarding in the first cloud runtime. | Reserved env-name config should fail preflight until implementation; guide users to Cursor-native env setup. |
+| Usage | Raw `/usage` helper may be used for display/report only. | Never feed raw cloud usage into pi message usage or compaction totals. |
+| Status UX | Use explicit runtime status before cloud launch. | Target `cursor:local · fast:on|off|n/a · plan` and `cursor:cloud · fast:n/a`. |
+| Lifecycle | Leave cloud agents alive/archiveable after normal pi exit. | No cleanup/archive prompt or command in first cloud-runtime slice. |
+| Cloud smoke | Required before merging any PR that wires actual cloud runtime. | Add an opt-in cloud smoke lane as part of the cloud-runtime wiring PR. |
 
-Grill-me decision backlog before cloud runtime wiring:
-
-1. First setup flow: should it be one confirmation with smart defaults, or step-by-step prompts for repo, branch, context, and save destination?
-2. Context handoff: default to fresh cloud agent every time, or allow project/user default to bootstrap from current pi context after one disclosure?
-3. Save destinations: which fields may be saved to project config (`runtime`, `repo`, `branch`, `contextHandoff`, `envNames`) and which must stay user/session only?
-4. Branch default: current branch as `startingRef` when pushed, or remote default branch unless explicitly overridden?
-5. Dirty/unpushed warning cadence: warn once per dirty-state fingerprint, every send, or only when cloud would start from stale remote state?
-6. Env forwarding: ship explicit pi env forwarding at first cloud runtime, or direct users to Cursor-native `.cursor/environment.json` / dashboard env until later?
-7. Usage display: call raw `/v1/agents/{id}/usage` for cloud runs now, or wait for a public SDK wrapper?
-8. Runtime/model UX: keep status as `cursor-fast:n/a` for cloud for now, or rename footer/status to explicit `cursor:cloud` / `cursor:local` before launch?
-9. Agent lifecycle: leave cloud agents alive/archiveable after normal pi exit, or add an explicit cleanup/archive prompt/command in the first launch slice?
-10. Smoke policy: should the opt-in cloud smoke lane be required before any cloud-runtime PR can merge, or only before release?
+Outstanding user decisions are cleared for initial cloud runtime wiring. Remaining blockers are implementation and validation, not product-policy ambiguity.
 
 Blockers before resume implementation:
 
@@ -529,7 +514,7 @@ Minimum live cloud smoke matrix:
 - explicit direct push → direct-pushes only with explicit opt-in (**validated**);
 - missing/unpushed branch → fail closed with branch-does-not-exist remediation (**validated**);
 - dirty local state → pi-owned warning/detection before send; protected branch → Cursor branch/PR fallback surfaced (**validated**);
-- env var allowlist → names only persisted, values redacted in output, post-send `run.agentId` recorded (**validated**);
+- env forwarding disabled in initial cloud runtime → explicit env-name config fails preflight with Cursor-native env setup guidance; no env values are persisted or forwarded;
 - inline cloud MCP → not exposed in initial pi cloud runtime because live parity failed;
 - cloud run result → pushed branch/PR/artifact list surfaced without auto-download;
 - cancel/archive/delete cleanup → validated against throwaway agents; smoke must leave no remote mutation outside the throwaway repo.
