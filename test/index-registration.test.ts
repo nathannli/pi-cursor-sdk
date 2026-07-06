@@ -65,6 +65,42 @@ describe("extension registration and discovery", () => {
 			expect.objectContaining({ type: "string", default: "" }),
 		);
 		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-runtime",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-tool-transport",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-repo",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-branch",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-context",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-direct-push",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-allow-local-state",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-env",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-env-from-files",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
 			"cursor-auto-review",
 			expect.objectContaining({ type: "boolean", default: false }),
 		);
@@ -79,6 +115,10 @@ describe("extension registration and discovery", () => {
 		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-mode",
 			expect.objectContaining({ description: expect.stringContaining("Set Cursor SDK conversation mode") }),
+		);
+		expect(pi.registerCommand).toHaveBeenCalledWith(
+			"cursor-runtime",
+			expect.objectContaining({ description: expect.stringContaining("Set Cursor runtime") }),
 		);
 		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-tools",

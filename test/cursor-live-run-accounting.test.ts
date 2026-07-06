@@ -5,8 +5,6 @@ import {
 	consumeCursorLiveToolResults,
 	createCursorLiveRunAccountingState,
 	recordCursorLiveSdkTurnEnded,
-	recordCursorLiveSdkRunUsage,
-	takeCursorLiveSdkRunUsage,
 	takeCursorLiveSdkTurnUsage,
 	takeCursorLiveTurnInputTokens,
 } from "../src/cursor-live-run-accounting.js";
@@ -64,39 +62,6 @@ describe("cursor live-run accounting", () => {
 		expect(secondConsumption.toolCallIds).toEqual([]);
 		expect(secondConsumption.toolResultInputTokens).toBe(0);
 		expect(secondTurn.sessionInputTokens).toBe(0);
-	});
-
-	it("takes SDK run usage once", () => {
-		const state = recordCursorLiveSdkRunUsage(createCursorLiveRunAccountingState(100), {
-			inputTokens: 500,
-			outputTokens: 50,
-			cacheReadTokens: 400,
-			cacheWriteTokens: 10,
-		});
-
-		const first = takeCursorLiveSdkRunUsage(state);
-		const second = takeCursorLiveSdkRunUsage(first.state);
-
-		expect(first.sdkRunUsage).toEqual({ inputTokens: 500, outputTokens: 50, cacheReadTokens: 400, cacheWriteTokens: 10 });
-		expect(second.sdkRunUsage).toBeUndefined();
-	});
-
-	it("does not reuse SDK run usage after SDK turn usage was applied", () => {
-		const withTurnUsage = recordCursorLiveSdkTurnEnded(createCursorLiveRunAccountingState(100), {
-			inputTokens: 25,
-			outputTokens: 6,
-			cacheReadTokens: 24,
-			cacheWriteTokens: 1,
-		});
-		const afterTurnUsage = takeCursorLiveSdkTurnUsage(withTurnUsage).state;
-		const withRunUsage = recordCursorLiveSdkRunUsage(afterTurnUsage, {
-			inputTokens: 500,
-			outputTokens: 50,
-			cacheReadTokens: 400,
-			cacheWriteTokens: 10,
-		});
-
-		expect(takeCursorLiveSdkRunUsage(withRunUsage).sdkRunUsage).toBeUndefined();
 	});
 
 	it("takes SDK turn usage once", () => {

@@ -755,6 +755,28 @@ describe("Cursor runtime state", () => {
 		expect(ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor-fast:on");
 	});
 
+	it("persists /cursor-runtime as session runtime state", async () => {
+		const { pi, ctx, commandCtx, commands } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m" });
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		await commands.get("cursor-runtime")!.handler("cloud", commandCtx);
+
+		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.RUNTIME_ENTRY_TYPE, { runtime: "cloud" });
+		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Cloud runtime is not implemented yet"), "info");
+	});
+
+	it("reports /cursor-runtime usage and rejects invalid values", async () => {
+		const { pi, ctx, commandCtx, commands } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m" });
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, ctx);
+
+		await commands.get("cursor-runtime")!.handler("", commandCtx);
+		await commands.get("cursor-runtime")!.handler("remote", commandCtx);
+
+		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor runtime is local. Usage: /cursor-runtime local|cloud", "info");
+		expect(ctx.ui.notify).toHaveBeenCalledWith('Invalid Cursor runtime "remote". Usage: /cursor-runtime local|cloud', "error");
+		expect(pi.appendEntry).not.toHaveBeenCalled();
+	});
+
 	it("registers /cursor-tools and reports bridge and setting sources", async () => {
 		const originalBridgeEnv = process.env.PI_CURSOR_PI_TOOL_BRIDGE;
 		const originalSettingSourcesEnv = process.env.PI_CURSOR_SETTING_SOURCES;

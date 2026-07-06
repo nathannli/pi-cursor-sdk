@@ -26,7 +26,7 @@ Use these labels when this roadmap states SDK/runtime behavior or pi product int
 
 New behavior should start behind feature flags/config while current behavior remains the default. Use feature flags for maintainer validation and user/project config when the behavior is a real preference. After validation, defaults may flip, but keep an opt-out/fallback for a few releases when the behavior replaces a proven path such as MCP.
 
-**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, and fast-default migration. Project config loading is trust-gated. Remaining work: wire more settings through the resolver (cloud runtime, tool transport, env forwarding) and expand persistence/save flows.
+**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, and trust-gated project config loading. Runtime CLI/env/config/slash selection is wired only far enough to fail closed when cloud is selected; `Agent.create({ cloud })` is intentionally not wired. Remaining work: interactive cloud setup, persistence/save destinations, and actual cloud runtime option building.
 
 **Pi policy — target ordinary precedence** (enforced by `src/cursor-config.ts` and tests):
 
@@ -82,10 +82,11 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 
 | Slice | Status | Notes |
 | ----- | ------ | ----- |
-| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load. Cloud/tool-transport keys resolve but are not yet wired to runtime behavior. |
-| `RunResult.usage` fallback | **Implemented** | Direct and live/native-replay drains prefer `turn-ended`; fall back to `waitResult.usage` with pi `total = input + output`. |
+| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, and `/cursor-runtime`. Explicit cloud runtime fails closed; actual cloud `Agent.create({ cloud })` remains unwired. |
+| `RunResult.usage` fallback | **Rejected for pi message usage** | Direct and live/native-replay drains prefer real `turn-ended`; when absent, fall back to bounded pi estimates. `RunResult.usage` can describe full local agent context and must not feed compaction/context totals. |
 | `agent.reload()` refresh | **Implemented** | `/cursor-refresh-config` calls pooled `agent.reload()` without recreating the agent. |
 | Local safety controls | **Implemented** | `autoReview` and `sandboxOptions.enabled` via CLI/env/config; defaults stay off. |
+| Manual local force recovery | **Implemented** | `--cursor-local-force` and `PI_CURSOR_LOCAL_FORCE` explicitly pass `send({ local: { force: true } })`; persistent project/user config cannot enable force by default, and no automatic retry/staleness recovery is added. |
 
 ### Remaining gaps
 
@@ -93,7 +94,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 | -----: | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 |      1 | Pi tool bridge uses per-run loopback HTTP MCP instead of SDK customTools callbacks. | `src/cursor-pi-tool-bridge-run.ts` starts an HTTP MCP endpoint; `src/cursor-session-agent.ts` passes `mcpServers` into `Agent.create`. | `LocalAgentOptions.customTools` / `LocalSendOptions.customTools` expose caller functions through the SDK's synthetic `custom-user-tools` MCP server. | Explore `customTools` only if it preserves default local Pi tool access and the bridge invariant. **Validated gap:** cancellation parity fails; keep loopback MCP canonical.   |
 |      2 | No `Agent.resume()` integration.                                                    | `src/cursor-session-agent.ts` uses `Agent.create()` and in-memory pooling.                                                             | `Agent.resume(agentId)` can reattach to local/cloud persisted agent state after process restart.                                                     | Add branch/path-scoped resume behind feature flag/config first. **Validated:** model and inline tools must be re-supplied on resume/first send.                                |
-|      3 | No `send({ local: { force: true } })` stuck-run recovery.                           | `src/cursor-provider-turn-send.ts` send options include only `mode`, `onDelta`, and `onStep`.                                          | `LocalSendOptions.force` expires a stuck local active run before sending.                                                                            | **Validated:** SDK expires active run on force send. **Pi policy:** ownership/idempotency and cross-handle wait semantics are pi responsibilities.                             |
+|      3 | No automatic stuck-run recovery.                                                     | Manual `send({ local: { force: true } })` is wired only when explicitly requested.                                                     | `LocalSendOptions.force` expires a stuck local active run before sending.                                                                            | **Validated:** SDK expires active run on force send. **Pi policy:** automatic force remains forbidden until ownership/idempotency and cross-handle wait semantics are owned.    |
 |      4 | SDK `agents` subagent definitions are not wired.                                    | Cursor `task` activity is displayed, but `Agent.create` omits `agents`.                                                                | `AgentOptions.agents` defines Cursor-native subagents; file-based `.cursor/agents/*.md` also load from setting sources.                              | Do not auto-map Pi subagents. Let Cursor load `.cursor/agents/*.md`; add explicit config later only if needed.                                                                 |
 |      5 | Cloud runtime surface is unused.                                                    | Provider is local-agent-only.                                                                                                          | `Agent.create({ cloud })`, cloud repos/env/PR/artifacts/list/resume APIs.                                                                            | Add explicit cloud runtime mode with local default preserved and local-like UX. Several local/cloud contracts are now validated; keep unsafe surfaces gated.                   |
 
@@ -220,7 +221,7 @@ Required resume probes/tests before flipping defaults:
 | MCP bridge Pi tool through real pi lifecycle  | **Validated**                      | Loopback-style `mcpServers` must be re-supplied on resume; missing resupply can finish as assistant-visible MCP failure.                                                   |
 | Fork isolation                                | **Pi policy**                      | Resume implementation must add branch identity tests for `/tree`, `/fork`, `/clone`, session import, and compaction; there is no SDK contract left to probe before coding. |
 | Post-compaction new SDK agent                 | **Pi policy**                      | Compaction boundary is pi-owned.                                                                                                                                           |
-| Usage fallback without `turn-ended`           | **Validated + implemented**        | Local Composer 2.5 returns per-run `RunResult.usage`; direct and live/native-replay drains use raw returned fields when needed, not baseline subtraction.                                                       |
+| Usage fallback without `turn-ended`           | **Validated gap / pi policy**      | Local Composer 2.5 returns `RunResult.usage`, but real long-session evidence shows it can represent full agent context and poison pi compaction totals. Use bounded pi estimates when `turn-ended` is absent. |
 | Empty delete filters rejected                 | **Validated gap in SDK**           | Pi must guard before SDK store calls.                                                                                                                                      |
 
 ## Local force and retry behavior
@@ -235,6 +236,8 @@ Use force only when:
 
 - ownership/staleness evidence shows the active run belongs to this pi session and is stale from a crashed/wedged process; or
 - the user explicitly invokes a manual override for debugging/recovery.
+
+**Implemented manual override:** `--cursor-local-force` or `PI_CURSOR_LOCAL_FORCE=1` passes `send({ local: { force: true } })` for that send. Defaults stay false; project/user config cannot enable force by default; `enableAgentRetries` keeps the SDK default; no pi retry loop, customTools migration, cloud runtime, or resume behavior is added.
 
 Do not auto-force when another live pi process may legitimately own the active run. If ownership cannot be proven, surface recovery guidance and require manual force. Minimum ownership/staleness evidence before automatic force: recorded pi session id/file, SDK agent id, SDK run id/request id, process id or heartbeat, active run status from the SDK store, a stale threshold, and an idempotency key derived from stable pi turn/session data. If process/heartbeat ownership cannot be observed, automatic force is forbidden; show manual recovery only.
 
@@ -251,15 +254,15 @@ Do not auto-force when another live pi process may legitimately own the active r
 
 - Payload fields: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, optional `reasoningTokens`.
 - SDK `totalTokens` = input + output + cacheRead + cacheWrite (bundled `usage-types.ts` and live numbers).
-- For local Composer 2.5, normal and resumed sends returned `RunResult.usage` even without `onDelta`; values are per returned run/context and are not safe counters to baseline-diff. Output can decrease across turns while prompt/cache fields reflect the current run context.
+- For local Composer 2.5, normal and resumed sends returned `RunResult.usage` even without `onDelta`; values are not safe per-turn counters for pi occupancy. Output can decrease across turns while prompt/cache fields reflect the current run context. Real compaction evidence showed `RunResult.usage` near 1M input / 900k cache-read tokens on single assistant messages, which poisoned session totals and compaction pressure.
 
 **Pi policy — fallback:**
 
-- Use `RunResult.usage` only when no per-turn usage was applied for the turn. For local Composer 2.5, map the raw returned fields directly into pi usage and recompute pi `total = input + output`; do not subtract a previous resume baseline.
-- If a future SDK/runtime proves `RunResult.usage` is cumulative rather than per-run/context, add a runtime-specific baseline only with contract evidence.
-- Surface SDK `reasoningTokens` if pi has a safe usage field for it. Until then, keep it in debug/metadata rather than changing user-visible accounting semantics.
+- Use real `turn-ended` usage when available and recompute pi `total = input + output`.
+- Do **not** use `RunResult.usage` for pi assistant message usage, context occupancy, or compaction totals when `turn-ended` is absent. Use bounded local prompt/output estimates instead.
+- Surface SDK `reasoningTokens` only if pi has a safe usage field for it. Until then, keep it in debug/metadata rather than changing user-visible accounting semantics.
 
-Add focused usage tests for resumed sends, failed turn with no usage, compaction creating a new SDK agent, and multiple resumed turns without double-counting. No-`turn-ended` fallback for direct and live/native-replay drains is covered by `test/cursor-provider-stream-usage.test.ts` and `test/cursor-provider-replay-live-run.test.ts`.
+Regression coverage lives in `test/cursor-usage-accounting.test.ts`, `test/cursor-provider-stream-usage.test.ts`, and `test/cursor-provider-replay-live-run.test.ts`.
 
 ## Cloud agents support plan
 
@@ -431,13 +434,13 @@ No final implementation order is chosen yet. Do not start a large slice just bec
 Safe first slices (landed on `cursor-sdk-capability-safe-slices`):
 
 1. Config resolver/spec/tests, including migration of existing fast defaults and safety cap precedence — **done (partial; cloud/runtime wiring remains)**.
-2. `RunResult.usage` fallback that preserves current pi usage semantics by using raw returned fields only when no `turn-ended` usage was applied — **done (direct + live/native-replay)**.
+2. `RunResult.usage` fallback — **rejected for pi message usage after compaction evidence**; keep `turn-ended` usage, otherwise use bounded local estimates.
 3. Explicit `agent.reload()` command — **done (`/cursor-refresh-config`)**.
 4. Safety flag/config exposure for `autoReview` and `sandboxOptions`, preserving off-by-default behavior — **done**.
 
 Blockers before cloud implementation:
 
-- config precedence, user safety caps, and non-interactive fail-closed policy;
+- interactive first-cloud acknowledgement and project/user/session save-destination design (resolver precedence, user safety caps, and cloud-not-implemented fail-closed scaffolding are in place);
 - project/user/session persistence design and explicit save destinations;
 - runtime-aware cloud model availability UX using the single `cursor/*` provider with runtime annotations/filters;
 - repo/branch/direct-push policy, including validated `startingRef`, explicit direct push, missing/unpushed branch behavior, and protected-branch fallback; dirty local tree remains pi-owned detection;
@@ -477,7 +480,7 @@ No-work-now items:
 | `customTools` cancel/process cleanup         | **Validated gap**                  | `run.cancel()` stops run, but in-flight `customTools.execute()` did not settle and a spawned child stayed alive. Keep loopback MCP canonical unless an adapter owns abort/timeouts/process cleanup.                                                                                                              |
 | Local resume tool re-supply                  | **Validated**                      | Local `mcpServers` and `customTools` are not persisted. Missing resupply can finish as assistant-visible tool failure; resupplying tools succeeds.                                                                                                                                                               |
 | Resume model re-supply                       | **Validated**                      | Model null until `send({ model })`; pi must pass model every turn.                                                                                                                                                                                                                                               |
-| Local `RunResult.usage` fallback             | **Validated + implemented**        | Composer 2.5 returns usage fields on normal/resumed/no-delta sends, but they are not safe cumulative counters. Direct and live/native-replay drains use raw returned fields only when no `turn-ended` usage was applied; do not baseline-diff.                                                                                                        |
+| Local `RunResult.usage` fallback             | **Validated gap / rejected for pi usage** | Composer 2.5 returns usage fields on normal/resumed/no-delta sends, but real compaction evidence showed full-context-sized values on single assistant messages. Do not feed `RunResult.usage` into pi per-message usage or compaction totals. |
 | `local.force` persisted store behavior       | **Validated**                      | Force expires active persisted run as `status: "expired"`, `error: "force_send"`, `result: null`, then starts a follow-up run.                                                                                                                                                                                   |
 | `local.force` existing handle wait           | **Validated gap**                  | Old run handles/callback resources are not reliably cancelled; an old handle can still show `running` and wait can time out. Pi must not assume cross-handle cleanup.                                                                                                                                            |
 | `local.force` ownership                      | **Pi policy**                      | SDK does not validate pi ownership; auto-force needs pi session/run/heartbeat evidence or explicit manual override.                                                                                                                                                                                              |

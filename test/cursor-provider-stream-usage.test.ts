@@ -15,7 +15,7 @@ import { streamCursor } from "../src/cursor-provider.js";
 describe("streamCursor usage accounting", () => {
 	beforeEach(resetCursorProviderTestState);
 
-	it("uses returned RunResult usage when no turn-ended usage was applied", async () => {
+	it("ignores returned RunResult usage when no turn-ended usage was applied", async () => {
 		const mockSend = vi.fn().mockResolvedValue(asMockCursorRun({
 			id: "run-1",
 			agentId: "agent-1",
@@ -25,11 +25,11 @@ describe("streamCursor usage accounting", () => {
 				status: "finished",
 				result: "done",
 				usage: {
-					inputTokens: 100,
-					outputTokens: 20,
-					cacheReadTokens: 80,
-					cacheWriteTokens: 5,
-					totalTokens: 205,
+					inputTokens: 1_125_429,
+					outputTokens: 7_049,
+					cacheReadTokens: 1_015_493,
+					cacheWriteTokens: 0,
+					totalTokens: 2_147_971,
 				},
 			}),
 		}));
@@ -42,7 +42,10 @@ describe("streamCursor usage accounting", () => {
 		const events = await collectEvents(stream);
 		const done = getDoneEvent(events);
 
-		expect(done.message.usage).toMatchObject({ input: 100, output: 20, cacheRead: 80, cacheWrite: 5, totalTokens: 120 });
+		expect(done.message.usage.cacheRead).toBe(0);
+		expect(done.message.usage.cacheWrite).toBe(0);
+		expect(done.message.usage.input).toBeLessThan(1_125_429);
+		expect(done.message.usage.totalTokens).toBeLessThan(1_125_429);
 	});
 
 	it("uses real per-turn SDK usage instead of prompt estimates or RunResult usage", async () => {
@@ -94,37 +97,6 @@ describe("streamCursor usage accounting", () => {
 		expect(done.message.usage.cacheWrite).toBe(123);
 		expect(done.message.usage.totalTokens).toBe(25_432 + 612);
 		expect(done.message.usage.totalTokens).toBeLessThan(done.message.usage.input + done.message.usage.cacheRead + done.message.usage.output);
-	});
-
-	it("uses each returned RunResult usage as-is across multiple sends", async () => {
-		const usages = [
-			{ inputTokens: 100, outputTokens: 20, cacheReadTokens: 80, cacheWriteTokens: 5, totalTokens: 205 },
-			{ inputTokens: 90, outputTokens: 8, cacheReadTokens: 70, cacheWriteTokens: 0, totalTokens: 168 },
-		];
-		const mockSend = vi.fn().mockImplementation(async () => {
-			const call = mockSend.mock.calls.length;
-			return asMockCursorRun({
-				id: `run-${call}`,
-				agentId: "agent-1",
-				status: "finished",
-				wait: vi.fn().mockResolvedValue({
-					id: `run-${call}`,
-					status: "finished",
-					result: `done ${call}`,
-					usage: usages[call - 1],
-				}),
-			});
-		});
-		mockCreatedAgent({
-			send: mockSend,
-			[Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined),
-		});
-
-		const first = getDoneEvent(await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" })));
-		const second = getDoneEvent(await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" })));
-
-		expect(first.message.usage).toMatchObject({ input: 100, output: 20, cacheRead: 80, cacheWrite: 5, totalTokens: 120 });
-		expect(second.message.usage).toMatchObject({ input: 90, output: 8, cacheRead: 70, cacheWrite: 0, totalTokens: 98 });
 	});
 
 	it("keeps failed runs with no SDK usage on the current zero-usage error path", async () => {

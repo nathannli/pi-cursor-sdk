@@ -17,7 +17,13 @@ import {
 	createCursorNativeReplayId,
 	cursorLiveRuns,
 } from "./cursor-provider-live-run-drain.js";
-import { getCursorCliLocalSafetyConfig, getCursorProviderAgentModeOrThrow, getEffectiveFastForModelId } from "./cursor-state.js";
+import {
+	consumeCursorLocalForceOverride,
+	getCursorCliConfig,
+	getCursorProviderAgentModeOrThrow,
+	getCursorSessionConfig,
+	getEffectiveFastForModelId,
+} from "./cursor-state.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
 import { loadCursorSdkConfig, resolveCursorSdkConfig } from "./cursor-config.js";
@@ -64,14 +70,21 @@ export async function prepareCursorProviderTurn(
 		const settingSources = getEffectiveCursorSettingSources();
 		const loadedConfig = loadCursorSdkConfig({ cwd, projectTrusted: getCursorSessionProjectTrusted() });
 		const resolvedConfig = resolveCursorSdkConfig({
-			cli: getCursorCliLocalSafetyConfig(),
+			cli: getCursorCliConfig(),
+			session: getCursorSessionConfig(),
 			user: loadedConfig.user,
 			project: loadedConfig.project,
 		});
+		if (resolvedConfig.runtime.value === "cloud") {
+			throw new Error(
+				"Cursor cloud runtime is not implemented yet. Use --cursor-runtime local or /cursor-runtime local to run with the local Cursor SDK agent.",
+			);
+		}
 		const localSafety = {
 			autoReview: resolvedConfig.local.autoReview.value,
 			sandboxEnabled: resolvedConfig.local.sandboxEnabled.value,
 		};
+		const localForce = consumeCursorLocalForceOverride(resolvedConfig.local.force);
 		const { Agent } = await loadCursorSdk();
 
 		installCursorMcpToolTimeoutOverride();
@@ -161,6 +174,7 @@ export async function prepareCursorProviderTurn(
 			promptOptions,
 			toolManifestEnabled: resolveCursorToolManifestEnabled(),
 			agentMode,
+			localForce,
 			activeToolNames: activeToolNames ? [...activeToolNames] : [],
 			sessionAgentScopeKey,
 			bridgeRunId: bridgeRun?.id,
@@ -213,6 +227,7 @@ export async function prepareCursorProviderTurn(
 				bridgeEnabled: bridgeRun !== undefined,
 				nativeReplayId,
 				agentMode,
+				localForce,
 			},
 			contextWindowAgentId: agent.agentId,
 			textDeltas,

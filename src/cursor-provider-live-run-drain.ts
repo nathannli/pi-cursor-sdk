@@ -378,7 +378,6 @@ export async function drainCursorLiveRunTurn(
 				}
 				applyCursorUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens), {
 					turn: cursorLiveRuns.takeSdkTurnUsage(run),
-					run: cursorLiveRuns.takeSdkRunUsage(run),
 				});
 				partial.stopReason = "stop";
 				stream.push({ type: "done", reason: "stop", message: partial });

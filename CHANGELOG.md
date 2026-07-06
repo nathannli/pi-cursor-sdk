@@ -6,6 +6,12 @@
 
 - Add `/cursor-refresh-config` to call the current pooled Cursor SDK agent's `agent.reload()` for filesystem Cursor config refreshes without recreating the agent.
 - Add explicit local Cursor safety controls: `--cursor-auto-review` / `PI_CURSOR_AUTO_REVIEW` and `--cursor-sandbox` / `PI_CURSOR_SANDBOX`, plus `local.autoReview` and `local.sandboxOptions.enabled` config. Defaults stay off.
+- Add one-shot manual local stuck-run recovery with `--cursor-local-force` / `PI_CURSOR_LOCAL_FORCE`, wired only to the next `Agent.send(..., { local: { force: true } })`; no persistent config default, retry loop, or automatic force recovery is added.
+- Add resolver/CLI/slash scaffolding for roadmap runtime/cloud/tool-transport config keys (`--cursor-runtime`, `/cursor-runtime`, cloud repo/branch/context/direct-push/local-state/env-name/env-file flags, and `--cursor-tool-transport`). Defaults stay local + loopback MCP, and explicit cloud runtime now fails closed with a cloud-not-implemented error instead of silently running local.
+
+### Fixed
+
+- Stop applying Cursor SDK `RunResult.usage` to pi assistant messages when no per-turn `turn-ended` usage is available; long local sessions can report full-agent-context usage there, which can poison compaction/session token totals. Pi now falls back to bounded local estimates unless real per-turn SDK usage is present.
 
 ## 0.1.56 - 2026-07-04
 
