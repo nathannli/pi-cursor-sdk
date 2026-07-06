@@ -137,6 +137,22 @@ Runtime budget is part of the contract:
 
 Ubuntu is covered as its own local-container target, and Windows native remains a full visual TUI target.
 
+## Optional cloud smoke lane
+
+Cloud validation is intentionally separate from `smoke:platform:all`. The required release gate keeps **no cloud provider dependency** until cloud runtime support is implemented and the project explicitly adopts a cloud lane.
+
+When cloud runtime work begins, add an opt-in cloud smoke command rather than folding cloud checks into the default platform matrix. The lane must fail closed when requested but unavailable:
+
+- missing cloud-capable credentials, repo access, or cloud entitlement → report **blocked**, not skipped-ready;
+- no non-interactive prompts; every needed cloud choice must come from CLI/env/config;
+- use a throwaway repo/branch and clean up remote agents/branches/PRs where the SDK/API allows;
+- do not expose inline cloud MCP in the first cloud runtime lane;
+- do not forward local env values unless the scenario explicitly allowlists names and verifies behavior without printing values;
+- assert local-only dirty/unpushed state warnings before a cloud send;
+- assert default cloud branch/PR behavior, explicit direct-push opt-in, missing-branch failure, cancel/archive/delete cleanup, and cloud artifact/usage reporting when SDK/API support is available.
+
+This lane is a future cloud-runtime release gate, not a substitute for the local macOS/Ubuntu/Windows `smoke:platform:all` gate.
+
 ## Files and scripts
 
 Files:
