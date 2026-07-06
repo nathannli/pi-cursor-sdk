@@ -9,15 +9,30 @@ import {
 	emitCursorLiveTurn,
 } from "./cursor-provider-turn-emit.js";
 import { CursorRunFinalizer, type CursorLiveRunCompletion } from "./cursor-provider-run-finalizer.js";
-import { prepareCursorProviderTurn, requireCursorApiKey } from "./cursor-provider-turn-prepare.js";
+import {
+	getCursorProviderRuntimeTarget,
+	prepareCursorProviderTurn,
+	requireCursorApiKey,
+} from "./cursor-provider-turn-prepare.js";
 import { sendCursorProviderTurn } from "./cursor-provider-turn-send.js";
 import type {
 	CursorProviderTurnPrepareResult,
 	CursorProviderTurnRunnerParams,
 	CursorProviderTurnSendResult,
+	LiveCursorProviderTurnRuntime,
+	LocalCursorProviderTurnPrepareResult,
 } from "./cursor-provider-turn-types.js";
 
 export type { CursorProviderTurnRunnerParams } from "./cursor-provider-turn-types.js";
+
+type LocalLivePreparedTurn = LocalCursorProviderTurnPrepareResult & { runtime: LiveCursorProviderTurnRuntime };
+
+function requireLocalLivePreparedTurn(prepared: CursorProviderTurnPrepareResult): LocalLivePreparedTurn {
+	if (prepared.runtimeTarget !== "local" || prepared.runtime.kind !== "live") {
+		throw new Error("Cursor live run requires a local live prepared turn");
+	}
+	return prepared as LocalLivePreparedTurn;
+}
 
 export class CursorProviderTurnRunner {
 	private sdkEventDebug: CursorSdkEventDebugSink | undefined;
@@ -55,11 +70,13 @@ export class CursorProviderTurnRunner {
 			});
 			sdkEventDebugRef.current = this.sdkEventDebug;
 			this.sdkEventDebug?.recordContextSnapshot(context);
-			if (
-				(await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, this.sdkEventDebug)) ===
-				"stream_ended"
-			) {
-				return;
+			if (getCursorProviderRuntimeTarget(cwd) === "local") {
+				if (
+					(await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, this.sdkEventDebug)) ===
+					"stream_ended"
+				) {
+					return;
+				}
 			}
 			this.throwIfAborted();
 
@@ -82,17 +99,18 @@ export class CursorProviderTurnRunner {
 			const { send } = sendResult;
 
 			if (prepared.runtime.kind === "live") {
+				const livePrepared = requireLocalLivePreparedTurn(prepared);
 				liveCompletion = runFinalizer.startLiveRunCompletion({
 					send,
-					prepared,
+					prepared: livePrepared,
 					modelId: model.id,
-					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(prepared, outcome),
+					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(livePrepared, outcome),
 				});
 				await emitCursorLiveTurn({
 					params: this.params,
-					prepared,
+					prepared: livePrepared,
 					sdkEventDebug: this.sdkEventDebug,
-					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(prepared, outcome),
+					discardIncompleteTools: (outcome) => discardIncompleteToolsFromPrepared(livePrepared, outcome),
 				});
 				return;
 			}
@@ -110,7 +128,7 @@ export class CursorProviderTurnRunner {
 				sdkEventDebug: this.sdkEventDebug,
 				contextWindowAgentId: prepared.contextWindowAgentId,
 			});
-			prepared.sessionAgentLease.trackRunCompletion(outcomePromise);
+			if (prepared.runtimeTarget === "local") prepared.sessionAgentLease.trackRunCompletion(outcomePromise);
 			const outcome = await outcomePromise;
 			await runFinalizer.applyTerminalEvent({ kind: "direct", prepared, outcome });
 		} catch (error) {

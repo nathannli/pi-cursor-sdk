@@ -7,15 +7,19 @@ import {
 	mockedCreateAgentPlatform,
 	makeModel,
 	makeContext,
+	makeAssistantMessage,
 	collectEvents,
 	getErrorEvent,
 	getTextEndEvent,
 	mockCreatedAgent,
+	mockedMessagesList,
+	asMockSdkAgent,
 	createMockAgentPlatform,
 	registerBridgeForProviderTest,
 	createTestToolInfo,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
+import { cursorLiveRuns } from "../src/cursor-provider-live-run-drain.js";
 import { registerCursorRuntimeControls } from "../src/cursor-state.js";
 import { __testUtils as contextWindowCacheTestUtils } from "../src/context-window-cache.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
@@ -195,16 +199,96 @@ describe("streamCursor prompt and model config", () => {
 		expect(mockedCreate).not.toHaveBeenCalled();
 	});
 
-	it("does not treat the first user prompt as prior cloud context", async () => {
+	it("starts explicit cloud runs without local tools or prior context by default", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
 		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
 		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		process.env.PI_CURSOR_LOCAL_FORCE = "1";
+		const mockSend = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "bc-agent-1",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "cloud done" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({ agentId: "bc-agent-1", send: mockSend });
+		const context: Context = {
+			systemPrompt: "Keep this system prompt.",
+			messages: [
+				{ role: "user", content: "old local context", timestamp: 1 },
+				makeAssistantMessage("old assistant context"),
+				{ role: "user", content: "fresh cloud request", timestamp: 3 },
+			],
+		};
 
-		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key" }));
 
-		expect(getErrorEvent(events).error.errorMessage).toContain("Cursor cloud runtime is not implemented yet");
-		expect(getErrorEvent(events).error.errorMessage).not.toContain("--cursor-cloud-context");
-		expect(mockedCreate).not.toHaveBeenCalled();
+		expect(getTextEndEvent(events).content).toBe("cloud done");
+		expect(mockedCreate.mock.calls[0][0]).toMatchObject({
+			apiKey: "test-key",
+			cloud: {},
+			mode: "agent",
+		});
+		expect(mockedCreate.mock.calls[0][0]).not.toHaveProperty("local");
+		expect(mockedCreate.mock.calls[0][0]).not.toHaveProperty("mcpServers");
+		expect(mockSend.mock.calls[0]?.[1]).toMatchObject({ mode: "agent" });
+		expect(mockSend.mock.calls[0]?.[1]).not.toHaveProperty("local");
+		expect(mockSend.mock.calls[0]?.[1]).not.toHaveProperty("cloud");
+		expect(mockSend.mock.calls[0]?.[1]).not.toHaveProperty("mcpServers");
+		expect(mockedMessagesList).not.toHaveBeenCalled();
+		const sentMessage = mockSend.mock.calls[0]?.[0] as { text: string };
+		expect(sentMessage.text).toContain("Keep this system prompt.");
+		expect(sentMessage.text).toContain("fresh cloud request");
+		expect(sentMessage.text).not.toContain("old local context");
+		expect(sentMessage.text).not.toContain("old assistant context");
+	});
+
+	it("does not drain a pending local live run before cloud preflight", async () => {
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		const resolveToolResults = vi.fn().mockResolvedValue(undefined);
+		const liveRun = cursorLiveRuns.start({
+			id: "cursor-replay-cloud-boundary",
+			agent: asMockSdkAgent({ agentId: "local-agent", send: vi.fn() }),
+			bridgeRun: {
+				hasPendingPiToolCallId: () => false,
+				resolveToolResults,
+				cancel: vi.fn(),
+			} as any,
+			promptInputTokens: 0,
+		});
+		cursorLiveRuns.markFinished(liveRun, "local live result");
+
+		try {
+			const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+			expect(getErrorEvent(events).error.errorMessage).toContain("local Cursor live run is pending");
+			expect(resolveToolResults).not.toHaveBeenCalled();
+			expect(mockedCreate).not.toHaveBeenCalled();
+		} finally {
+			await cursorLiveRuns.release(liveRun);
+		}
+	});
+
+	it("disposes a cloud agent if the turn aborts after Agent.create but before send", async () => {
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		const abortController = new AbortController();
+		const mockDispose = vi.fn().mockResolvedValue(undefined);
+		const mockSend = vi.fn();
+		mockedCreate.mockImplementation(async () => {
+			abortController.abort();
+			return asMockSdkAgent({ agentId: "bc-agent-1", send: mockSend, [Symbol.asyncDispose]: mockDispose });
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key", signal: abortController.signal }));
+
+		expect(mockSend).not.toHaveBeenCalled();
+		expect(mockDispose).toHaveBeenCalledTimes(1);
 	});
 
 	it("budgets oversized prompt history before Cursor Agent.send", async () => {

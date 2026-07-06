@@ -1,5 +1,7 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { CURSOR_TOOL_PRESENTATION_SPECS } from "../src/cursor-tool-presentation-registry.js";
@@ -89,6 +91,35 @@ describe("smoke tooling package checks", () => {
 		expect(invalidVisualArgs.status).toBe(2);
 		expect(invalidVisualArgs.stderr).toContain("--expose-builtin-tools requires --bridge");
 	}, 90_000);
+
+	it("isolates cloud smoke from user and project Cursor config", async () => {
+		const artifactRoot = mkdtempSync(join(tmpdir(), "cloud-smoke-env-test-"));
+		try {
+			process.env.PI_CURSOR_CLOUD_REPO = "ambient/repo";
+			process.env.PI_CURSOR_CLOUD_DIRECT_PUSH = "1";
+			process.env.PI_CURSOR_CLOUD_ENV = "SECRET";
+			const { buildCloudSmokeEnv, buildCloudSmokeWorkspace } = await import("../scripts/cloud-runtime-smoke.mjs");
+			const env = buildCloudSmokeEnv(artifactRoot);
+			const workspace = buildCloudSmokeWorkspace(artifactRoot);
+			const agentDir = env.PI_CODING_AGENT_DIR;
+
+			expect(agentDir).toBe(join(artifactRoot, "agent"));
+			expect(existsSync(agentDir!)).toBe(true);
+			expect(workspace).toBe(join(artifactRoot, "workspace"));
+			expect(existsSync(workspace)).toBe(true);
+			expect(env.PI_CURSOR_RUNTIME).toBe("cloud");
+			expect(env.PI_CURSOR_CLOUD_CONTEXT).toBe("fresh");
+			expect(env.PI_CURSOR_SETTING_SOURCES).toBe("none");
+			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_DIRECT_PUSH).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_ENV).toBeUndefined();
+		} finally {
+			delete process.env.PI_CURSOR_CLOUD_REPO;
+			delete process.env.PI_CURSOR_CLOUD_DIRECT_PUSH;
+			delete process.env.PI_CURSOR_CLOUD_ENV;
+			rmSync(artifactRoot, { recursive: true, force: true });
+		}
+	});
 
 	it("rejects invalid platform smoke targets and suites before Crabbox runs", () => {
 		const invalidTarget = run(process.execPath, ["scripts/platform-smoke.mjs", "run", "--target", "plan9"]);

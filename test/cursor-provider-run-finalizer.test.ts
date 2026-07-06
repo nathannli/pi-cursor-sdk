@@ -4,7 +4,7 @@ import type { SDKAgent } from "@cursor/sdk";
 import { buildIncompleteCursorToolRunOutcome } from "../src/cursor-incomplete-tool-visibility.js";
 import { CursorRunFinalizer } from "../src/cursor-provider-run-finalizer.js";
 import { CursorSdkTurnCoordinator } from "../src/cursor-provider-turn-coordinator.js";
-import type { CursorProviderTurnPrepareResult } from "../src/cursor-provider-turn-types.js";
+import type { CursorProviderTurnPrepareResult, LiveCursorProviderTurnRuntime, LocalCursorProviderTurnPrepareResult } from "../src/cursor-provider-turn-types.js";
 import { installCursorSdkProcessErrorGuard } from "../src/cursor-sdk-process-error-guard.js";
 import type { CursorSdkEventDebugSink } from "../src/cursor-sdk-event-debug.js";
 import type { SessionCursorAgentLease } from "../src/cursor-session-agent.js";
@@ -28,7 +28,8 @@ vi.mock("../src/cursor-provider-turn-finalize.js", () => ({
 describe("CursorRunFinalizer", () => {
 	it("marks the pooled session agent busy when live run completion starts", () => {
 		const trackRunCompletion = vi.fn();
-		const prepared: CursorProviderTurnPrepareResult = {
+		const prepared: LocalCursorProviderTurnPrepareResult & { runtime: LiveCursorProviderTurnRuntime } = {
+			runtimeTarget: "local",
 			agent: { agentId: "agent-1" } as SDKAgent,
 			cwd: process.cwd(),
 			payload: { text: "hello" },
@@ -130,6 +131,7 @@ describe("CursorRunFinalizer", () => {
 			textDeltas: [],
 		});
 		const prepared: CursorProviderTurnPrepareResult = {
+			runtimeTarget: "local",
 			agent: { agentId: "agent-1" } as SDKAgent,
 			cwd: process.cwd(),
 			payload: { text: "hello" },
@@ -222,6 +224,7 @@ describe("CursorRunFinalizer", () => {
 			textDeltas: [],
 		});
 		const prepared: CursorProviderTurnPrepareResult = {
+			runtimeTarget: "local",
 			agent: { agentId: "agent-1" } as SDKAgent,
 			cwd: process.cwd(),
 			payload: { text: "hello" },

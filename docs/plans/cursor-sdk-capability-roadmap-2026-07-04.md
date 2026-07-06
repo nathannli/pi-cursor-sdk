@@ -1,6 +1,6 @@
 # Cursor SDK capability roadmap — 2026-07-04
 
-Status: **Active planning source of truth** for aligning `pi-cursor-sdk` with current `@cursor/sdk@1.0.23` capabilities. Last updated 2026-07-05. Contract probe results are summarized in this document. Older completed or stale plan files were removed so future sessions do not treat stale SDK/runtime guidance as current.
+Status: **Active planning source of truth** for aligning `pi-cursor-sdk` with current `@cursor/sdk@1.0.23` capabilities. Last updated 2026-07-06. Contract probe results are summarized in this document. Older completed or stale plan files were removed so future sessions do not treat stale SDK/runtime guidance as current.
 
 ## Contract classification legend
 
@@ -26,7 +26,7 @@ Use these labels when this roadmap states SDK/runtime behavior or pi product int
 
 New behavior should start behind feature flags/config while current behavior remains the default. Use feature flags for maintainer validation and user/project config when the behavior is a real preference. After validation, defaults may flip, but keep an opt-out/fallback for a few releases when the behavior replaces a proven path such as MCP.
 
-**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, first-use cloud acknowledgement, explicit save destinations, and trust-gated project config loading. Runtime CLI/env/config/slash selection is wired only far enough to fail closed when cloud is selected; `Agent.create({ cloud })` is intentionally not wired. Remaining work: full interactive cloud setup and actual cloud runtime execution.
+**Implemented (partial):** `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, first-use cloud acknowledgement, explicit save destinations, and trust-gated project config loading. Explicit cloud runtime now starts `Agent.create({ cloud })` after preflight, with fresh context by default and no pi bridge, inline MCP, or pi env forwarding. A minimal opt-in `npm run smoke:cloud` lane validates that path. Remaining work: interactive cloud setup polish, expanded cloud smoke coverage, cloud status/artifact/usage reporting, resume semantics, and any future remote pi-tool bridge design.
 
 **Pi policy — target ordinary precedence** (enforced by `src/cursor-config.ts` and tests):
 
@@ -83,7 +83,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 
 | Slice | Status | Notes |
 | ----- | ------ | ----- |
-| Config resolver foundation | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, first-use acknowledgement, save destinations, and `/cursor-runtime`. Explicit cloud runtime fails closed after preflight remediation; actual cloud `Agent.create({ cloud })` remains unwired. |
+| Config resolver foundation + minimal cloud runtime | **Implemented (partial)** | `src/cursor-config.ts` / `src/cursor-state.ts` / provider turn prepare — ordinary precedence, safety caps, fast-default migration, trust-gated project load, remaining cloud/tool-transport/env keys, CLI flags, first-use acknowledgement, save destinations, and `/cursor-runtime`. Explicit cloud runtime starts `Agent.create({ cloud })` after preflight, with fresh context by default and no pi bridge/local MCP/env forwarding. |
 | `RunResult.usage` fallback | **Rejected for pi message usage** | Direct and live/native-replay drains use real `turn-ended` only when the counts fit the selected model window; otherwise they fall back to bounded pi estimates. `RunResult.usage` can describe full local agent context and must not feed compaction/context totals. |
 | `agent.reload()` refresh | **Implemented** | `/cursor-refresh-config` calls pooled `agent.reload()` without recreating the agent. |
 | Local safety controls | **Implemented** | `autoReview` and `sandboxOptions.enabled` via CLI/env/config; defaults stay off. |
@@ -97,7 +97,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 |      2 | No `Agent.resume()` integration.                                                    | `src/cursor-session-agent.ts` uses `Agent.create()` and in-memory pooling.                                                             | `Agent.resume(agentId)` can reattach to local/cloud persisted agent state after process restart.                                                     | Add branch/path-scoped resume behind feature flag/config first. **Validated:** model and inline tools must be re-supplied on resume/first send.                                |
 |      3 | No automatic stuck-run recovery.                                                     | Manual `send({ local: { force: true } })` is wired only when explicitly requested.                                                     | `LocalSendOptions.force` expires a stuck local active run before sending.                                                                            | **Validated:** SDK expires active run on force send. **Pi policy:** automatic force remains forbidden until ownership/idempotency and cross-handle wait semantics are owned.    |
 |      4 | SDK `agents` subagent definitions are not wired.                                    | Cursor `task` activity is displayed, but `Agent.create` omits `agents`.                                                                | `AgentOptions.agents` defines Cursor-native subagents; file-based `.cursor/agents/*.md` also load from setting sources.                              | Do not auto-map Pi subagents. Let Cursor load `.cursor/agents/*.md`; add explicit config later only if needed.                                                                 |
-|      5 | Cloud runtime surface is unused.                                                    | Provider is local-agent-only.                                                                                                          | `Agent.create({ cloud })`, cloud repos/env/PR/artifacts/list/resume APIs.                                                                            | Add explicit cloud runtime mode with local default preserved and local-like UX. Several local/cloud contracts are now validated; keep unsafe surfaces gated.                   |
+|      5 | Cloud runtime follow-through remains minimal.                                      | Explicit cloud runtime starts `Agent.create({ cloud })` after preflight, with fresh context by default and no pi bridge/local MCP/env forwarding. | Cloud repos/env/PR/artifacts/list/resume/usage APIs exist, but several are not yet integrated into pi UX.                                             | Keep local default preserved; add cloud status/reporting, artifact/usage display, resume policy, and any future remote pi-tool bridge only behind explicit product decisions. |
 
 ## Local customTools feasibility
 
@@ -238,7 +238,7 @@ Use force only when:
 - ownership/staleness evidence shows the active run belongs to this pi session and is stale from a crashed/wedged process; or
 - the user explicitly invokes a manual override for debugging/recovery.
 
-**Implemented manual override:** `--cursor-local-force` or `PI_CURSOR_LOCAL_FORCE=1` passes `send({ local: { force: true } })` for that send. Defaults stay false; project/user config cannot enable force by default; `enableAgentRetries` keeps the SDK default; no pi retry loop, customTools migration, cloud runtime, or resume behavior is added.
+**Implemented manual override:** `--cursor-local-force` or `PI_CURSOR_LOCAL_FORCE=1` passes `send({ local: { force: true } })` for that send. Defaults stay false; project/user config cannot enable force by default; `enableAgentRetries` keeps the SDK default; no pi retry loop, customTools migration, or resume behavior is added by the local-force slice.
 
 Do not auto-force when another live pi process may legitimately own the active run. If ownership cannot be proven, surface recovery guidance and require manual force. Minimum ownership/staleness evidence before automatic force: recorded pi session id/file, SDK agent id, SDK run id/request id, process id or heartbeat, active run status from the SDK store, a stale threshold, and an idempotency key derived from stable pi turn/session data. If process/heartbeat ownership cannot be observed, automatic force is forbidden; show manual recovery only.
 
@@ -307,7 +307,7 @@ Repo, branch, env, cleanup, and lifecycle setup belong to Cursor Cloud by defaul
 
 Cloud should feel like the current local Cursor provider as much as possible:
 
-- Show footer/status so users always know whether the current agent is local or cloud. **Decision 2026-07-06:** use explicit runtime status such as `cursor:local · fast:on|off|n/a · plan` and `cursor:cloud · fast:n/a` before cloud launch.
+- Show footer/status so users always know whether the current agent is local or cloud. **Decision 2026-07-06:** use explicit runtime status such as `cursor:local · fast:on|off|n/a · plan` and `cursor:cloud · fast:n/a` in a future status-UX slice; the minimal cloud-runtime slice still only maps cloud fast state to `cursor-fast:n/a`.
 - Show local-like activity/tool cards for cloud activity when the SDK reports it.
 - Stream with the same shape as local runs where possible; cloud SDK surfaces support the same delta/step/stream style and should use the same pi display path when possible.
 - Initial model-picker decision: keep one `cursor/*` provider and make it runtime-aware with annotations/filters, not a separate `cursor-cloud/*` provider. Revisit only if the one-provider UX proves confusing.
@@ -426,12 +426,13 @@ Do not let cloud-agent support depend on this.
 
 No final implementation order is chosen yet. Do not start a large slice just because it appears high in the gap table.
 
-Safe first slices (landed on `cursor-sdk-capability-safe-slices`):
+Safe first slices:
 
-1. Config resolver/spec/tests, including migration of existing fast defaults and safety cap precedence — **done (partial; cloud/runtime wiring remains)**.
+1. Config resolver/spec/tests, including migration of existing fast defaults and safety cap precedence — **done**.
 2. `RunResult.usage` fallback — **rejected for pi message usage after compaction evidence**; keep `turn-ended` usage, otherwise use bounded local estimates.
 3. Explicit `agent.reload()` command — **done (`/cursor-refresh-config`)**.
 4. Safety flag/config exposure for `autoReview` and `sandboxOptions`, preserving off-by-default behavior — **done**.
+5. Minimal explicit cloud runtime with fresh context by default, no pi bridge/local MCP/env forwarding, and minimal `npm run smoke:cloud` — **done (partial cloud UX)**.
 
 Cloud implementation decisions after grill-me mode (2026-07-06):
 
@@ -446,9 +447,9 @@ Cloud implementation decisions after grill-me mode (2026-07-06):
 | Dirty/unpushed local state | Warn once per dirty-state fingerprint, then show status. | Avoid repeated click-through warnings. |
 | Env vars | No pi env forwarding in the first cloud runtime. | Reserved env-name config should fail preflight until implementation; guide users to Cursor-native env setup. |
 | Usage | Raw `/usage` helper may be used for display/report only. | Never feed raw cloud usage into pi message usage or compaction totals. |
-| Status UX | Use explicit runtime status before cloud launch. | Target `cursor:local · fast:on|off|n/a · plan` and `cursor:cloud · fast:n/a`. |
+| Status UX | Still future after the minimal cloud-runtime slice. | Target `cursor:local · fast:on|off|n/a · plan` and `cursor:cloud · fast:n/a`; current minimal slice only shows cloud fast as `cursor-fast:n/a`. |
 | Lifecycle | Leave cloud agents alive/archiveable after normal pi exit. | No cleanup/archive prompt or command in first cloud-runtime slice. |
-| Cloud smoke | Required before merging any PR that wires actual cloud runtime. | Add an opt-in cloud smoke lane as part of the cloud-runtime wiring PR. |
+| Cloud smoke | Minimal lane exists and is required before merging any PR that touches actual cloud runtime. | Keep `npm run smoke:cloud`; expand later for branch/PR/direct-push/missing-branch/cancel/delete/artifact/usage coverage. |
 
 Outstanding user decisions are cleared for initial cloud runtime wiring. Remaining blockers are implementation and validation, not product-policy ambiguity.
 
@@ -467,7 +468,7 @@ Blocker before customTools migration beyond a spike:
 
 Known larger/high-risk slices after blockers:
 
-- Cloud runtime support, including the single first-run setup flow.
+- Expanded cloud runtime UX/status/reporting/resume support beyond the minimal explicit cloud execution slice.
 - Branch-scoped SDK resume with model/tool re-supply.
 - customTools transport migration.
 - `local.force` recovery with ownership/staleness guards and cross-handle wait warnings.
@@ -504,7 +505,15 @@ No-work-now items:
 
 Cloud validation must have its own strategy: unit/contract tests for option building and error handling, plus a live cloud smoke scenario gated on cloud-capable auth/entitlements. If cloud credentials or entitlements are unavailable, report cloud smoke as blocked, not skipped-ready. **Pi policy:** platform smoke should include cloud only when an opt-in cloud matrix is added to `docs/platform-smoke.md`.
 
-Minimum live cloud smoke matrix:
+Current minimal live cloud smoke lane:
+
+- requires `CURSOR_API_KEY`;
+- starts one non-interactive cloud request with explicit acknowledgement and fresh context;
+- asserts cloud runtime metadata, no pi bridge, no native replay live-run mode, and cloud agent id shape;
+- archives the throwaway cloud agent when an id is available;
+- keeps branch/PR/direct-push/artifact/usage scenarios out of the default local platform gate.
+
+Future expanded cloud smoke matrix:
 
 - no credentials or unsupported key type → cloud-specific auth error;
 - non-interactive cloud request missing required choices → fail closed with exact remediation;
@@ -517,7 +526,7 @@ Minimum live cloud smoke matrix:
 - env forwarding disabled in initial cloud runtime → explicit env-name config fails preflight with Cursor-native env setup guidance; no env values are persisted or forwarded;
 - inline cloud MCP → not exposed in initial pi cloud runtime because live parity failed;
 - cloud run result → pushed branch/PR/artifact list surfaced without auto-download;
-- cancel/archive/delete cleanup → validated against throwaway agents; smoke must leave no remote mutation outside the throwaway repo.
+- cancel/delete cleanup and richer archive checks → validated against throwaway agents; expanded smoke must leave no remote mutation outside the throwaway repo.
 
 Docs to update before landing behavior changes:
 
@@ -526,7 +535,7 @@ Docs to update before landing behavior changes:
 - `CHANGELOG.md` for user-visible behavior and flag changes.
 - `docs/cursor-model-ux-spec.md` for runtime-aware model/status UX.
 - `docs/cursor-tool-surfaces.md` for MCP/customTools/cloud Pi-tool availability — **current policy documented: loopback MCP remains canonical, customTools is future opt-in, cloud gets no local Pi tools**.
-- `docs/platform-smoke.md` for opt-in cloud smoke matrix — **documented as a future optional lane; currently no cloud provider dependency**.
+- `docs/platform-smoke.md` for opt-in cloud smoke matrix — **`npm run smoke:cloud` is now required for PRs that touch actual cloud runtime execution; default platform smoke remains local-only**.
 - `docs/cursor-testing-lessons.md` for any new SDK/cloud contract lesson — **usage/compaction JSONL fixture lesson documented**.
 - `docs/cursor-live-smoke-checklist.md` and `docs/cursor-dogfood-checklist.md` for user-visible smoke flows.
 
