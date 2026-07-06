@@ -525,7 +525,7 @@ Docs to update before landing behavior changes:
 - `docs/cursor-model-ux-spec.md` for runtime-aware model/status UX.
 - `docs/cursor-tool-surfaces.md` for MCP/customTools/cloud Pi-tool availability — **current policy documented: loopback MCP remains canonical, customTools is future opt-in, cloud gets no local Pi tools**.
 - `docs/platform-smoke.md` for opt-in cloud smoke matrix — **documented as a future optional lane; currently no cloud provider dependency**.
-- `docs/cursor-testing-lessons.md` for any new SDK/cloud contract lesson.
+- `docs/cursor-testing-lessons.md` for any new SDK/cloud contract lesson — **usage/compaction JSONL fixture lesson documented**.
 - `docs/cursor-live-smoke-checklist.md` and `docs/cursor-dogfood-checklist.md` for user-visible smoke flows.
 
 ## Evidence anchors
