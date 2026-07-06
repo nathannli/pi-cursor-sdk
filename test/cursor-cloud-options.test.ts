@@ -34,7 +34,6 @@ describe("Cursor cloud options", () => {
 					repo: "https://github.com/example/repo.git",
 					branch: "feature/demo",
 					directPush: true,
-					envNames: ["SAFE_FLAG", "MISSING_FLAG"],
 				},
 			},
 		});
@@ -44,12 +43,10 @@ describe("Cursor cloud options", () => {
 			modelSelection: { id: "composer-2.5" },
 			agentMode: "agent",
 			resolvedConfig,
-			env: { SAFE_FLAG: "enabled" },
 			name: "pi session",
 		});
 
-		expect(result.forwardedEnvNames).toEqual(["SAFE_FLAG"]);
-		expect(result.options).toEqual({
+		expect(result).toEqual({
 			apiKey: "test-key",
 			model: { id: "composer-2.5" },
 			mode: "agent",
@@ -57,17 +54,19 @@ describe("Cursor cloud options", () => {
 			cloud: {
 				repos: [{ url: "https://github.com/example/repo.git", startingRef: "feature/demo" }],
 				workOnCurrentBranch: true,
-				envVars: { SAFE_FLAG: "enabled" },
 			},
 		});
-		expect(result.options).not.toHaveProperty("local");
-		expect(result.options).not.toHaveProperty("mcpServers");
-		expect(result.options).not.toHaveProperty("agentId");
+		expect(result).not.toHaveProperty("local");
+		expect(result).not.toHaveProperty("mcpServers");
+		expect(result).not.toHaveProperty("agentId");
 	});
 
-	it("fails closed with exact remediation for missing choices and unsafe local state", () => {
+	it("fails closed with exact remediation for missing safety choices and disabled env forwarding", () => {
 		const result = preflightCursorCloudRuntime({
-			resolvedConfig: resolveCursorSdkConfig({ cli: { runtime: "cloud", cloud: { envFromFiles: true } } }),
+			resolvedConfig: resolveCursorSdkConfig({
+				cli: { runtime: "cloud", cloud: { envNames: ["SAFE_FLAG"], envFromFiles: true } },
+				user: { cloud: { contextHandoff: "never" } },
+			}),
 			hasPriorContext: true,
 			localState: { insideGitRepo: true, dirty: true, unpushed: true },
 		});
@@ -75,13 +74,11 @@ describe("Cursor cloud options", () => {
 		expect(result.ok).toBe(false);
 		expect(result.issues.map((issue) => issue.code)).toEqual([
 			"cloud_ack_required",
-			"missing_repo",
-			"missing_branch",
 			"context_handoff_required",
 			"local_state_not_allowed",
-			"env_from_files_not_implemented",
+			"env_forwarding_not_implemented",
 		]);
-		expect(formatCursorCloudPreflightError(result)).toContain("--cursor-cloud-repo");
+		expect(formatCursorCloudPreflightError(result)).toContain(".cursor/environment.json");
 		expect(formatCursorCloudPreflightError(result)).toContain("--cursor-runtime local");
 	});
 
@@ -125,7 +122,7 @@ describe("Cursor cloud options", () => {
 			resolvedConfig: resolveCursorSdkConfig({
 				cli: {
 					runtime: "cloud",
-					cloud: { repo: "https://github.com/example/repo.git", branch: "main", allowLocalState: true, acknowledged: true },
+					cloud: { allowLocalState: true, acknowledged: true },
 				},
 			}),
 			hasPriorContext: false,

@@ -354,9 +354,9 @@ Do not prompt for local env forwarding on first cloud run. Cursor's native cloud
 - Keep `cloud.envNames` as reserved parsed config for future work. Until pi env forwarding is implemented, preflight should fail if env names are set rather than silently ignoring them. Persist only allowlisted variable names, never secret values, when this feature later ships.
 - **Validated:** reject names starting with `CURSOR_`; `envVars` cannot combine with caller-supplied `agentId`. API docs mark session `envVars` as beta and say unsupported accounts may silently ignore them.
 - **Validated:** SDK exposes agent-scoped `CloudAgentOptions.envVars` and run-scoped `SendOptions.cloud.envVars`. Raw API create-time `runEnvVars` exists in `V1CreateAgentRequest`, not public `AgentOptions`.
-- At run time, read current values from process env only for explicitly allowlisted names by default.
+- If pi env forwarding ships later, read current values from process env only for explicitly allowlisted names by default.
 - Reading `.env.local` / `.env` for cloud forwarding is an extra explicit opt-in such as `--cursor-cloud-env-from-files`; it must not happen merely because names are allowlisted.
-- User-level `cloudEnvForwarding: "disabled"` or equivalent must beat project config.
+- If env forwarding ships later, a user-level `cloudEnvForwarding: "disabled"` or equivalent must beat lower-trust defaults; project env-name defaults are not part of the initial cloud runtime.
 - **Validated, refreshed 2026-07-06:** allowlisted `envVars` reached a cloud shell in a no-edit throwaway run (`env-present` final text). SDK transcript/tool output redacted the value as `[REDACTED]`, so pi must verify by behavior/exit status or file-size-style checks, never by printing secret values.
 - **Validated gap / SDK footgun, refreshed 2026-07-06:** when `cloud.envVars` is used, the pre-send `agent.agentId` was a ghost ID (`Agent.get()` returned `agent_not_found`); after first `send`, both `agent.agentId` and `run.agentId` changed to the real server ID. Record post-send `run.agentId` instead.
 - If pi forwards env vars in a later slice, omit caller-supplied cloud `agentId` and use SDK/API idempotency keys for duplicate-create protection instead.

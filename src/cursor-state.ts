@@ -513,13 +513,13 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 	});
 
 	pi.registerFlag("cursor-cloud-env", {
-		description: `Comma-separated local env var names to forward to Cursor cloud (or set ${CURSOR_CLOUD_ENV_ENV})`,
+		description: `Reserved Cursor cloud env var names; env forwarding is not implemented yet (or set ${CURSOR_CLOUD_ENV_ENV})`,
 		type: "string",
 		default: "",
 	});
 
 	pi.registerFlag("cursor-cloud-env-from-files", {
-		description: `Allow Cursor cloud env forwarding to read .env files (or set ${CURSOR_CLOUD_ENV_FROM_FILES_ENV}=1)`,
+		description: `Reserved Cursor cloud env-file forwarding flag; not implemented yet (or set ${CURSOR_CLOUD_ENV_FROM_FILES_ENV}=1)`,
 		type: "boolean",
 		default: false,
 	});

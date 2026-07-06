@@ -190,14 +190,13 @@ describe("streamCursor prompt and model config", () => {
 		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 
 		expect(getErrorEvent(events).error.errorMessage).toContain("Cursor cloud runtime is not ready to start");
-		expect(getErrorEvent(events).error.errorMessage).toContain("--cursor-cloud-repo");
+		expect(getErrorEvent(events).error.errorMessage).toContain("--cursor-cloud-ack");
+		expect(getErrorEvent(events).error.errorMessage).not.toContain("--cursor-cloud-repo");
 		expect(mockedCreate).not.toHaveBeenCalled();
 	});
 
 	it("does not treat the first user prompt as prior cloud context", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
-		process.env.PI_CURSOR_CLOUD_REPO = "https://github.com/example/repo.git";
-		process.env.PI_CURSOR_CLOUD_BRANCH = "main";
 		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
 		process.env.PI_CURSOR_CLOUD_ACK = "1";
 

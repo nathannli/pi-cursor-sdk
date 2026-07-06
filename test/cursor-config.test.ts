@@ -139,46 +139,30 @@ describe("Cursor SDK config resolver", () => {
 		expect(resolved.cappedBy).toMatchObject({ source: "user", cappedSource: "environment", cappedValue: true });
 	});
 
-	it("applies user safety caps over project defaults", () => {
-		const context = resolveCursorSdkConfig({
-			project: { cloud: { contextHandoff: "bootstrap" } },
-			user: { cloud: { contextHandoff: "never" } },
-		}).cloud.contextHandoff;
-		const directPush = resolveCursorSdkConfig({
-			project: { cloud: { directPush: true } },
-			user: { cloud: { directPush: false } },
-		}).cloud.directPush;
-		const allowLocalState = resolveCursorSdkConfig({
-			project: { cloud: { allowLocalState: true } },
-			user: { cloud: { allowLocalState: false } },
-		}).cloud.allowLocalState;
-		const envNames = resolveCursorSdkConfig({
-			project: { cloud: { envNames: ["GH_TOKEN"] } },
-			user: { cloud: { envNames: [] } },
-		}).cloud.envNames;
-		const filteredEnvNames = resolveCursorSdkConfig({
-			project: { cloud: { envNames: ["GH_TOKEN", "NODE_ENV", "NPM_TOKEN"] } },
-			user: { cloud: { envNames: ["NODE_ENV", "SAFE_FLAG"] } },
-		}).cloud.envNames;
+	it("ignores project cloud override and safety keys in the initial runtime", () => {
+		const resolved = resolveCursorSdkConfig({
+			project: {
+				cloud: {
+					repo: "project-repo",
+					branch: "project-branch",
+					contextHandoff: "bootstrap",
+					directPush: true,
+					allowLocalState: true,
+					envNames: ["GH_TOKEN"],
+					envFromFiles: true,
+					acknowledged: true,
+				},
+			},
+		}).cloud;
 
-		expect(context).toMatchObject({ value: "never", source: "user" });
-		expect(context.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: "bootstrap" });
-		expect(directPush).toMatchObject({ value: false, source: "user" });
-		expect(directPush.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: true });
-		expect(allowLocalState).toMatchObject({ value: false, source: "user" });
-		expect(allowLocalState.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: true });
-		expect(envNames).toMatchObject({ value: [], source: "user" });
-		expect(envNames.cappedBy).toMatchObject({ source: "user", cappedSource: "project", cappedValue: ["GH_TOKEN"] });
-		expect(filteredEnvNames).toMatchObject({ value: ["NODE_ENV"], source: "user" });
-		expect(filteredEnvNames.cappedBy).toMatchObject({
-			source: "user",
-			cappedSource: "project",
-			cappedValue: ["GH_TOKEN", "NODE_ENV", "NPM_TOKEN"],
-		});
-		expect(resolveCursorSdkConfig({ project: { cloud: { acknowledged: true } } }).cloud.acknowledged).toMatchObject({
-			value: false,
-			source: "builtin",
-		});
+		expect(resolved.repo).toMatchObject({ value: undefined, source: "builtin" });
+		expect(resolved.branch).toMatchObject({ value: undefined, source: "builtin" });
+		expect(resolved.contextHandoff).toMatchObject({ value: "fresh", source: "builtin" });
+		expect(resolved.directPush).toMatchObject({ value: false, source: "builtin" });
+		expect(resolved.allowLocalState).toMatchObject({ value: false, source: "builtin" });
+		expect(resolved.envNames).toMatchObject({ value: [], source: "builtin" });
+		expect(resolved.envFromFiles).toMatchObject({ value: false, source: "builtin" });
+		expect(resolved.acknowledged).toMatchObject({ value: false, source: "builtin" });
 	});
 
 	it("lets explicit one-shot CLI safety allows override user denials", () => {
@@ -214,7 +198,7 @@ describe("Cursor SDK config resolver", () => {
 		expect(cliOverride).not.toHaveProperty("cappedBy");
 	});
 
-	it("resolves remaining cloud scaffold keys from env/config without secret values", () => {
+	it("resolves remaining cloud scaffold keys from env without secret values", () => {
 		const resolved = resolveCursorSdkConfig({
 			env: {
 				[CURSOR_CLOUD_REPO_ENV]: " https://github.com/acme/repo ",
@@ -224,7 +208,6 @@ describe("Cursor SDK config resolver", () => {
 				[CURSOR_CLOUD_ENV_FROM_FILES_ENV]: "1",
 				[CURSOR_CLOUD_ACK_ENV]: "1",
 			},
-			project: { cloud: { repo: "project-repo", branch: "project-branch" } },
 		}).cloud;
 
 		expect(resolved.repo).toMatchObject({ value: "https://github.com/acme/repo", source: "environment" });
