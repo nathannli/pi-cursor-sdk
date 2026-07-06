@@ -183,13 +183,27 @@ describe("streamCursor prompt and model config", () => {
 		expect(mockedCreate.mock.calls[0][0].local).toMatchObject({ autoReview: true, sandboxOptions: { enabled: true } });
 	});
 
-	it("fails closed when cloud runtime is selected before cloud implementation exists", async () => {
+	it("fails closed with cloud preflight remediation before cloud implementation exists", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
 		process.env.PI_CURSOR_LOCAL_FORCE = "1";
 
 		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 
+		expect(getErrorEvent(events).error.errorMessage).toContain("Cursor cloud runtime is not ready to start");
+		expect(getErrorEvent(events).error.errorMessage).toContain("--cursor-cloud-repo");
+		expect(mockedCreate).not.toHaveBeenCalled();
+	});
+
+	it("does not treat the first user prompt as prior cloud context", async () => {
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_REPO = "https://github.com/example/repo.git";
+		process.env.PI_CURSOR_CLOUD_BRANCH = "main";
+		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+
+		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
 		expect(getErrorEvent(events).error.errorMessage).toContain("Cursor cloud runtime is not implemented yet");
+		expect(getErrorEvent(events).error.errorMessage).not.toContain("--cursor-cloud-context");
 		expect(mockedCreate).not.toHaveBeenCalled();
 	});
 
