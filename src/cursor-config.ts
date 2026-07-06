@@ -13,6 +13,7 @@ export const CURSOR_CLOUD_DIRECT_PUSH_ENV = "PI_CURSOR_CLOUD_DIRECT_PUSH";
 export const CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV = "PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE";
 export const CURSOR_CLOUD_ENV_ENV = "PI_CURSOR_CLOUD_ENV";
 export const CURSOR_CLOUD_ENV_FROM_FILES_ENV = "PI_CURSOR_CLOUD_ENV_FROM_FILES";
+export const CURSOR_CLOUD_ACK_ENV = "PI_CURSOR_CLOUD_ACK";
 export const CURSOR_AUTO_REVIEW_ENV = "PI_CURSOR_AUTO_REVIEW";
 export const CURSOR_SANDBOX_ENV = "PI_CURSOR_SANDBOX";
 export const CURSOR_LOCAL_FORCE_ENV = "PI_CURSOR_LOCAL_FORCE";
@@ -35,6 +36,7 @@ export interface CursorSdkConfig {
 		allowLocalState?: boolean;
 		envNames?: string[];
 		envFromFiles?: boolean;
+		acknowledged?: boolean;
 	};
 	local?: {
 		autoReview?: boolean;
@@ -73,6 +75,7 @@ export interface CursorResolvedSdkConfig {
 		allowLocalState: CursorResolvedSetting<boolean>;
 		envNames: CursorResolvedSetting<string[]>;
 		envFromFiles: CursorResolvedSetting<boolean>;
+		acknowledged: CursorResolvedSetting<boolean>;
 	};
 	local: {
 		autoReview: CursorResolvedSetting<boolean>;
@@ -119,6 +122,7 @@ const BUILT_IN_CURSOR_CONFIG: Required<Pick<CursorSdkConfig, "runtime" | "toolTr
 		allowLocalState: false,
 		envNames: [],
 		envFromFiles: false,
+		acknowledged: false,
 	},
 };
 
@@ -195,6 +199,7 @@ export function parseCursorSdkConfig(value: unknown): CursorSdkConfig | undefine
 		if (typeof cloud.allowLocalState === "boolean") parsedCloud.allowLocalState = cloud.allowLocalState;
 		if (envNames) parsedCloud.envNames = envNames;
 		if (typeof cloud.envFromFiles === "boolean") parsedCloud.envFromFiles = cloud.envFromFiles;
+		if (typeof cloud.acknowledged === "boolean") parsedCloud.acknowledged = cloud.acknowledged;
 		if (Object.keys(parsedCloud).length > 0) config.cloud = parsedCloud;
 	}
 
@@ -248,6 +253,31 @@ export function loadCursorSdkConfig(options: LoadCursorSdkConfigOptions = {}): {
 export function saveCursorSdkUserConfig(config: CursorSdkConfig, path = getCursorSdkUserConfigPath()): void {
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+}
+
+export function saveCursorSdkProjectConfig(cwd: string, config: CursorSdkConfig, configDirName = CONFIG_DIR_NAME): void {
+	const path = getCursorSdkProjectConfigPath(cwd, configDirName);
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+export function mergeCursorSdkConfig(base: CursorSdkConfig, patch: CursorSdkConfig): CursorSdkConfig {
+	return {
+		...base,
+		...patch,
+		...(base.cloud || patch.cloud ? { cloud: { ...base.cloud, ...patch.cloud } } : {}),
+		...(base.local || patch.local
+			? {
+					local: {
+						...base.local,
+						...patch.local,
+						...(base.local?.sandboxOptions || patch.local?.sandboxOptions
+							? { sandboxOptions: { ...base.local?.sandboxOptions, ...patch.local?.sandboxOptions } }
+							: {}),
+					},
+				}
+			: {}),
+	};
 }
 
 export function cursorFastDefaultsFromConfig(config: CursorSdkConfig | undefined): Map<string, boolean> {
@@ -331,6 +361,7 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 	const allowLocalState = parseEnvBoolean(env[CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV]);
 	const envNames = parseEnvNames(env[CURSOR_CLOUD_ENV_ENV]);
 	const envFromFiles = parseEnvBoolean(env[CURSOR_CLOUD_ENV_FROM_FILES_ENV]);
+	const acknowledged = parseEnvBoolean(env[CURSOR_CLOUD_ACK_ENV]);
 	if (
 		repo !== undefined ||
 		branch !== undefined ||
@@ -338,7 +369,8 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 		directPush !== undefined ||
 		allowLocalState !== undefined ||
 		envNames !== undefined ||
-		envFromFiles !== undefined
+		envFromFiles !== undefined ||
+		acknowledged !== undefined
 	) {
 		config.cloud = {
 			...(repo !== undefined ? { repo } : {}),
@@ -348,6 +380,7 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 			...(allowLocalState !== undefined ? { allowLocalState } : {}),
 			...(envNames !== undefined ? { envNames } : {}),
 			...(envFromFiles !== undefined ? { envFromFiles } : {}),
+			...(acknowledged !== undefined ? { acknowledged } : {}),
 		};
 	}
 	const autoReview = parseEnvBoolean(env[CURSOR_AUTO_REVIEW_ENV]);
@@ -471,6 +504,13 @@ export function resolveCursorSdkConfig(options: ResolveCursorSdkConfigOptions = 
 				[valueFrom("user", user?.cloud?.envFromFiles)],
 				(value) => (value ? 1 : 0),
 			),
+			acknowledged: resolveOrdinary([
+				valueFrom("cli", cli?.cloud?.acknowledged),
+				valueFrom("environment", env.cloud?.acknowledged),
+				valueFrom("session", session?.cloud?.acknowledged),
+				valueFrom("user", user?.cloud?.acknowledged),
+				valueFrom("builtin", builtIn.cloud.acknowledged),
+			]),
 		},
 		local: {
 			autoReview: resolveOrdinary([

@@ -19,6 +19,7 @@ export interface CursorCloudPreflightIssue {
 	code:
 		| "missing_repo"
 		| "missing_branch"
+		| "cloud_ack_required"
 		| "context_handoff_required"
 		| "local_state_not_allowed"
 		| "env_from_files_not_implemented";
@@ -116,6 +117,12 @@ export function preflightCursorCloudRuntime(options: {
 }): CursorCloudPreflightResult {
 	const { resolvedConfig } = options;
 	const issues: CursorCloudPreflightIssue[] = [];
+	if (!resolvedConfig.cloud.acknowledged.value) {
+		issues.push({
+			code: "cloud_ack_required",
+			message: "Cursor cloud runtime requires first-use acknowledgement; run /cursor-runtime cloud in an interactive session or pass --cursor-cloud-ack / PI_CURSOR_CLOUD_ACK=1.",
+		});
+	}
 	if (!resolvedConfig.cloud.repo.value) {
 		issues.push({
 			code: "missing_repo",

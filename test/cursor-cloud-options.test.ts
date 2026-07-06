@@ -74,6 +74,7 @@ describe("Cursor cloud options", () => {
 
 		expect(result.ok).toBe(false);
 		expect(result.issues.map((issue) => issue.code)).toEqual([
+			"cloud_ack_required",
 			"missing_repo",
 			"missing_branch",
 			"context_handoff_required",
@@ -124,7 +125,7 @@ describe("Cursor cloud options", () => {
 			resolvedConfig: resolveCursorSdkConfig({
 				cli: {
 					runtime: "cloud",
-					cloud: { repo: "https://github.com/example/repo.git", branch: "main", allowLocalState: true },
+					cloud: { repo: "https://github.com/example/repo.git", branch: "main", allowLocalState: true, acknowledged: true },
 				},
 			}),
 			hasPriorContext: false,

@@ -10,6 +10,7 @@ import {
 	CURSOR_CLOUD_DIRECT_PUSH_ENV,
 	CURSOR_CLOUD_ENV_ENV,
 	CURSOR_CLOUD_ENV_FROM_FILES_ENV,
+	CURSOR_CLOUD_ACK_ENV,
 	CURSOR_CLOUD_REPO_ENV,
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
@@ -19,6 +20,7 @@ import {
 	getCursorSdkUserConfigPath,
 	loadCursorSdkConfig,
 	loadCursorSdkUserConfig,
+	mergeCursorSdkConfig,
 	resolveCursorFastDefault,
 	resolveCursorSdkConfig,
 	saveCursorSdkUserConfig,
@@ -173,6 +175,10 @@ describe("Cursor SDK config resolver", () => {
 			cappedSource: "project",
 			cappedValue: ["GH_TOKEN", "NODE_ENV", "NPM_TOKEN"],
 		});
+		expect(resolveCursorSdkConfig({ project: { cloud: { acknowledged: true } } }).cloud.acknowledged).toMatchObject({
+			value: false,
+			source: "builtin",
+		});
 	});
 
 	it("lets explicit one-shot CLI safety allows override user denials", () => {
@@ -216,6 +222,7 @@ describe("Cursor SDK config resolver", () => {
 				[CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV]: "true",
 				[CURSOR_CLOUD_ENV_ENV]: "GH_TOKEN,CURSOR_SECRET,bad-name, NODE_ENV ,GH_TOKEN",
 				[CURSOR_CLOUD_ENV_FROM_FILES_ENV]: "1",
+				[CURSOR_CLOUD_ACK_ENV]: "1",
 			},
 			project: { cloud: { repo: "project-repo", branch: "project-branch" } },
 		}).cloud;
@@ -225,6 +232,20 @@ describe("Cursor SDK config resolver", () => {
 		expect(resolved.allowLocalState).toMatchObject({ value: true, source: "environment" });
 		expect(resolved.envNames).toMatchObject({ value: ["GH_TOKEN", "NODE_ENV"], source: "environment" });
 		expect(resolved.envFromFiles).toMatchObject({ value: true, source: "environment" });
+		expect(resolved.acknowledged).toMatchObject({ value: true, source: "environment" });
+	});
+
+	it("merges nested cursor sdk config", () => {
+		expect(
+			mergeCursorSdkConfig(
+				{ runtime: "local", cloud: { repo: "repo", acknowledged: false }, local: { sandboxOptions: { enabled: true } } },
+				{ runtime: "cloud", cloud: { acknowledged: true }, local: { autoReview: true } },
+			),
+		).toEqual({
+			runtime: "cloud",
+			cloud: { repo: "repo", acknowledged: true },
+			local: { sandboxOptions: { enabled: true }, autoReview: true },
+		});
 	});
 
 	it("lets session runtime override config but not CLI or env", () => {

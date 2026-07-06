@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -87,6 +87,7 @@ function createCursorRuntimeHarness(options: {
 	cursorModeFlag?: boolean | string;
 	mode?: ExtensionContext["mode"];
 	hasUI?: boolean;
+	cwd?: string;
 } = {}) {
 	const pi = createPiHarness({
 		flagValues: {
@@ -96,6 +97,7 @@ function createCursorRuntimeHarness(options: {
 		},
 	});
 	const ctx = createExtensionTestContext({
+		cwd: options.cwd,
 		mode: options.mode ?? "tui",
 		hasUI: options.hasUI ?? true,
 		model: options.modelId
@@ -111,6 +113,7 @@ function createCursorRuntimeHarness(options: {
 	});
 	registerCursorRuntimeControls(pi);
 	const commandCtx = createExtensionCommandContext({
+		cwd: ctx.cwd,
 		model: ctx.model,
 		ui: ctx.ui,
 		sessionManager: ctx.sessionManager,
@@ -761,8 +764,8 @@ describe("Cursor runtime state", () => {
 
 		await commands.get("cursor-runtime")!.handler("cloud", commandCtx);
 
-		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.RUNTIME_ENTRY_TYPE, { runtime: "cloud" });
-		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("Cloud runtime is not implemented yet"), "info");
+		expect(pi.appendEntry).toHaveBeenCalledWith(__testUtils.RUNTIME_ENTRY_TYPE, { runtime: "cloud", cloudAcknowledged: true });
+		expect(ctx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("first-use cloud risk acknowledged"), "info");
 	});
 
 	it("reports /cursor-runtime usage and rejects invalid values", async () => {
@@ -772,9 +775,34 @@ describe("Cursor runtime state", () => {
 		await commands.get("cursor-runtime")!.handler("", commandCtx);
 		await commands.get("cursor-runtime")!.handler("remote", commandCtx);
 
-		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor runtime is local. Usage: /cursor-runtime local|cloud", "info");
-		expect(ctx.ui.notify).toHaveBeenCalledWith('Invalid Cursor runtime "remote". Usage: /cursor-runtime local|cloud', "error");
+		expect(ctx.ui.notify).toHaveBeenCalledWith("Cursor runtime is local. Usage: /cursor-runtime local|cloud [--save-user|--save-project]", "info");
+		expect(ctx.ui.notify).toHaveBeenCalledWith("Invalid Cursor runtime arguments. Usage: /cursor-runtime local|cloud [--save-user|--save-project]", "error");
 		expect(pi.appendEntry).not.toHaveBeenCalled();
+	});
+
+	it("saves /cursor-runtime cloud acknowledgement only to user or session state", async () => {
+		const cwd = join(tmpAgentDir, "project");
+		mkdirSync(cwd, { recursive: true });
+		const { pi, commandCtx, commands } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m", cwd });
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, commandCtx);
+
+		await commands.get("cursor-runtime")!.handler("cloud --save-user", commandCtx);
+
+		expect(JSON.parse(readFileSync(join(tmpAgentDir, "cursor-sdk.json"), "utf-8"))).toEqual({
+			runtime: "cloud",
+			cloud: { acknowledged: true },
+		});
+	});
+
+	it("saves /cursor-runtime project default without project-level cloud acknowledgement", async () => {
+		const cwd = join(tmpAgentDir, "project");
+		mkdirSync(cwd, { recursive: true });
+		const { pi, commandCtx, commands } = createCursorRuntimeHarness({ modelId: "gpt-5.5@1m", cwd });
+		await pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, commandCtx);
+
+		await commands.get("cursor-runtime")!.handler("cloud --save-project", commandCtx);
+
+		expect(JSON.parse(readFileSync(join(cwd, ".pi", "cursor-sdk.json"), "utf-8"))).toEqual({ runtime: "cloud" });
 	});
 
 	it("registers /cursor-tools and reports bridge and setting sources", async () => {

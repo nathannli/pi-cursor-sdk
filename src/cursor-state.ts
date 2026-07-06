@@ -32,13 +32,17 @@ import {
 	CURSOR_CLOUD_DIRECT_PUSH_ENV,
 	CURSOR_CLOUD_ENV_ENV,
 	CURSOR_CLOUD_ENV_FROM_FILES_ENV,
+	CURSOR_CLOUD_ACK_ENV,
 	CURSOR_CLOUD_REPO_ENV,
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
 	CURSOR_TOOL_TRANSPORT_ENV,
 	parseCursorSdkConfig,
+	loadCursorSdkProjectConfig,
 	loadCursorSdkUserConfig,
+	mergeCursorSdkConfig,
 	resolveCursorFastDefault,
+	saveCursorSdkProjectConfig,
 	saveCursorSdkUserConfig,
 	withCursorFastDefaults,
 	type CursorSdkConfig,
@@ -64,6 +68,7 @@ interface CursorModeEntryData {
 
 interface CursorRuntimeEntryData {
 	runtime: "local" | "cloud";
+	cloudAcknowledged?: boolean;
 }
 
 type CursorRuntimeControlsExtensionApi = Pick<
@@ -93,8 +98,10 @@ let cliCursorCloudDirectPush = false;
 let cliCursorCloudAllowLocalState = false;
 let cliCursorCloudEnv: string | undefined;
 let cliCursorCloudEnvFromFiles = false;
+let cliCursorCloudAck = false;
 let sessionCursorAgentMode: AgentModeOption | undefined;
 let sessionCursorRuntime: "local" | "cloud" | undefined;
+let sessionCursorCloudAcknowledged = false;
 let cliCursorModeState: CursorCliModeState = { kind: "unset" };
 const invalidCursorModeNotifiedSessionScopeKeys = new Set<string>();
 
@@ -123,8 +130,10 @@ function isCursorModeEntryData(value: unknown): value is CursorModeEntryData {
 }
 
 function isCursorRuntimeEntryData(value: unknown): value is CursorRuntimeEntryData {
-	const runtime = asRecord(value)?.runtime;
-	return runtime === "local" || runtime === "cloud";
+	const record = asRecord(value);
+	if (!record) return false;
+	const runtime = record.runtime;
+	return (runtime === "local" || runtime === "cloud") && (record.cloudAcknowledged === undefined || typeof record.cloudAcknowledged === "boolean");
 }
 
 function getConfigPath(): string {
@@ -163,10 +172,12 @@ function restoreSessionCursorMode(ctx: { sessionManager: Pick<ExtensionContext["
 
 function restoreSessionCursorRuntime(ctx: { sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> }): void {
 	sessionCursorRuntime = undefined;
+	sessionCursorCloudAcknowledged = false;
 	for (const entry of ctx.sessionManager.getBranch()) {
 		if (entry.type !== "custom" || entry.customType !== RUNTIME_ENTRY_TYPE) continue;
 		if (isCursorRuntimeEntryData(entry.data)) {
 			sessionCursorRuntime = entry.data.runtime;
+			sessionCursorCloudAcknowledged = entry.data.cloudAcknowledged === true;
 		}
 	}
 }
@@ -249,6 +260,7 @@ export function getCursorCliConfig(): CursorSdkConfig {
 			...(cliCursorCloudAllowLocalState ? { allowLocalState: true } : {}),
 			envNames: splitCliEnvNames(cliCursorCloudEnv),
 			...(cliCursorCloudEnvFromFiles ? { envFromFiles: true } : {}),
+			...(cliCursorCloudAck ? { acknowledged: true } : {}),
 		},
 		local: {
 			...(cliAutoReview ? { autoReview: true } : {}),
@@ -259,7 +271,12 @@ export function getCursorCliConfig(): CursorSdkConfig {
 }
 
 export function getCursorSessionConfig(): CursorSdkConfig {
-	return sessionCursorRuntime ? { runtime: sessionCursorRuntime } : {};
+	return sessionCursorRuntime
+		? {
+				runtime: sessionCursorRuntime,
+				...(sessionCursorCloudAcknowledged ? { cloud: { acknowledged: true } } : {}),
+			}
+		: {};
 }
 
 export function consumeCursorLocalForceOverride(resolved: { value: boolean; source: string }): boolean {
@@ -349,13 +366,16 @@ function persistCursorModePreference(pi: Pick<ExtensionAPI, "appendEntry">, mode
 	}
 }
 
-function persistCursorRuntimePreference(pi: Pick<ExtensionAPI, "appendEntry">, runtime: "local" | "cloud"): void {
+function persistCursorRuntimePreference(pi: Pick<ExtensionAPI, "appendEntry">, runtime: "local" | "cloud", cloudAcknowledged = false): void {
 	const previousRuntime = sessionCursorRuntime;
+	const previousCloudAcknowledged = sessionCursorCloudAcknowledged;
 	sessionCursorRuntime = runtime;
+	sessionCursorCloudAcknowledged = cloudAcknowledged;
 	try {
-		pi.appendEntry<CursorRuntimeEntryData>(RUNTIME_ENTRY_TYPE, { runtime });
+		pi.appendEntry<CursorRuntimeEntryData>(RUNTIME_ENTRY_TYPE, { runtime, ...(cloudAcknowledged ? { cloudAcknowledged } : {}) });
 	} catch (error) {
 		sessionCursorRuntime = previousRuntime;
+		sessionCursorCloudAcknowledged = previousCloudAcknowledged;
 		throw error;
 	}
 }
@@ -504,6 +524,12 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		default: false,
 	});
 
+	pi.registerFlag("cursor-cloud-ack", {
+		description: `Acknowledge first-use Cursor cloud runtime risks for this run (or set ${CURSOR_CLOUD_ACK_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+
 	pi.registerFlag("cursor-auto-review", {
 		description: `Enable Cursor SDK local Auto-review for this run (or set ${CURSOR_AUTO_REVIEW_ENV}=1)`,
 		type: "boolean",
@@ -566,26 +592,39 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 	pi.registerCommand("cursor-runtime", {
 		description: "Set Cursor runtime for this session: local or cloud",
 		handler: async (args, ctx) => {
-			const usage = "Usage: /cursor-runtime local|cloud";
-			const raw = args.trim();
+			const usage = "Usage: /cursor-runtime local|cloud [--save-user|--save-project]";
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			const raw = tokens[0];
+			const saveUser = tokens.includes("--save-user");
+			const saveProject = tokens.includes("--save-project");
+			const extra = tokens.slice(1).filter((token) => token !== "--save-user" && token !== "--save-project");
 			if (!raw) {
 				ctx.ui.notify(`Cursor runtime is ${sessionCursorRuntime ?? "local"}. ${usage}`, "info");
 				return;
 			}
-			if (raw !== "local" && raw !== "cloud") {
-				ctx.ui.notify(`Invalid Cursor runtime "${raw}". ${usage}`, "error");
+			if ((raw !== "local" && raw !== "cloud") || extra.length > 0 || (saveUser && saveProject)) {
+				ctx.ui.notify(`Invalid Cursor runtime arguments. ${usage}`, "error");
 				return;
 			}
 			try {
-				persistCursorRuntimePreference(pi, raw);
+				persistCursorRuntimePreference(pi, raw, raw === "cloud");
+				if (saveUser) {
+					const current = loadCursorSdkUserConfig();
+					saveCursorSdkUserConfig(mergeCursorSdkConfig(current, { runtime: raw, ...(raw === "cloud" ? { cloud: { acknowledged: true } } : {}) }));
+				}
+				if (saveProject) {
+					const current = loadCursorSdkProjectConfig(ctx.cwd, true) ?? {};
+					saveCursorSdkProjectConfig(ctx.cwd, mergeCursorSdkConfig(current, { runtime: raw }));
+				}
 			} catch (error) {
 				ctx.ui.notify(`Failed to save Cursor runtime preference: ${error instanceof Error ? error.message : String(error)}`, "error");
 				return;
 			}
+			const saved = saveUser ? " Saved to user config." : saveProject ? " Saved to project config; cloud acknowledgement remains session/user-scoped." : "";
 			ctx.ui.notify(
 				raw === "cloud"
-					? "Cursor runtime set to cloud for this session. Cloud runtime is not implemented yet; Cursor runs fail closed until cloud support lands."
-					: "Cursor runtime set to local for this session.",
+					? `Cursor runtime set to cloud for this session and first-use cloud risk acknowledged. Cloud runtime is not implemented yet; Cursor runs fail closed until cloud support lands.${saved}`
+					: `Cursor runtime set to local for this session.${saved}`,
 				"info",
 			);
 		},
@@ -678,6 +717,7 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			cliCursorCloudAllowLocalState = pi.getFlag("cursor-cloud-allow-local-state") === true;
 			cliCursorCloudEnv = stringFlagValue(pi.getFlag("cursor-cloud-env"));
 			cliCursorCloudEnvFromFiles = pi.getFlag("cursor-cloud-env-from-files") === true;
+			cliCursorCloudAck = pi.getFlag("cursor-cloud-ack") === true;
 			restoreSessionFastPreferences(ctx);
 			restoreSessionCursorMode(ctx);
 			restoreSessionCursorRuntime(ctx);
@@ -693,6 +733,7 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 function resetCursorModeStateForTests(): void {
 	sessionCursorAgentMode = undefined;
 	sessionCursorRuntime = undefined;
+	sessionCursorCloudAcknowledged = false;
 	cliCursorModeState = { kind: "unset" };
 	cliAutoReview = false;
 	cliSandbox = false;
@@ -707,6 +748,7 @@ function resetCursorModeStateForTests(): void {
 	cliCursorCloudAllowLocalState = false;
 	cliCursorCloudEnv = undefined;
 	cliCursorCloudEnvFromFiles = false;
+	cliCursorCloudAck = false;
 	invalidCursorModeNotifiedSessionScopeKeys.clear();
 }
 

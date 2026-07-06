@@ -7,7 +7,7 @@
 - Add `/cursor-refresh-config` to call the current pooled Cursor SDK agent's `agent.reload()` for filesystem Cursor config refreshes without recreating the agent.
 - Add explicit local Cursor safety controls: `--cursor-auto-review` / `PI_CURSOR_AUTO_REVIEW` and `--cursor-sandbox` / `PI_CURSOR_SANDBOX`, plus `local.autoReview` and `local.sandboxOptions.enabled` config. Defaults stay off.
 - Add one-shot manual local stuck-run recovery with `--cursor-local-force` / `PI_CURSOR_LOCAL_FORCE`, wired only to the next `Agent.send(..., { local: { force: true } })`; no persistent config default, retry loop, or automatic force recovery is added.
-- Add resolver/CLI/slash scaffolding for roadmap runtime/cloud/tool-transport config keys (`--cursor-runtime`, `/cursor-runtime`, cloud repo/branch/context/direct-push/local-state/env-name/env-file flags, and `--cursor-tool-transport`). Defaults stay local + loopback MCP, and explicit cloud runtime now fails closed with preflight remediation for missing repo/branch/context/local-state/env-file choices instead of silently running local.
+- Add resolver/CLI/slash scaffolding for roadmap runtime/cloud/tool-transport config keys (`--cursor-runtime`, `/cursor-runtime`, cloud repo/branch/context/direct-push/local-state/env-name/env-file/ack flags, and `--cursor-tool-transport`). Defaults stay local + loopback MCP, `/cursor-runtime cloud` records a session first-use acknowledgement, `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` cover non-interactive acknowledgement, and explicit cloud runtime still fails closed with preflight remediation instead of silently running local.
 
 ### Fixed
 
