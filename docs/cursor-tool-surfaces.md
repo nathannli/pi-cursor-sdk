@@ -1,6 +1,6 @@
 # Cursor tool surfaces in pi
 
-pi-cursor-sdk runs Cursor models through the local `@cursor/sdk` agent runtime. A single pi session can expose **three related but different** tool namespaces. This page is the user-facing guide; maintainer replay details live in [Cursor native tool replay](./cursor-native-tool-replay.md).
+pi-cursor-sdk runs Cursor models through the local `@cursor/sdk` agent runtime by default. A local pi session can expose **three related but different** tool namespaces. This page is the user-facing guide; maintainer replay details live in [Cursor native tool replay](./cursor-native-tool-replay.md).
 
 ## The three surfaces
 
@@ -41,6 +41,16 @@ PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1 pi --model cursor/composer-2-5
 # Disable bootstrap tool manifest
 PI_CURSOR_TOOL_MANIFEST=0 pi --model cursor/composer-2-5
 ```
+
+## Runtime and transport policy
+
+Current defaults:
+
+- Local runtime is the default and the only implemented runtime.
+- The pi bridge uses loopback MCP and remains the canonical Pi-tool transport.
+- `local.customTools` is a future opt-in spike path, not a replacement default, because cancellation/process cleanup parity is not proven.
+- Explicit cloud runtime selection currently fails closed. When cloud runtime support lands, cloud agents do **not** get local pi tools through loopback MCP or `local.customTools`; cloud Pi-tool access would require a separate secure remote bridge and a new product decision.
+- Inline cloud MCP is not exposed in the initial cloud runtime plan because live probes showed first-run/replacement/resume behavior was not deterministic enough.
 
 ## Cursor settings vs pi toggles
 
