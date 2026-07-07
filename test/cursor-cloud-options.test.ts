@@ -34,6 +34,7 @@ describe("Cursor cloud options", () => {
 					repo: "https://github.com/example/repo.git",
 					branch: "feature/demo",
 					directPush: true,
+					environment: { type: "pool", name: "large-linux" },
 				},
 			},
 		});
@@ -52,6 +53,7 @@ describe("Cursor cloud options", () => {
 			mode: "agent",
 			name: "pi session",
 			cloud: {
+				env: { type: "pool", name: "large-linux" },
 				repos: [{ url: "https://github.com/example/repo.git", startingRef: "feature/demo" }],
 				workOnCurrentBranch: true,
 			},
@@ -80,6 +82,51 @@ describe("Cursor cloud options", () => {
 		]);
 		expect(formatCursorCloudPreflightError(result)).toContain(".cursor/environment.json");
 		expect(formatCursorCloudPreflightError(result)).toContain("--cursor-runtime local");
+	});
+
+	it("fails closed when a cloud environment name is supplied without a type", () => {
+		const result = preflightCursorCloudRuntime({
+			resolvedConfig: resolveCursorSdkConfig({
+				cli: { runtime: "cloud", cloud: { acknowledged: true, allowLocalState: true, environment: { name: "gpu-pool" } } },
+			}),
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toEqual(["cloud_environment_type_required"]);
+		expect(formatCursorCloudPreflightError(result)).toContain("--cursor-cloud-env-type");
+	});
+
+	it("fails closed when a named Cursor cloud environment is combined with an explicit repo", () => {
+		const result = preflightCursorCloudRuntime({
+			resolvedConfig: resolveCursorSdkConfig({
+				cli: {
+					runtime: "cloud",
+					cloud: {
+						acknowledged: true,
+						allowLocalState: true,
+						repo: "https://github.com/example/repo.git",
+						environment: { type: "cloud", name: "dashboard-env" },
+					},
+				},
+			}),
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toEqual(["cloud_environment_repo_conflict"]);
+		expect(formatCursorCloudPreflightError(result)).toContain("cannot be combined with --cursor-cloud-repo");
+	});
+
+	it("fails closed when a cloud environment type is invalid", () => {
+		const result = preflightCursorCloudRuntime({
+			resolvedConfig: resolveCursorSdkConfig({
+				env: { PI_CURSOR_CLOUD_ENV_TYPE: " poll " },
+				cli: { runtime: "cloud", cloud: { acknowledged: true, allowLocalState: true } },
+			}),
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toEqual(["cloud_environment_type_invalid"]);
+		expect(formatCursorCloudPreflightError(result)).toContain('Invalid Cursor cloud environment type "poll"');
 	});
 
 	it("treats no-upstream commits and dirty files as local-only cloud state", () => {

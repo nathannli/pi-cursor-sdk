@@ -98,6 +98,10 @@ describe("smoke tooling package checks", () => {
 			process.env.PI_CURSOR_CLOUD_REPO = "ambient/repo";
 			process.env.PI_CURSOR_CLOUD_DIRECT_PUSH = "1";
 			process.env.PI_CURSOR_CLOUD_ENV = "SECRET";
+			process.env.PI_CURSOR_CLOUD_ENV_TYPE = "pool";
+			process.env.PI_CURSOR_CLOUD_ENV_NAME = "ambient-pool";
+			process.env.CURSOR_CLOUD_SMOKE_ENV_TYPE = "machine";
+			process.env.CURSOR_CLOUD_SMOKE_ENV_NAME = "smoke-machine";
 			const { buildCloudSmokeEnv, buildCloudSmokeWorkspace } = await import("../scripts/cloud-runtime-smoke.mjs");
 			const env = buildCloudSmokeEnv(artifactRoot);
 			const workspace = buildCloudSmokeWorkspace(artifactRoot);
@@ -113,10 +117,16 @@ describe("smoke tooling package checks", () => {
 			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_DIRECT_PUSH).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_ENV).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_ENV_TYPE).toBe("machine");
+			expect(env.PI_CURSOR_CLOUD_ENV_NAME).toBe("smoke-machine");
 		} finally {
 			delete process.env.PI_CURSOR_CLOUD_REPO;
 			delete process.env.PI_CURSOR_CLOUD_DIRECT_PUSH;
 			delete process.env.PI_CURSOR_CLOUD_ENV;
+			delete process.env.PI_CURSOR_CLOUD_ENV_TYPE;
+			delete process.env.PI_CURSOR_CLOUD_ENV_NAME;
+			delete process.env.CURSOR_CLOUD_SMOKE_ENV_TYPE;
+			delete process.env.CURSOR_CLOUD_SMOKE_ENV_NAME;
 			rmSync(artifactRoot, { recursive: true, force: true });
 		}
 	});
