@@ -6,6 +6,10 @@ import {
 	resolveCursorToolManifestEnabled,
 } from "./cursor-tool-manifest.js";
 import {
+	registerCursorCloudLifecycleLedger,
+	runCursorCloudLifecycleCommand,
+} from "./cursor-cloud-lifecycle.js";
+import {
 	buildCursorPiToolBridgeSnapshot,
 	CURSOR_PI_TOOL_BRIDGE_ENV,
 	resolveCursorPiToolBridgeEnabled,
@@ -478,6 +482,8 @@ export function getEffectiveFastForModelId(modelId: string): boolean | undefined
 }
 
 export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtensionApi): void {
+	registerCursorCloudLifecycleLedger(pi);
+
 	pi.registerFlag("cursor-fast", {
 		description: "Force Cursor fast mode for this run when the selected Cursor model supports it",
 		type: "boolean",
@@ -679,6 +685,13 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		description: "Show live Cursor tool surfaces for this session (maintainer debug)",
 		handler: async (_args, ctx) => {
 			emitCursorToolsDebugReport(pi, ctx);
+		},
+	});
+
+	pi.registerCommand("cursor-cloud", {
+		description: "List, archive, or delete recorded Cursor cloud agents for this session branch",
+		handler: async (args, ctx) => {
+			await runCursorCloudLifecycleCommand(pi, args, ctx);
 		},
 	});
 

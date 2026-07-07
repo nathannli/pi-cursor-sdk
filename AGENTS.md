@@ -73,7 +73,8 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-tool-transcript.ts` owns the raw `unknown toolCall -> transcript/display` façade; `src/cursor-transcript-tool-specs.ts`, `src/cursor-transcript-utils.ts`, and `src/cursor-transcript-tool-formatters.ts` implement spec dispatch and formatting.
 - `src/cursor-mcp-timeout-override.ts` owns Cursor SDK MCP timeout overrides: 3600s default for `callTool`, 10s default for verified initialize/listTools paths on first send, and SDK-default behavior for unknown MCP protocol stacks.
 - `src/cursor-config.ts` owns Cursor SDK config loading, parsing, source precedence, safety-cap resolution, cloud environment selection, and legacy fast-default config persistence.
-- `src/cursor-state.ts` owns Cursor runtime controls: `/cursor-fast`, `--cursor-fast`, `--cursor-no-fast`, `/cursor-mode`, `--cursor-mode`, `/cursor-tools`, and session state.
+- `src/cursor-cloud-lifecycle.ts` owns session-branch cloud lifecycle ledger entries and explicit `/cursor-cloud` list/archive/delete command behavior.
+- `src/cursor-state.ts` owns Cursor runtime controls: `/cursor-fast`, `--cursor-fast`, `--cursor-no-fast`, `/cursor-mode`, `--cursor-mode`, `/cursor-cloud`, `/cursor-tools`, and session state.
 - `src/context.ts`, `src/context-window-cache.ts`, and `src/bundled-context-windows.ts` handle prompt conversion and context-window caches.
 - `src/cursor-bridge-contract.ts` owns pi bridge MCP description helpers and the exported full bridge contract text (bootstrap/manifest carry the user-facing contract; MCP descriptions use a one-line pointer).
 - `src/cursor-tool-manifest.ts` owns bootstrap callable-surface manifest text (`PI_CURSOR_TOOL_MANIFEST`, default on).

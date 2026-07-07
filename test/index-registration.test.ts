@@ -137,6 +137,10 @@ describe("extension registration and discovery", () => {
 			expect.objectContaining({ description: expect.stringContaining("Show live Cursor tool surfaces") }),
 		);
 		expect(pi.registerCommand).toHaveBeenCalledWith(
+			"cursor-cloud",
+			expect.objectContaining({ description: expect.stringContaining("recorded Cursor cloud agents") }),
+		);
+		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-refresh-models",
 			expect.objectContaining({ description: expect.stringContaining("Refresh the live Cursor model catalog") }),
 		);

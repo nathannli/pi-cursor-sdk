@@ -8,7 +8,7 @@ import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { ModelThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai/compat";
 import { loadContextWindowCache } from "./context-window-cache.js";
 import { loadCursorSdk } from "./cursor-sdk-runtime.js";
-import { resolveCursorApiKey } from "./cursor-api-key.js";
+import { getCliCursorApiKeyFromArgv, resolveCursorApiKey, resolveCursorRuntimeApiKey } from "./cursor-api-key.js";
 import {
 	fingerprintApiKey,
 	loadAnyCachedModelCatalog,
@@ -16,7 +16,6 @@ import {
 	saveModelListCache,
 } from "./model-list-cache.js";
 
-const CURSOR_PROVIDER_ID = "cursor";
 const FALLBACK_CONTEXT_WINDOW = 128000;
 const FALLBACK_MAX_TOKENS = 16384;
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -41,41 +40,8 @@ export interface DiscoverModelsOptions {
 	forceRefresh?: boolean;
 }
 
-function getCliApiKeyFromArgv(argv: string[] = process.argv): string | undefined {
-	for (let index = 0; index < argv.length; index++) {
-		const arg = argv[index];
-		if (arg === "--api-key") {
-			const value = argv[index + 1];
-			if (!value || value.startsWith("--")) return undefined;
-			const trimmed = value.trim();
-			return trimmed || undefined;
-		}
-		const prefix = "--api-key=";
-		if (arg.startsWith(prefix)) {
-			const trimmed = arg.slice(prefix.length).trim();
-			return trimmed || undefined;
-		}
-	}
-	return undefined;
-}
-
-async function getStoredCursorApiKey(): Promise<string | undefined> {
-	try {
-		const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
-		return resolveCursorApiKey(await AuthStorage.create().getApiKey(CURSOR_PROVIDER_ID, { includeFallback: false }));
-	} catch {
-		return undefined;
-	}
-}
-
 async function getDiscoveryApiKey(): Promise<string | undefined> {
-	const cliApiKey = resolveCursorApiKey(getCliApiKeyFromArgv());
-	if (cliApiKey) return cliApiKey;
-
-	const storedApiKey = await getStoredCursorApiKey();
-	if (storedApiKey) return storedApiKey;
-
-	return resolveCursorApiKey(process.env.CURSOR_API_KEY);
+	return resolveCursorRuntimeApiKey();
 }
 
 export interface CursorModelMetadata {
@@ -522,6 +488,6 @@ export async function discoverModels(options: DiscoverModelsOptions = {}): Promi
 export const __testUtils = {
 	parseContextWindow,
 	registerModelItems,
-	getCliApiKeyFromArgv,
+	getCliApiKeyFromArgv: getCliCursorApiKeyFromArgv,
 	normalizeApiKey: resolveCursorApiKey,
 };

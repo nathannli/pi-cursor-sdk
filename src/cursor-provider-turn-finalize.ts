@@ -1,6 +1,7 @@
 import type { RunError, SDKAgent } from "@cursor/sdk";
 import { loadCursorTranscriptWebToolCallsAfterOffset } from "./cursor-agent-message-web-tools.js";
 import { collectCursorCloudRunReport, formatCursorCloudRunReport } from "./cursor-cloud-reporting.js";
+import { recordCursorCloudLifecycleRun } from "./cursor-cloud-lifecycle.js";
 import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-window-cache.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
@@ -154,6 +155,11 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 			});
 			params.sdkEventDebug?.recordProviderEvent("cloud_run_report", report);
 			displayOnlyTraceBlock = formatCursorCloudRunReport(report, { apiKey });
+			try {
+				recordCursorCloudLifecycleRun(report);
+			} catch (error) {
+				recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
+			}
 		} catch (error) {
 			recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
 		}

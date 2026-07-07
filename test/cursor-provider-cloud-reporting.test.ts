@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	collectEvents,
 	collectThinkingDeltas,
@@ -11,11 +11,24 @@ import {
 	type CursorDeltaHandler,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
+import {
+	CLOUD_LIFECYCLE_ENTRY_TYPE,
+	registerCursorCloudLifecycleLedger,
+	__testUtils as cloudLifecycleTestUtils,
+} from "../src/cursor-cloud-lifecycle.js";
+import { createPiHarness } from "./helpers/pi-harness.js";
 
 describe("streamCursor cloud reporting", () => {
-	beforeEach(resetCursorProviderTestState);
+	beforeEach(() => {
+		resetCursorProviderTestState();
+		cloudLifecycleTestUtils.reset();
+	});
 
-	it("streams bounded cloud completion telemetry without persisting it or applying raw usage to pi usage", async () => {
+	afterEach(() => {
+		cloudLifecycleTestUtils.reset();
+	});
+
+	it("streams bounded cloud completion telemetry, records lifecycle, and keeps raw usage out of pi usage", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
 		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
 		process.env.PI_CURSOR_CLOUD_ACK = "1";
@@ -28,6 +41,8 @@ describe("streamCursor cloud reporting", () => {
 		const listArtifacts = vi.fn().mockResolvedValue([
 			{ path: "artifacts/report.txt", sizeBytes: 12, updatedAt: "2026-07-07T00:00:00Z" },
 		]);
+		const pi = createPiHarness();
+		registerCursorCloudLifecycleLedger(pi);
 		mockCreatedAgent({
 			agentId: "bc-agent-1",
 			listArtifacts,
@@ -88,6 +103,14 @@ describe("streamCursor cloud reporting", () => {
 			expect(doneContent).not.toContain("github.com/acme/repo");
 			expect(doneContent).not.toContain("artifacts/report.txt");
 			expect(doneContent).not.toContain("raw usage");
+			expect(pi.appendEntry).toHaveBeenCalledWith(CLOUD_LIFECYCLE_ENTRY_TYPE, expect.objectContaining({
+				action: "record",
+				runtime: "cloud",
+				agentId: "bc-agent-1",
+				runId: "run-1",
+				branches: [expect.objectContaining({ branch: "cursor/work", prUrl: "https://github.com/acme/repo/pull/7" })],
+			}));
+			expect(pi.appendEntry.mock.calls[0]?.[1]).not.toHaveProperty("artifacts");
 		} finally {
 			fetchSpy.mockRestore();
 		}
