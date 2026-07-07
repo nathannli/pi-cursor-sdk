@@ -67,6 +67,7 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		sdkEventDebug?.recordProviderEvent("agent_send_start", payload);
 		const sendOptions: SendOptions = {
 			mode: meta.agentMode,
+			model: meta.modelSelection,
 			...(prepared.runtimeTarget === "local" && meta.localForce ? { local: { force: true } } : {}),
 			onDelta: (args) => {
 				sdkEventDebug?.recordOnDelta(args.update);

@@ -31,7 +31,7 @@ Use these labels when this roadmap states SDK/runtime behavior, pi product inten
 
 New behavior should start behind feature flags/config while current behavior remains the default. Use feature flags for maintainer validation and user/project config when the behavior is a real preference. After validation, defaults may flip, but keep an opt-out/fallback for a few releases when the behavior replaces a proven path such as MCP.
 
-**Implemented**: `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, first-use cloud acknowledgement, explicit save destinations, and trust-gated project config loading. Explicit cloud runtime now starts `Agent.create({ cloud })` after preflight, with fresh context by default and no pi bridge, inline MCP, or pi env forwarding. A minimal opt-in `npm run smoke:cloud` lane validates that path. Status footer shows local/cloud runtime using the canonical resolver path. Cloud agents are named from the pi session title when available. Explicit Cursor-managed cloud environment selection is wired without local env forwarding. Bounded cloud completion telemetry streams display-only agent/run IDs, branch/PR metadata, passive artifacts, and raw usage when available without persisting it into transcript content or feeding cloud usage into pi accounting. Current follow-up statuses: resume is ready behind feature flag/config; env forwarding, SDK agents, cleanup commands, URL display, inline cloud MCP, automatic local force, and remote Pi bridge are classified below.
+**Implemented**: `src/cursor-config.ts` provides the effective-config resolver with ordinary precedence, safety caps, fast-default migration, cloud/runtime/tool-transport/env scaffolding, first-use cloud acknowledgement, explicit save destinations, and trust-gated project config loading. Explicit cloud runtime now starts `Agent.create({ cloud })` after preflight, with fresh context by default and no pi bridge, inline MCP, or pi env forwarding. A minimal opt-in `npm run smoke:cloud` lane validates that path. Status footer shows local/cloud runtime using the canonical resolver path. Cloud agents are named from the pi session title when available. Explicit Cursor-managed cloud environment selection is wired without local env forwarding. Bounded cloud completion telemetry streams display-only agent/run IDs, branch/PR metadata, passive artifacts, and raw usage when available without persisting it into transcript content or feeding cloud usage into pi accounting. Guarded local branch-scoped SDK resume is implemented behind `local.resume` / `--cursor-local-resume` / `PI_CURSOR_LOCAL_RESUME`; cloud resume remains deferred until cloud cleanup/list/archive commands exist. Current follow-up statuses: env forwarding, SDK agents, cleanup commands, URL display, inline cloud MCP, automatic local force, and remote Pi bridge are classified below.
 
 **Pi policy**: target ordinary precedence (enforced by `src/cursor-config.ts` and tests):
 
@@ -64,6 +64,7 @@ Minimum config contract before implementation:
 | Cloud MCP (reserved) | —                                                                                        | —                                   | Rejected                            | Do not expose inline cloud MCP in the initial cloud runtime; revisit only with an SDK/API contract or passing live probes for first-run availability, per-send replacement, resume/resupply, and no hidden persistence. |
 | Tool transport       | `--cursor-tool-transport`, `PI_CURSOR_TOOL_TRANSPORT`                                    | `toolTransport`                     | ordinary with fallback            | `mcp` remains canonical until customTools parity is proven.                                                                                                            |
 | Local safety         | `--cursor-auto-review`, `PI_CURSOR_AUTO_REVIEW`; `--cursor-sandbox`, `PI_CURSOR_SANDBOX` | `local.autoReview`, `local.sandbox` | ordinary safety feature           | Defaults stay off to preserve current behavior.                                                                                                                        |
+| Local resume         | `--cursor-local-resume`, `PI_CURSOR_LOCAL_RESUME`                                      | `local.resume`                      | ordinary feature flag             | Defaults stay off. Local only; stores agent IDs in pi session custom entries, not config.                                                                               |
 | Fast defaults        | existing slash/config behavior                                                           | `fastDefaults`                      | ordinary                          | Migrate through the same resolver; do not strand old behavior.                                                                                                         |
 
 Config files:
@@ -101,7 +102,7 @@ Impact numbers rank product/user risk, not implementation order; sequencing is i
 | Impact | Area | Current code | SDK capability | Status / next condition |
 | -----: | ---- | ------------ | -------------- | ----------------------- |
 |      1 | Pi tool bridge vs SDK `customTools` | `src/cursor-pi-tool-bridge-run.ts` starts an HTTP MCP endpoint; `src/cursor-session-agent.ts` passes `mcpServers` into `Agent.create`. | `LocalAgentOptions.customTools` / `LocalSendOptions.customTools` expose caller functions through the SDK's synthetic `custom-user-tools` MCP server. | **Needs SDK/API change**. Keep loopback MCP canonical. Next condition: SDK cancellation/deadline support, or a pi-owned adapter that supplies abort signals, timeouts, child cleanup, diagnostics, permissions, and platform-smoke parity. |
-|      2 | Branch-scoped `Agent.resume()` | `src/cursor-session-agent.ts` uses `Agent.create()` and in-memory pooling. | `Agent.resume(agentId)` can reattach to local/cloud persisted agent state after process restart. | **Ready for implementation**. Build behind feature flag/config with branch/path/session identity, model/tool re-supply, fallback create+bootstrap, and cleanup guards listed below. Default-on resume stays deferred until tests/smoke prove it. |
+|      2 | Branch-scoped `Agent.resume()` | Local runtime uses in-memory pooling plus guarded session-custom-entry resume when `local.resume` is enabled; cloud runtime still creates a fresh cloud agent each turn. | `Agent.resume(agentId)` can reattach to local/cloud persisted agent state after process restart. | **Implemented** for default-off local resume. Cloud resume and default-on rollout remain deferred until cleanup commands and broader live smoke coverage exist. |
 |      3 | Automatic stuck-run recovery | Manual `send({ local: { force: true } })` is wired only when explicitly requested. | `LocalSendOptions.force` expires a stuck local active run in the persisted store before sending. | **Rejected** until pi owns session/run ownership, heartbeat/stale-process proof, active SDK run status read, stale threshold, stable idempotency key, and cross-handle warning. Manual force remains implemented. |
 |      4 | SDK `agents` / Cursor-native subagents | Cursor `task` activity is displayed, but `Agent.create` omits `agents`. | `AgentOptions.agents` defines Cursor-native subagents; file-based `.cursor/agents/*.md` also load from setting sources. | **Deferred by product decision**. Do not auto-map Pi subagents. Let Cursor load `.cursor/agents/*.md`; add explicit config only after product decision. |
 |      5 | Cloud reporting | Explicit cloud runtime starts `Agent.create({ cloud })` after preflight, with fresh context by default, no pi bridge/local MCP/env forwarding, runtime-aware footer status through the canonical resolver, cloud agent names from the pi session title, and explicit Cursor-managed cloud environment selection. | Cloud agent/run IDs, branch/PR metadata, artifacts, cancel/archive/delete, and raw usage endpoints exist. | **Implemented** for bounded stream-only display telemetry: agent id, run id, pushed branch, PR URL, passive artifact list, and raw usage when available. Cloud usage is not fed into pi usage/occupancy/compaction totals. URL display and cleanup commands stay deferred by product decision. |
@@ -148,26 +149,29 @@ A customTools adapter is acceptable only if all are true:
 - Approval/permission behavior is no looser than the current bridge path.
 - `npm run smoke:platform:all` passes on macOS, Ubuntu, and Windows native.
 
-## Branch-scoped SDK Agent.resume — Ready for implementation
+## Branch-scoped SDK Agent.resume — Implemented for guarded local resume
 
-Resume is desirable for both local and cloud agents, and the evidence sweep resolved the SDK contract enough for guarded implementation behind feature flag/config. It must respect pi's session tree semantics. Do not persist one SDK `agentId` per pi session file and reuse it across all branches.
+Resume is desirable for both local and cloud agents, and the evidence sweep resolved the SDK contract enough for guarded implementation behind feature flag/config. The current implementation is intentionally local-only and default-off. It respects pi's session tree semantics by restoring only records found on the active pi branch path and still must not persist one SDK `agentId` per pi session file for all branches.
 
-Acceptance criteria before default-on resume:
+Implemented local slice:
 
-- Persist SDK agent IDs only in pi session custom entries, not user/project config.
-- Identity key includes pi session file/id, active branch/path identity or ancestor hash, cwd/repo root, model selection, tool-surface signature, and compaction generation.
-- Always pass current pi model on resume/send.
-- Always resupply current tool transport; recreate/bootstrap if the surface cannot be restored.
-- Missing/deleted/archived/unavailable resume falls back to create + bootstrap with one continuity card.
-- Tests cover `/tree`, `/fork`, `/clone`, import/session switch, compaction, model change, API key change, and tool-surface change.
-- Cleanup rejects empty SDK delete filters and only deletes IDs recorded by this extension.
-- Default-on resume remains deferred until implementation tests/smoke prove it.
-- Reuse across fork/clone/import by copied custom entry alone is rejected.
+- Persist local SDK agent IDs only in pi session custom entries, not user/project config.
+- Local identity includes pi session file/id, active branch/path prefix hash, cwd/repo root, model/API/tool-surface pool key, and compaction generation.
+- Pass current pi model on every `agent.send()` and pass current local tool transport to `Agent.resume(...options)`.
+- Missing/deleted/unavailable local resume falls back to create + bootstrap with one display-only continuity note.
+- Tests cover default-off behavior, matching branch restore, copied session-entry rejection, tree/compaction clearing, compaction generation mismatch, model/API/tool-surface pool-key mismatch, resume failure fallback, and custom-entry persistence.
+
+Remaining before default-on or cloud resume:
+
+- Cloud resume remains deferred until list/archive/delete cleanup commands exist.
+- Cleanup must reject empty SDK delete filters and only delete IDs recorded by this extension.
+- Broader live smoke must prove tree, fork, clone, import/session switch, compaction, abort, tool-surface changes, and resume failure fallback.
+- Reuse across fork/clone/import by copied custom entry alone remains rejected.
 
 Persistence:
 
 - Store SDK agent identity in pi session custom entries because agent IDs are session/branch state.
-- Store concrete pi branch/path identity metadata with the SDK agent ID so reuse can be strict. Required fields include pi session id/file, active leaf id, active path prefix or ancestor-chain hash, cwd/repo root, SDK agent id, model selection, tool surface signature, and post-compaction generation.
+- Store concrete pi branch/path identity metadata with the SDK agent ID so reuse can be strict. Current local fields include pi session id/file, active path prefix hash, cwd/repo root, SDK agent id, model/API/tool-surface pool key, send state, and post-compaction generation.
 - Do not store SDK agent IDs in user/project config.
 
 Identity and fallback rules:
@@ -185,7 +189,7 @@ Reuse rules:
 - Same active branch/path after process restart: resume the recorded SDK agent when the session file/id and branch/path match.
 - `/compact` is an SDK-agent boundary. Pi compaction shrinks pi's transcript; it does not shrink Cursor's existing agent thread. After compaction, create or resume a post-compaction SDK agent bootstrapped from the compacted pi context and record that new agent for the active branch.
 - Overflow recovery relies on the compaction boundary. A Cursor context overflow is rewritten to `context_length_exceeded` so pi compacts and retries; preserving the pre-compaction SDK agent would retry against the same full Cursor-side thread and likely overflow again.
-- In cloud mode, compaction should show a clear continuity card such as: “Context compacted; continuing in a new Cursor cloud agent from the compacted pi summary.” Do not hide the agent handoff.
+- In cloud mode, resume is not enabled yet. Future cloud resume/compaction should show a clear continuity card such as: “Context compacted; continuing in a new Cursor cloud agent from the compacted pi summary.” Do not hide the agent handoff.
 - `/tree` to a branch/path with a matching recorded SDK agent: resume that agent.
 - `/tree` to a branch/path with no matching SDK agent: create a new SDK agent and bootstrap from pi's active context.
 - `/tree` moving back to an earlier point must not reuse an SDK agent that has seen messages beyond the selected leaf. If the active pi context path is not an exact match for the SDK agent's recorded path prefix, create a new SDK agent.
@@ -203,7 +207,7 @@ Garbage collection:
 
 Rollout:
 
-- Branch-scoped resume starts behind feature flag/config.
+- Branch-scoped local resume has started behind feature flag/config.
 - Current create/bootstrap behavior remains default until live validation proves resume handles tree, fork, clone, compaction, abort, tool-surface changes, resume failure fallback, and cleanup.
 
 Required resume probes/tests before flipping defaults:
@@ -213,8 +217,8 @@ Required resume probes/tests before flipping defaults:
 | Tool re-supply without accidental persistence | **Validated**                      | Missing resupply fails; `send({ local: { customTools } })` succeeds.                                                                                                       |
 | Model re-supply every turn                    | **Validated**                      | `modelBeforeSend: null` after resume until `send({ model })`.                                                                                                              |
 | MCP bridge Pi tool through real pi lifecycle  | **Validated**                      | Loopback-style `mcpServers` must be re-supplied on resume; missing resupply can finish as assistant-visible MCP failure.                                                   |
-| Fork isolation                                | **Pi policy**                      | Resume implementation must add branch identity tests for `/tree`, `/fork`, `/clone`, session import, and compaction; there is no SDK contract left to probe before coding. |
-| Post-compaction new SDK agent                 | **Pi policy**                      | Compaction boundary is pi-owned.                                                                                                                                           |
+| Fork isolation                                | **Pi policy**                      | Local implementation rejects copied session-entry reuse through session file/id and active-branch-prefix identity. More live tree/fork/clone/import smoke remains before default-on. |
+| Post-compaction new SDK agent                 | **Pi policy**                      | Local implementation treats compaction generation as an identity boundary. Broader live compaction smoke remains before default-on.                                          |
 | `RunResult.usage` without `turn-ended`        | **Rejected**                       | Local Composer 2.5 returns `RunResult.usage`, but real long-session evidence shows it can represent full agent context and poison pi compaction totals. Do not use it for pi message usage. |
 | Bounded pi estimate fallback                  | **Pi policy**                      | Use bounded pi estimates when `turn-ended` is absent or outside the selected model window.                                                                                  |
 | Empty delete filters rejected                 | **Pi policy**                      | SDK local-store delete filters treat omitted or empty IDs as match-all; pi must guard before SDK store calls.                                                              |
@@ -443,7 +447,7 @@ Cloud implementation decisions after grill-me mode (2026-07-06):
 
 Outstanding user decisions are cleared for initial cloud runtime wiring. Implementation status is explicit:
 
-- **Ready for implementation**: branch-scoped SDK resume behind feature flag/config, with the acceptance criteria above.
+- **Implemented**: guarded local branch-scoped SDK resume behind `local.resume` / `--cursor-local-resume` / `PI_CURSOR_LOCAL_RESUME`; cloud/default-on resume remains deferred.
 - **Implemented**: cloud reporting bounded slice — stream display-only agent id, run id, pushed branch, PR URL, passive artifact list, and raw usage.
 - **Rejected**: automatic local force until pi owns ownership/heartbeat/idempotency design plus stale no-owner and competing-live-owner probes.
 - **Needs SDK/API change**: default Pi-tool transport migration to `customTools` until cancellation/deadline support exists or pi owns a full adapter.

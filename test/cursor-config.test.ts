@@ -17,6 +17,7 @@ import {
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
 	CURSOR_LOCAL_FORCE_ENV,
+	CURSOR_LOCAL_RESUME_ENV,
 	cursorFastDefaultsFromConfig,
 	getCursorSdkProjectConfigPath,
 	getCursorSdkUserConfigPath,
@@ -283,17 +284,19 @@ describe("Cursor SDK config resolver", () => {
 	});
 
 	it("resolves local safety controls by CLI, env, project, user, built-in order", () => {
-		const user = { local: { autoReview: true, sandboxOptions: { enabled: true }, force: true } };
-		const project = { local: { autoReview: false, sandbox: false, force: true } };
+		const user = { local: { autoReview: true, sandboxOptions: { enabled: true }, force: true, resume: true } };
+		const project = { local: { autoReview: false, sandbox: false, force: true, resume: false } };
 
 		expect(resolveCursorSdkConfig().local.autoReview).toMatchObject({ value: false, source: "builtin" });
 		expect(resolveCursorSdkConfig().local.force).toMatchObject({ value: false, source: "builtin" });
+		expect(resolveCursorSdkConfig().local.resume).toMatchObject({ value: false, source: "builtin" });
 		expect(resolveCursorSdkConfig({ user }).local.sandboxEnabled).toMatchObject({ value: true, source: "user" });
 		expect(resolveCursorSdkConfig({ user, project }).local.autoReview).toMatchObject({ value: false, source: "project" });
 		expect(resolveCursorSdkConfig({ user, project }).local.force).toMatchObject({ value: false, source: "builtin" });
+		expect(resolveCursorSdkConfig({ user, project }).local.resume).toMatchObject({ value: false, source: "project" });
 		expect(
 			resolveCursorSdkConfig({
-				env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "true", [CURSOR_LOCAL_FORCE_ENV]: "1" },
+				env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "true", [CURSOR_LOCAL_FORCE_ENV]: "1", [CURSOR_LOCAL_RESUME_ENV]: "1" },
 				user,
 				project,
 			}).local,
@@ -301,11 +304,12 @@ describe("Cursor SDK config resolver", () => {
 			autoReview: expect.objectContaining({ value: true, source: "environment" }),
 			sandboxEnabled: expect.objectContaining({ value: true, source: "environment" }),
 			force: expect.objectContaining({ value: true, source: "environment" }),
+			resume: expect.objectContaining({ value: true, source: "environment" }),
 		});
 		expect(
 			resolveCursorSdkConfig({
-				cli: { local: { autoReview: false, sandboxOptions: { enabled: false }, force: false } },
-				env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "1", [CURSOR_LOCAL_FORCE_ENV]: "1" },
+				cli: { local: { autoReview: false, sandboxOptions: { enabled: false }, force: false, resume: false } },
+				env: { [CURSOR_AUTO_REVIEW_ENV]: "1", [CURSOR_SANDBOX_ENV]: "1", [CURSOR_LOCAL_FORCE_ENV]: "1", [CURSOR_LOCAL_RESUME_ENV]: "1" },
 				user,
 				project,
 			}).local,
@@ -313,6 +317,7 @@ describe("Cursor SDK config resolver", () => {
 			autoReview: expect.objectContaining({ value: false, source: "cli" }),
 			sandboxEnabled: expect.objectContaining({ value: false, source: "cli" }),
 			force: expect.objectContaining({ value: false, source: "cli" }),
+			resume: expect.objectContaining({ value: false, source: "cli" }),
 		});
 	});
 });

@@ -8,6 +8,10 @@ import {
 } from "./cursor-pi-tool-bridge.js";
 import { computeCursorContextFingerprint } from "./context.js";
 import { getCursorSessionScopeGeneration, getCursorSessionScopeKey } from "./cursor-session-scope.js";
+import {
+	getMatchingCursorSessionAgentResumeHandle,
+	persistCursorSessionAgentResumeHandle,
+} from "./cursor-session-agent-resume.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
 import { loadCursorSdk, type CursorSdkModule } from "./cursor-sdk-runtime.js";
 
@@ -25,6 +29,8 @@ export interface SessionCursorAgentLease {
 	bridgeRun?: CursorPiToolBridgeRun;
 	sendState: SessionCursorAgentSendState;
 	created: boolean;
+	resumed?: boolean;
+	resumeNotice?: string;
 	commitSend(context: Context, bootstrapped: boolean): void;
 	trackRunCompletion(completion: Promise<unknown>): void;
 }
@@ -46,12 +52,18 @@ interface SessionCursorAgentReadyEntry extends SessionCursorAgentPoolEntryBase {
 	status: "ready";
 	agent: SDKAgent;
 	bridgeRun?: CursorPiToolBridgeRun;
+	resumeEnabled: boolean;
+	resumed: boolean;
+	resumeNotice?: string;
 }
 
 interface SessionCursorAgentBusyEntry extends SessionCursorAgentPoolEntryBase {
 	status: "busy";
 	agent: SDKAgent;
 	bridgeRun?: CursorPiToolBridgeRun;
+	resumeEnabled: boolean;
+	resumed: boolean;
+	resumeNotice?: string;
 	completionSettled: Promise<void>;
 	pendingCompletion: Promise<void>;
 	releaseBusyWait: () => void;
@@ -106,7 +118,9 @@ interface SessionCursorAgentCreateParams {
 	localSafety?: CursorLocalSafetyOptions;
 	onBridgeToolRequest?: (request: CursorPiBridgeToolRequest) => void;
 	debugRecorder?: CursorSdkEventDebugRecorder;
+	localResume?: boolean;
 	createAgent?: CursorSdkModule["Agent"]["create"];
+	resumeAgent?: CursorSdkModule["Agent"]["resume"];
 }
 
 const sessionAgentsByScope = new Map<string, SessionCursorAgentPoolEntry>();
@@ -252,9 +266,17 @@ function commitSessionAgentSendForLease(
 	entry.sendState.contextFingerprint = computeCursorContextFingerprint(context);
 	if (bootstrapped) {
 		entry.sendState.incrementalSendCount = 0;
-		return;
+	} else {
+		entry.sendState.incrementalSendCount += 1;
 	}
-	entry.sendState.incrementalSendCount += 1;
+	if (entry.resumeEnabled) {
+		persistCursorSessionAgentResumeHandle({
+			runtime: "local",
+			agentId: entry.agent.agentId,
+			poolKey: entry.poolKey,
+			sendState: entry.sendState,
+		});
+	}
 }
 
 function normalizeRunCompletion(completion: Promise<unknown>): Promise<void> {
@@ -328,6 +350,8 @@ function leaseFromEntry(
 ): SessionCursorAgentLease {
 	bindBridgeToolRequest(entry, params.onBridgeToolRequest);
 	entry.bridgeRun?.setDebugRecorder(params.debugRecorder);
+	const resumeNotice = entry.resumeNotice;
+	entry.resumeNotice = undefined;
 	return {
 		scopeKey,
 		poolKey: entry.poolKey,
@@ -336,6 +360,8 @@ function leaseFromEntry(
 		bridgeRun: entry.bridgeRun,
 		sendState: entry.sendState,
 		created,
+		resumed: entry.resumed,
+		...(resumeNotice ? { resumeNotice } : {}),
 		commitSend: (context, bootstrapped) => {
 			commitSessionAgentSendForLease(scopeKey, entry.poolKey, entry.instanceId, context, bootstrapped);
 		},
@@ -392,20 +418,36 @@ async function createSessionAgentEntry(
 	}
 
 	const resolvedPoolKey = buildSessionAgentPoolKey(scopeKey, params);
-	const createAgent = params.createAgent ?? (await loadCursorSdk()).Agent.create;
-	let agent: SDKAgent;
+	const sdk = !params.createAgent || (params.localResume === true && !params.resumeAgent) ? await loadCursorSdk() : undefined;
+	const createAgent = params.createAgent ?? sdk!.Agent.create;
+	const resumeAgent = params.resumeAgent ?? sdk?.Agent.resume;
+	const agentOptions = {
+		apiKey: params.apiKey,
+		model: params.modelSelection,
+		mode: params.agentMode,
+		local: buildCursorLocalAgentOptions({
+			cwd: params.cwd,
+			settingSources: params.settingSources,
+			localSafety: params.localSafety,
+		}),
+		...(bridgeRun?.mcpServers ? { mcpServers: bridgeRun.mcpServers } : {}),
+	};
+	let agent: SDKAgent | undefined;
+	let effectiveSendState = sendState;
+	let resumed = false;
+	let resumeNotice: string | undefined;
+	const resumeHandle = params.localResume ? getMatchingCursorSessionAgentResumeHandle(resolvedPoolKey) : undefined;
+	if (resumeHandle && resumeAgent) {
+		try {
+			agent = await resumeAgent(resumeHandle.agentId, agentOptions);
+			effectiveSendState = { ...resumeHandle.sendState };
+			resumed = true;
+		} catch {
+			resumeNotice = "Could not resume prior Cursor agent; continuing from current pi transcript in a new Cursor agent.";
+		}
+	}
 	try {
-		agent = await createAgent({
-			apiKey: params.apiKey,
-			model: params.modelSelection,
-			mode: params.agentMode,
-			local: buildCursorLocalAgentOptions({
-				cwd: params.cwd,
-				settingSources: params.settingSources,
-				localSafety: params.localSafety,
-			}),
-			...(bridgeRun?.mcpServers ? { mcpServers: bridgeRun.mcpServers } : {}),
-		});
+		agent ??= await createAgent(agentOptions);
 	} catch (error) {
 		if (bridgeRun) {
 			bridgeRun.cancel("Cursor session agent create failed");
@@ -417,6 +459,7 @@ async function createSessionAgentEntry(
 		}
 		throw error;
 	}
+	if (!agent) throw new Error("Cursor SDK agent creation returned no agent");
 
 	return {
 		status: "ready",
@@ -425,7 +468,10 @@ async function createSessionAgentEntry(
 		scopeKey,
 		agent,
 		bridgeRun,
-		sendState,
+		sendState: effectiveSendState,
+		resumeEnabled: params.localResume === true,
+		resumed,
+		...(resumeNotice ? { resumeNotice } : {}),
 	};
 }
 

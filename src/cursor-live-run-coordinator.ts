@@ -48,6 +48,7 @@ export interface CursorLiveRun {
 	emittedText: string;
 	recordedToolDisplayIds: string[];
 	finalText?: string;
+	resumeNotice?: string;
 	done: boolean;
 	cancelled: boolean;
 	disposed: boolean;

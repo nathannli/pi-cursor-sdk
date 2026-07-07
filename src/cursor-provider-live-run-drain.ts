@@ -22,6 +22,7 @@ import { type CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
 import { resetSessionCursorAgent } from "./cursor-session-agent.js";
 import { applyCursorUsage } from "./cursor-usage-accounting.js";
 import { CursorPartialContentEmitter } from "./cursor-partial-content-emitter.js";
+import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
 import { trimCurrentTurnAlreadyEmittedCursorText } from "./cursor-run-final-text.js";
 import { formatCursorSdkAbortMessage, resolveCursorSdkAbortCause } from "./cursor-provider-errors.js";
 import { formatInactiveCursorReplayTrace } from "./cursor-native-replay-trace.js";
@@ -379,6 +380,10 @@ export async function drainCursorLiveRunTurn(
 				applyCursorUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens), {
 					turn: cursorLiveRuns.takeSdkTurnUsage(run),
 				});
+				if (run.resumeNotice) {
+					emitDisplayOnlyTraceBlock(stream, partial, run.resumeNotice);
+					run.resumeNotice = undefined;
+				}
 				partial.stopReason = "stop";
 				stream.push({ type: "done", reason: "stop", message: partial });
 				await cursorLiveRuns.release(run);

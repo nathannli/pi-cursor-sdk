@@ -10,8 +10,9 @@ import type {
 	ToolCallEvent,
 	ToolCallEventResult,
 	ToolResultEvent,
+	TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
-import { createDefaultSystemPromptOptions, createExtensionTestContext } from "./context-fixtures.js";
+import { createDefaultSystemPromptOptions, createExtensionTestContext, makeAssistantMessage } from "./context-fixtures.js";
 import type {
 	EventHarness,
 	ExtensionContextOverrides,
@@ -242,6 +243,23 @@ function createHarnessEventApi(): EventHarness {
 		await invokeEvent("turn_start", { type: "turn_start", turnIndex: 1, timestamp: Date.now() }, ctxOverrides);
 	};
 
+	const runTurnEnd = async (
+		eventOverrides: Partial<TurnEndEvent> = {},
+		ctxOverrides: ExtensionContextOverrides = {},
+	): Promise<void> => {
+		await invokeEvent(
+			"turn_end",
+			{
+				type: "turn_end",
+				turnIndex: 1,
+				message: makeAssistantMessage("") as TurnEndEvent["message"],
+				toolResults: [],
+				...eventOverrides,
+			},
+			ctxOverrides,
+		);
+	};
+
 	const runSessionShutdown = async (
 		eventOverrides: Partial<HarnessEventMap["session_shutdown"]> = {},
 		ctxOverrides: ExtensionContextOverrides = {},
@@ -369,6 +387,7 @@ function createHarnessEventApi(): EventHarness {
 		runModelSelect,
 		runBeforeAgentStart,
 		runTurnStart,
+		runTurnEnd,
 		runSessionShutdown,
 		runSessionBeforeCompact,
 		runSessionCompact,
