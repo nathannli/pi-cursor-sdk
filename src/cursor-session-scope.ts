@@ -1,7 +1,8 @@
-import type { ExtensionHandler, SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionHandler, SessionInfoChangedEvent, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 
 interface CursorSessionScopeExtensionApi {
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
+	on(event: "session_info_changed", handler: ExtensionHandler<SessionInfoChangedEvent>): void;
 }
 
 const ANONYMOUS_SESSION_SCOPE_KEY = "__anonymous__";
@@ -13,6 +14,7 @@ const state = {
 	sessionCwd: process.cwd(),
 	sessionFile: undefined as string | undefined,
 	sessionId: undefined as string | undefined,
+	sessionName: undefined as string | undefined,
 	projectTrusted: false,
 	sessionGeneration: 0,
 };
@@ -55,10 +57,26 @@ export function getCursorSessionProjectTrusted(): boolean {
 	return state.projectTrusted;
 }
 
-function setCursorSessionScope(cwd: string, sessionFile: string | undefined, sessionId?: string, projectTrusted = false): void {
+export function getCursorSessionName(): string | undefined {
+	return state.sessionName;
+}
+
+function normalizeCursorSessionName(name: string | undefined): string | undefined {
+	const trimmed = name?.trim();
+	return trimmed ? trimmed : undefined;
+}
+
+function setCursorSessionScope(
+	cwd: string,
+	sessionFile: string | undefined,
+	sessionId?: string,
+	projectTrusted = false,
+	sessionName?: string,
+): void {
 	state.sessionCwd = cwd;
 	state.sessionFile = sessionFile;
 	state.sessionId = sessionId;
+	state.sessionName = normalizeCursorSessionName(sessionName);
 	state.projectTrusted = projectTrusted;
 	state.sessionGeneration = nextSessionGeneration;
 	nextSessionGeneration += 1;
@@ -69,6 +87,7 @@ function resetCursorSessionScope(): void {
 	state.sessionCwd = process.cwd();
 	state.sessionFile = undefined;
 	state.sessionId = undefined;
+	state.sessionName = undefined;
 	state.projectTrusted = false;
 	state.sessionGeneration = 0;
 	nextSessionGeneration = 1;
@@ -88,10 +107,14 @@ export function registerCursorSessionScope(pi: CursorSessionScopeExtensionApi): 
 			ctx.sessionManager?.getSessionFile?.() ?? undefined,
 			ctx.sessionManager?.getSessionId?.() ?? undefined,
 			ctx.isProjectTrusted?.() === true,
+			ctx.sessionManager?.getSessionName?.() ?? undefined,
 		);
 		if (previousScopeKey !== getCursorSessionScopeKey()) {
 			await scopeChangeHandler?.(previousScopeKey);
 		}
+	});
+	pi.on("session_info_changed", (event) => {
+		state.sessionName = normalizeCursorSessionName(event.name);
 	});
 }
 
