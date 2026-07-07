@@ -1,6 +1,8 @@
 import type { RunError, SDKAgent } from "@cursor/sdk";
 import { loadCursorTranscriptWebToolCallsAfterOffset } from "./cursor-agent-message-web-tools.js";
+import { collectCursorCloudRunReport, formatCursorCloudRunReport } from "./cursor-cloud-reporting.js";
 import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-window-cache.js";
+import { scrubSensitiveText } from "./cursor-sensitive-text.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import type { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
 import {
@@ -78,6 +80,22 @@ async function replayCursorTranscriptWebToolCalls(
 	}
 }
 
+function scrubCursorCloudReportingError(error: unknown, apiKey: string | undefined): Error {
+	return new Error(scrubSensitiveText(error instanceof Error ? error.message : String(error), apiKey));
+}
+
+function recordCursorCloudReportingError(
+	sdkEventDebug: CursorSdkEventDebugSink | undefined,
+	error: unknown,
+	apiKey: string | undefined,
+): void {
+	try {
+		sdkEventDebug?.recordError("cloud_run_report", scrubCursorCloudReportingError(error, apiKey));
+	} catch {
+		// Debug reporting must never affect provider execution.
+	}
+}
+
 export interface AwaitFinalizeCursorRunOutcomeParams {
 	run: Awaited<ReturnType<SDKAgent["send"]>>;
 	prepared: CursorProviderTurnPrepareResult;
@@ -95,8 +113,13 @@ export interface AwaitFinalizeCursorRunOutcomeParams {
 	contextWindowAgentId?: string;
 }
 
+export interface FinalizedCursorRunOutcome {
+	outcome: CursorRunOutcome;
+	displayOnlyTraceBlock?: string;
+}
+
 /** Single wait/finalize path for SDK runs: wait, debug capture, transcript replay, incomplete tools, artifacts, context cache. */
-export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorRunOutcomeParams): Promise<CursorRunOutcome> {
+export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorRunOutcomeParams): Promise<FinalizedCursorRunOutcome> {
 	const waitResult = params.waitResult ?? (await params.run.wait());
 	params.sdkEventDebug?.recordWaitResult(waitResult);
 	const outcome = buildCursorRunOutcomeFromWait({
@@ -119,8 +142,24 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 	}
 	params.prepared.runtime.turnCoordinator.discardIncompleteStartedToolCalls(outcome.incompleteTools);
 	await params.sdkEventDebug?.captureRunArtifacts(params.run);
+	let displayOnlyTraceBlock: string | undefined;
+	if (params.prepared.runtimeTarget === "cloud" && isCursorRunFinishedSuccessfully(outcome)) {
+		const apiKey = params.resolvedApiKey ?? params.optionsApiKey;
+		try {
+			const report = await collectCursorCloudRunReport({
+				agent: params.prepared.agent,
+				run: params.run,
+				waitResult,
+				apiKey,
+			});
+			params.sdkEventDebug?.recordProviderEvent("cloud_run_report", report);
+			displayOnlyTraceBlock = formatCursorCloudRunReport(report, { apiKey });
+		} catch (error) {
+			recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
+		}
+	}
 	if (params.prepared.runtimeTarget === "local" && params.cacheContextWindow !== false) {
 		await cacheSdkContextWindow(params.contextWindowAgentId ?? params.run.agentId, params.modelId, params.prepared.cwd);
 	}
-	return outcome;
+	return { outcome, displayOnlyTraceBlock };
 }

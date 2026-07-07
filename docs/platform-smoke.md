@@ -153,7 +153,7 @@ Run:
 npm run smoke:cloud
 ```
 
-The current lane is intentionally minimal: it starts one non-interactive cloud run with explicit acknowledgement, fresh context, no pi bridge, no env forwarding, SDK event-debug contract checks, and cloud-agent archival cleanup. It must fail closed when requested but unavailable:
+The current lane is intentionally minimal: it starts one non-interactive cloud run with explicit acknowledgement, fresh context, no pi bridge, no env forwarding, SDK event-debug contract checks, bounded stream-only cloud report shape checks, and cloud-agent archival cleanup. Raw usage/artifact presence is account-dependent, so display-only accounting and artifact formatting contracts stay covered by unit/provider tests. It must fail closed when requested but unavailable:
 
 - missing cloud-capable credentials, repo access, or cloud entitlement → report **blocked**, not skipped-ready;
 - no non-interactive prompts; every needed cloud choice must come from CLI/env/config;
@@ -161,7 +161,7 @@ The current lane is intentionally minimal: it starts one non-interactive cloud r
 - do not forward local env values;
 - archive the throwaway cloud agent when the SDK/API returns an agent id.
 
-Future expanded cloud smoke work should add throwaway repo/branch coverage, dirty/unpushed warning assertions, branch/PR behavior, explicit direct-push opt-in, missing-branch failure, cancel/delete cleanup, and cloud artifact/usage reporting when those features are wired into pi.
+Future expanded cloud smoke work should add throwaway repo/branch coverage, dirty/unpushed warning assertions, branch/PR behavior, explicit direct-push opt-in, missing-branch failure, cancel/delete cleanup, and account-backed artifact/raw-usage fixtures when those contracts need live proof beyond the current report-shape smoke.
 
 This lane is a cloud-runtime release gate, not a substitute for the local macOS/Ubuntu/Windows `smoke:platform:all` gate.
 

@@ -11,6 +11,7 @@
 - Show Cursor runtime directly in the interactive status footer (`cursor:local · fast:on|off|n/a`, `cursor:cloud · fast:n/a`) so cloud opt-in is visible.
 - Name explicit Cursor cloud agents from the current pi session title when available so Cursor Cloud agent lists are easier to match back to pi sessions.
 - Add explicit Cursor-managed cloud environment selection with `--cursor-cloud-env-type`, `--cursor-cloud-env-name`, `PI_CURSOR_CLOUD_ENV_TYPE`, `PI_CURSOR_CLOUD_ENV_NAME`, and `cloud.environment.type/name` user config. This selects Cursor Cloud `cloud` / `pool` / `machine` environments without forwarding local env values.
+- Stream bounded display-only Cursor Cloud completion telemetry when available: agent/run IDs, pushed branch and PR URL with fetch/checkout hint, passive artifact paths, and raw cloud usage without persisting it into transcript content or feeding that usage into pi accounting.
 
 ### Fixed
 
