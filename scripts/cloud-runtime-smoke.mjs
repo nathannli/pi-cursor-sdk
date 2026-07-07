@@ -148,6 +148,19 @@ function readLatestMetadataIfPresent(artifactDir) {
 	return { metadataPath, metadata: JSON.parse(readFileSync(metadataPath, "utf8")) };
 }
 
+function resolveMetadataArtifactPath(metadataPath, artifactPath) {
+	if (!artifactPath) return undefined;
+	return resolve(artifactPath) === artifactPath ? artifactPath : join(dirname(metadataPath), artifactPath);
+}
+
+function readJsonlIfPresent(path) {
+	if (!path || !existsSync(path)) return [];
+	return readFileSync(path, "utf8")
+		.split(/\n+/)
+		.filter(Boolean)
+		.map((line) => JSON.parse(line));
+}
+
 async function archiveCloudAgent(agentId) {
 	if (!agentId) return;
 	const { Agent } = await import("@cursor/sdk");
@@ -161,6 +174,14 @@ function assertCloudMetadata(metadata, metadataPath) {
 	if (metadata.send?.useNativeToolReplay !== false) fail("cloud send unexpectedly enabled native replay live-run mode", metadataPath);
 	if (metadata.send?.agentMode !== "agent") fail("cloud send did not use agent mode", metadataPath);
 	if (!metadata.run?.agentId?.startsWith?.("bc-")) fail("cloud run did not return a cloud agent id", metadataPath);
+	const providerEventsPath = resolveMetadataArtifactPath(metadataPath, metadata.artifacts?.providerEvents);
+	const providerEvents = readJsonlIfPresent(providerEventsPath);
+	const report = providerEvents.find((event) => event.phase === "cloud_run_report")?.payload;
+	if (report?.agentId !== metadata.run.agentId) fail("cloud report did not include the cloud agent id", providerEventsPath ?? metadataPath);
+	if (report?.runId !== metadata.run.runId) fail("cloud report did not include the cloud run id", providerEventsPath ?? metadataPath);
+	if (!Array.isArray(report.branches)) fail("cloud report branches were not an array", providerEventsPath ?? metadataPath);
+	if (report.artifacts !== undefined && !Array.isArray(report.artifacts)) fail("cloud report artifacts were not an array", providerEventsPath ?? metadataPath);
+	if (report.usage !== undefined && (typeof report.usage !== "object" || report.usage === null)) fail("cloud report usage was not an object", providerEventsPath ?? metadataPath);
 }
 
 async function main() {

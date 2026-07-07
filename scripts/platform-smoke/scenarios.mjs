@@ -82,7 +82,7 @@ NATIVE_MATRIX_OK package=<name> grep=<yes/no> find=<yes/no> list=<yes/no> shell=
 			{
 				id: "native-read-package",
 				pattern: "^\\s*read\\s+(?:(?:\\./)?package\\.json|.*[\\\\/]package\\.json)\\s*$",
-				wrappedPattern: "^\\s*read\\s+.*[\\\\/]package\\.j(?:son|s)\\s+on\\s*$",
+				wrappedPattern: "^\\s*read\\s+.*[\\\\/]package\\.(?:json|js\\s+on|j\\s*son)\\s*$",
 				jsonlResultId: "native-read-package",
 			},
 			{ id: "native-shell-success", pattern: "^\\s*cursor visual smoke\\s*$", jsonlResultId: "native-shell-output" },
@@ -141,7 +141,7 @@ BRIDGE_MATRIX_OK bash_ok=<yes/no> read_ok=<yes/no> read_missing_error=<yes/no>`,
 			{
 				id: "bridge-read-success",
 				pattern: "^\\s*read\\s+(?:\\./package\\.json|.*[\\\\/]package\\.j(?:son|s))\\s*$",
-				wrappedPattern: "^\\s*read\\s+.*[\\\\/]package\\.j(?:son|s)\\s+on\\s*$",
+				wrappedPattern: "^\\s*read\\s+.*[\\\\/]package\\.(?:json|js\\s+on|j\\s*son)\\s*$",
 				jsonlResultId: "bridge-read-success",
 			},
 			{ id: "bridge-read-failure", pattern: "^\\s*read \\./definitely-missing-platform-smoke-file\\.txt|ENOENT: no such file", jsonlResultId: "bridge-read-failure" },

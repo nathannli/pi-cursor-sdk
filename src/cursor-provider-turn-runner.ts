@@ -129,8 +129,13 @@ export class CursorProviderTurnRunner {
 				contextWindowAgentId: prepared.contextWindowAgentId,
 			});
 			if (prepared.runtimeTarget === "local") prepared.sessionAgentLease.trackRunCompletion(outcomePromise);
-			const outcome = await outcomePromise;
-			await runFinalizer.applyTerminalEvent({ kind: "direct", prepared, outcome });
+			const finalized = await outcomePromise;
+			await runFinalizer.applyTerminalEvent({
+				kind: "direct",
+				prepared,
+				outcome: finalized.outcome,
+				displayOnlyTraceBlock: finalized.displayOnlyTraceBlock,
+			});
 		} catch (error) {
 			await runFinalizer.applyTerminalEvent({ kind: "error", prepared, error });
 		} finally {

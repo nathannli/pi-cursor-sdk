@@ -13,7 +13,7 @@ const CARD_PATTERNS = [
 	{
 		id: "read",
 		pattern: /^\s*read\s+(?:(?:\.\/)?package\.json|.*[\\/]package\.json)\s*$/i,
-		wrappedPattern: /^\s*read\s+.*[\\/]package\.j(?:son|s)\s+on\s*$/i,
+		wrappedPattern: /^\s*read\s+.*[\\/]package\.(?:json|js\s+on|j\s*son)\s*$/i,
 	},
 	{ id: "grep", pattern: /^\s*grep \/pi-cursor-sdk\/ in\s+(?:(?:\S+[\\/])?README\.md)\s*$/i },
 	{ id: "find", pattern: /^\s*find README\.md in\s+\S+/i },
@@ -25,7 +25,7 @@ const CARD_PATTERNS = [
 	{
 		id: "bridge-read-success",
 		pattern: /^\s*read\s+(?:\.\/package\.json|.*[\\/]package\.j(?:son|s))\s*$/i,
-		wrappedPattern: /^\s*read\s+.*[\\/]package\.j(?:son|s)\s+on\s*$/i,
+		wrappedPattern: /^\s*read\s+.*[\\/]package\.(?:json|js\s+on|j\s*son)\s*$/i,
 	},
 	{ id: "bridge-read-failure", pattern: /^\s*(?:read \.\/definitely-missing-platform-smoke-file\.txt|ENOENT: no such file)\s*/i },
 	{ id: "bridge-shell-success", pattern: /^\s*bridge visual smoke\s*$/i },

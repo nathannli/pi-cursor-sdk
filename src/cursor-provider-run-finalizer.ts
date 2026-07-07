@@ -1,4 +1,4 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
+import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import { abandonSessionCursorAgent, cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
 import {
 	classifyCursorRunEmission,
@@ -33,8 +33,22 @@ export type CursorTurnTerminalEvent =
 			kind: "direct";
 			prepared: CursorProviderTurnPrepareResult;
 			outcome: CursorRunOutcome;
+			displayOnlyTraceBlock?: string;
 	  }
 	| { kind: "error"; prepared: CursorProviderTurnPrepareResult | undefined; error: unknown };
+
+function withDisplayOnlyThinking(partial: AssistantMessage, thinking: string): AssistantMessage {
+	return { ...partial, content: [...partial.content, { type: "thinking", thinking }] };
+}
+
+function emitDisplayOnlyTraceBlock(stream: AssistantMessageEventStream, partial: AssistantMessage, text: string): void {
+	const traceText = text.endsWith("\n") ? text : `${text}\n`;
+	const contentIndex = partial.content.length;
+	stream.push({ type: "thinking_start", contentIndex, partial: withDisplayOnlyThinking(partial, "") });
+	const displayPartial = withDisplayOnlyThinking(partial, traceText);
+	stream.push({ type: "thinking_delta", contentIndex, delta: traceText, partial: displayPartial });
+	stream.push({ type: "thinking_end", contentIndex, content: traceText, partial: displayPartial });
+}
 
 function applyLiveRunOutcome(
 	outcome: CursorRunOutcome,
@@ -104,8 +118,8 @@ export class CursorRunFinalizer {
 			cacheContextWindow: true,
 			contextWindowAgentId: liveRun.agent.agentId,
 		})
-			.then(async (outcome) => {
-				applyLiveRunOutcome(outcome, prepared, runnerParams.context);
+			.then(async (finalized) => {
+				applyLiveRunOutcome(finalized.outcome, prepared, runnerParams.context);
 			})
 			.catch(async (error: unknown) => {
 				sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) });
@@ -127,7 +141,7 @@ export class CursorRunFinalizer {
 	async applyTerminalEvent(event: CursorTurnTerminalEvent): Promise<void> {
 		if (this.terminalApplied) return;
 		if (event.kind === "direct") {
-			await this.applyDirectOutcome(event.prepared, event.outcome);
+			await this.applyDirectOutcome(event.prepared, event.outcome, event.displayOnlyTraceBlock);
 			this.terminalApplied = true;
 			return;
 		}
@@ -165,6 +179,7 @@ export class CursorRunFinalizer {
 	private async applyDirectOutcome(
 		prepared: CursorProviderTurnPrepareResult,
 		outcome: CursorRunOutcome,
+		displayOnlyTraceBlock: string | undefined,
 	): Promise<void> {
 		const { stream, partial, model, context } = this.params.runnerParams;
 		prepared.runtime.turnCoordinator.closeTraceBlock();
@@ -185,6 +200,7 @@ export class CursorRunFinalizer {
 				applyCursorUsage(partial, model, context, prepared.meta.promptInputTokens, {
 					turn: prepared.runtime.turnCoordinator.lastSdkTurnUsage,
 				});
+				if (displayOnlyTraceBlock) emitDisplayOnlyTraceBlock(stream, partial, displayOnlyTraceBlock);
 				stream.push({ type: "done", reason: "stop", message: partial });
 				break;
 		}
