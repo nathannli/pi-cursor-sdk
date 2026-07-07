@@ -37,7 +37,7 @@ import {
 	preflightCursorCloudRuntime,
 } from "./cursor-cloud-options.js";
 import { loadCursorSdkConfig, resolveCursorSdkConfig } from "./cursor-config.js";
-import { getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
+import { getCursorSessionName, getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-env.js";
 import {
 	buildCursorToolManifestText,
@@ -135,6 +135,7 @@ export async function prepareCursorProviderTurn(
 					modelSelection: selection,
 					agentMode,
 					resolvedConfig,
+					name: getCursorSessionName(),
 				})),
 			);
 			cloudAgentForCleanup = agent;

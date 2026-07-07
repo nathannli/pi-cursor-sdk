@@ -245,6 +245,29 @@ describe("streamCursor prompt and model config", () => {
 		expect(sentMessage.text).not.toContain("old assistant context");
 	});
 
+	it("names cloud agents from the current pi session", async () => {
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		cursorSessionScopeTestUtils.set(process.cwd(), "/tmp/session-cloud-name.jsonl", "test-session", true, "Cloud status slice");
+		mockCreatedAgent({
+			agentId: "bc-agent-1",
+			send: vi.fn().mockResolvedValue({
+				id: "run-1",
+				agentId: "bc-agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "cloud done" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			}),
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate.mock.calls[0][0]).toMatchObject({ name: "Cloud status slice" });
+	});
+
 	it("does not drain a pending local live run before cloud preflight", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
 		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
