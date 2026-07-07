@@ -4,8 +4,8 @@ import { asRecord, getArray, getNumber, getRecord, getString } from "./cursor-re
 
 const DEFAULT_CURSOR_CLOUD_API_BASE_URL = "https://api.cursor.com";
 const CLOUD_REPORT_TIMEOUT_MS = 5000;
-const MAX_BRANCHES = 5;
-const MAX_ARTIFACTS = 10;
+export const MAX_CLOUD_REPORT_BRANCHES = 5;
+export const MAX_CLOUD_REPORT_ARTIFACTS = 10;
 
 export interface CursorCloudUsageReport {
 	totalUsage?: TokenUsage;
@@ -171,17 +171,17 @@ function formatBranchLine(branch: CursorCloudRunBranch): string[] {
 
 export function formatCursorCloudRunReport(report: CursorCloudRunReport, options: { apiKey?: string } = {}): string {
 	const lines = ["Cursor cloud run:", `- agent: ${report.agentId}`, `- run: ${report.runId}`];
-	for (const branch of report.branches.slice(0, MAX_BRANCHES)) lines.push(...formatBranchLine(branch));
-	if (report.branches.length > MAX_BRANCHES) lines.push(`- branches: +${report.branches.length - MAX_BRANCHES} more`);
+	for (const branch of report.branches.slice(0, MAX_CLOUD_REPORT_BRANCHES)) lines.push(...formatBranchLine(branch));
+	if (report.branches.length > MAX_CLOUD_REPORT_BRANCHES) lines.push(`- branches: +${report.branches.length - MAX_CLOUD_REPORT_BRANCHES} more`);
 	if (report.artifacts) {
 		if (report.artifacts.length === 0) {
 			lines.push("- artifacts: none");
 		} else {
 			lines.push("- artifacts:");
-			for (const artifact of report.artifacts.slice(0, MAX_ARTIFACTS)) {
+			for (const artifact of report.artifacts.slice(0, MAX_CLOUD_REPORT_ARTIFACTS)) {
 				lines.push(`  - ${artifact.path} (${artifact.sizeBytes.toLocaleString("en-US")} bytes, updated ${artifact.updatedAt})`);
 			}
-			if (report.artifacts.length > MAX_ARTIFACTS) lines.push(`  - +${report.artifacts.length - MAX_ARTIFACTS} more`);
+			if (report.artifacts.length > MAX_CLOUD_REPORT_ARTIFACTS) lines.push(`  - +${report.artifacts.length - MAX_CLOUD_REPORT_ARTIFACTS} more`);
 		}
 	}
 	const usage = report.usage?.runUsage ?? report.usage?.totalUsage;
