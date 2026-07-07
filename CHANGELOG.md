@@ -10,6 +10,7 @@
 - Add minimal explicit Cursor cloud runtime execution after first-use acknowledgement and safety preflight. Defaults stay local + loopback MCP; cloud runs use fresh context by default, skip the pi bridge/local MCP/env forwarding, leave cloud agents alive for Cursor-managed cleanup, and keep project config limited to the runtime default for the initial cloud slice.
 - Show Cursor runtime directly in the interactive status footer (`cursor:local · fast:on|off|n/a`, `cursor:cloud · fast:n/a`) so cloud opt-in is visible.
 - Name explicit Cursor cloud agents from the current pi session title when available so Cursor Cloud agent lists are easier to match back to pi sessions.
+- Add explicit Cursor-managed cloud environment selection with `--cursor-cloud-env-type`, `--cursor-cloud-env-name`, `PI_CURSOR_CLOUD_ENV_TYPE`, `PI_CURSOR_CLOUD_ENV_NAME`, and `cloud.environment.type/name` user config. This selects Cursor Cloud `cloud` / `pool` / `machine` environments without forwarding local env values.
 
 ### Fixed
 

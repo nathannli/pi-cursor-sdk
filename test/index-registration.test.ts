@@ -101,6 +101,14 @@ describe("extension registration and discovery", () => {
 			expect.objectContaining({ type: "boolean", default: false }),
 		);
 		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-env-type",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-env-name",
+			expect.objectContaining({ type: "string", default: "" }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
 			"cursor-auto-review",
 			expect.objectContaining({ type: "boolean", default: false }),
 		);

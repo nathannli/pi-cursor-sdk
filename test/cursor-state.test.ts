@@ -9,6 +9,7 @@ import {
 	getStoredCursorAgentMode,
 	resolveCursorAgentMode,
 	formatCursorToolsDebugReport,
+	getCursorCliConfig,
 	__testUtils,
 } from "../src/cursor-state.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
@@ -835,6 +836,14 @@ describe("Cursor runtime state", () => {
 		});
 		await cloudOverride.pi.invokeEventWithContext("session_start", { type: "session_start", reason: "startup" }, cloudOverride.ctx);
 		expect(cloudOverride.ctx.ui.setStatus).toHaveBeenLastCalledWith("cursor", "cursor:cloud · fast:n/a");
+	});
+
+	it("preserves invalid CLI cloud environment type for cloud preflight", async () => {
+		const pi = createPiHarness({ flagValues: { "cursor-cloud-env-type": "poll" } });
+		registerCursorRuntimeControls(pi);
+		await pi.runSessionStart({ model: makeModel("gpt-5.5@1m") });
+
+		expect(getCursorCliConfig().cloud?.environment).toEqual({ type: "poll" });
 	});
 
 	it("persists /cursor-runtime as session runtime state", async () => {

@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { AgentModeOption, AgentOptions, ModelSelection } from "@cursor/sdk";
-import type { CursorResolvedSdkConfig } from "./cursor-config.js";
+import { isCursorCloudEnvironmentType, type CursorResolvedSdkConfig } from "./cursor-config.js";
 
 export interface CursorCloudLocalState {
 	insideGitRepo: boolean;
@@ -15,7 +15,10 @@ export interface CursorCloudPreflightIssue {
 		| "cloud_ack_required"
 		| "context_handoff_required"
 		| "local_state_not_allowed"
-		| "env_forwarding_not_implemented";
+		| "env_forwarding_not_implemented"
+		| "cloud_environment_type_invalid"
+		| "cloud_environment_type_required"
+		| "cloud_environment_repo_conflict";
 	message: string;
 }
 
@@ -69,7 +72,18 @@ export function buildCursorCloudAgentOptions(options: {
 	name?: string;
 }): AgentOptions {
 	const { resolvedConfig } = options;
+	const environment = resolvedConfig.cloud.environment.value;
+	const environmentType = environment?.type;
+	const environmentName = environment?.name;
 	const cloud = {
+		...(isCursorCloudEnvironmentType(environmentType)
+			? {
+					env: {
+						type: environmentType,
+						...(environmentName ? { name: environmentName } : {}),
+					},
+				}
+			: {}),
 		...(resolvedConfig.cloud.repo.value
 			? {
 					repos: [
@@ -124,6 +138,25 @@ export function preflightCursorCloudRuntime(options: {
 		issues.push({
 			code: "env_forwarding_not_implemented",
 			message: "Cursor cloud env forwarding is not implemented; use Cursor-native environment setup such as .cursor/environment.json or dashboard-managed secrets.",
+		});
+	}
+	const environment = resolvedConfig.cloud.environment.value;
+	if (environment?.type && !isCursorCloudEnvironmentType(environment.type)) {
+		issues.push({
+			code: "cloud_environment_type_invalid",
+			message: `Invalid Cursor cloud environment type "${environment.type}"; expected cloud, pool, or machine.`,
+		});
+	}
+	if (environment?.name && !environment.type) {
+		issues.push({
+			code: "cloud_environment_type_required",
+			message: "Cursor cloud environment name requires --cursor-cloud-env-type=cloud|pool|machine or PI_CURSOR_CLOUD_ENV_TYPE.",
+		});
+	}
+	if (environment?.type === "cloud" && environment.name && resolvedConfig.cloud.repo.value) {
+		issues.push({
+			code: "cloud_environment_repo_conflict",
+			message: "Cursor cloud named environments cannot be combined with --cursor-cloud-repo; omit the repo or use a pool/machine environment.",
 		});
 	}
 	return { ok: issues.length === 0, issues };

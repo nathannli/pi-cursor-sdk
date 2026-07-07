@@ -18,6 +18,8 @@ const CLOUD_ENV_NAMES = [
 	"PI_CURSOR_CLOUD_DIRECT_PUSH",
 	"PI_CURSOR_CLOUD_ENV",
 	"PI_CURSOR_CLOUD_ENV_FROM_FILES",
+	"PI_CURSOR_CLOUD_ENV_TYPE",
+	"PI_CURSOR_CLOUD_ENV_NAME",
 ];
 
 class SmokeFailure extends Error {
@@ -38,6 +40,8 @@ Environment:
   CURSOR_API_KEY                    Required for the cloud run and archival cleanup.
   CURSOR_CLOUD_SMOKE_MODEL          Cursor model id (default: cursor/composer-2-5).
   CURSOR_CLOUD_SMOKE_TIMEOUT_MS     Timeout in ms (default: 300000).
+  CURSOR_CLOUD_SMOKE_ENV_TYPE       Optional Cursor-managed env type: cloud, pool, or machine.
+  CURSOR_CLOUD_SMOKE_ENV_NAME       Optional Cursor-managed env name, used only with type.
   CURSOR_CLOUD_SMOKE_KEEP_ARTIFACTS Keep temp artifacts when set to 1.
 
 Exit codes:
@@ -64,17 +68,26 @@ function findPiBin() {
 	return existsSync(local) ? local : process.platform === "win32" ? "pi.cmd" : "pi";
 }
 
+function optionalSmokeValue(name) {
+	const value = process.env[name]?.trim();
+	return value ? value : undefined;
+}
+
 export function buildCloudSmokeEnv(artifactDir) {
 	const agentDir = join(artifactDir, "agent");
 	mkdirSync(agentDir, { recursive: true });
 	const env = buildCursorSmokeEnv({ settingSources: "none", eventDebugDir: artifactDir });
 	for (const name of CLOUD_ENV_NAMES) delete env[name];
+	const smokeEnvType = optionalSmokeValue("CURSOR_CLOUD_SMOKE_ENV_TYPE");
+	const smokeEnvName = optionalSmokeValue("CURSOR_CLOUD_SMOKE_ENV_NAME");
 	Object.assign(env, {
 		PI_CURSOR_RUNTIME: "cloud",
 		PI_CURSOR_CLOUD_ACK: "1",
 		PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE: "1",
 		PI_CODING_AGENT_DIR: agentDir,
 		PI_CURSOR_CLOUD_CONTEXT: "fresh",
+		...(smokeEnvType ? { PI_CURSOR_CLOUD_ENV_TYPE: smokeEnvType } : {}),
+		...(smokeEnvType && smokeEnvName ? { PI_CURSOR_CLOUD_ENV_NAME: smokeEnvName } : {}),
 	});
 	delete env.PI_CURSOR_PI_TOOL_BRIDGE_DEBUG;
 	return env;

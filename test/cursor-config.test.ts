@@ -10,6 +10,8 @@ import {
 	CURSOR_CLOUD_DIRECT_PUSH_ENV,
 	CURSOR_CLOUD_ENV_ENV,
 	CURSOR_CLOUD_ENV_FROM_FILES_ENV,
+	CURSOR_CLOUD_ENV_NAME_ENV,
+	CURSOR_CLOUD_ENV_TYPE_ENV,
 	CURSOR_CLOUD_ACK_ENV,
 	CURSOR_CLOUD_REPO_ENV,
 	CURSOR_RUNTIME_ENV,
@@ -150,6 +152,7 @@ describe("Cursor SDK config resolver", () => {
 					allowLocalState: true,
 					envNames: ["GH_TOKEN"],
 					envFromFiles: true,
+					environment: { type: "pool", name: "project-pool" },
 					acknowledged: true,
 				},
 			},
@@ -162,6 +165,7 @@ describe("Cursor SDK config resolver", () => {
 		expect(resolved.allowLocalState).toMatchObject({ value: false, source: "builtin" });
 		expect(resolved.envNames).toMatchObject({ value: [], source: "builtin" });
 		expect(resolved.envFromFiles).toMatchObject({ value: false, source: "builtin" });
+		expect(resolved.environment).toMatchObject({ value: undefined, source: "builtin" });
 		expect(resolved.acknowledged).toMatchObject({ value: false, source: "builtin" });
 	});
 
@@ -206,6 +210,8 @@ describe("Cursor SDK config resolver", () => {
 				[CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV]: "true",
 				[CURSOR_CLOUD_ENV_ENV]: "GH_TOKEN,CURSOR_SECRET,bad-name, NODE_ENV ,GH_TOKEN",
 				[CURSOR_CLOUD_ENV_FROM_FILES_ENV]: "1",
+				[CURSOR_CLOUD_ENV_TYPE_ENV]: " pool ",
+				[CURSOR_CLOUD_ENV_NAME_ENV]: " large-linux ",
 				[CURSOR_CLOUD_ACK_ENV]: "1",
 			},
 		}).cloud;
@@ -215,18 +221,48 @@ describe("Cursor SDK config resolver", () => {
 		expect(resolved.allowLocalState).toMatchObject({ value: true, source: "environment" });
 		expect(resolved.envNames).toMatchObject({ value: ["GH_TOKEN", "NODE_ENV"], source: "environment" });
 		expect(resolved.envFromFiles).toMatchObject({ value: true, source: "environment" });
+		expect(resolved.environment).toMatchObject({ value: { type: "pool", name: "large-linux" }, source: "environment" });
 		expect(resolved.acknowledged).toMatchObject({ value: true, source: "environment" });
+	});
+
+	it("resolves cloud environment atomically from one source", () => {
+		const resolved = resolveCursorSdkConfig({
+			env: { [CURSOR_CLOUD_ENV_NAME_ENV]: "gpu-pool" },
+			user: { cloud: { environment: { type: "pool" } } },
+		}).cloud;
+
+		expect(resolved.environment).toMatchObject({ value: { name: "gpu-pool" }, source: "environment" });
+	});
+
+	it("preserves invalid explicit cloud environment types for preflight", () => {
+		const resolved = resolveCursorSdkConfig({
+			env: { [CURSOR_CLOUD_ENV_TYPE_ENV]: " poll " },
+		}).cloud;
+
+		expect(resolved.environment).toMatchObject({ value: { type: "poll" }, source: "environment" });
+	});
+
+	it("preserves invalid cloud environment type across unrelated save and reload", () => {
+		mkdirSync(agentDir, { recursive: true });
+		const path = getCursorSdkUserConfigPath(agentDir);
+		writeFileSync(path, `${JSON.stringify({ cloud: { environment: { type: "poll" } } }, null, 2)}\n`);
+
+		const loaded = loadCursorSdkUserConfig(path);
+		saveCursorSdkUserConfig(mergeCursorSdkConfig(loaded, { runtime: "cloud" }), path);
+
+		expect(JSON.parse(readFileSync(path, "utf8")).cloud.environment).toEqual({ type: "poll" });
+		expect(loadCursorSdkUserConfig(path).cloud?.environment).toEqual({ type: "poll" });
 	});
 
 	it("merges nested cursor sdk config", () => {
 		expect(
 			mergeCursorSdkConfig(
-				{ runtime: "local", cloud: { repo: "repo", acknowledged: false }, local: { sandboxOptions: { enabled: true } } },
-				{ runtime: "cloud", cloud: { acknowledged: true }, local: { autoReview: true } },
+				{ runtime: "local", cloud: { repo: "repo", environment: { type: "pool" }, acknowledged: false }, local: { sandboxOptions: { enabled: true } } },
+				{ runtime: "cloud", cloud: { environment: { name: "gpu" }, acknowledged: true }, local: { autoReview: true } },
 			),
 		).toEqual({
 			runtime: "cloud",
-			cloud: { repo: "repo", acknowledged: true },
+			cloud: { repo: "repo", environment: { name: "gpu" }, acknowledged: true },
 			local: { sandboxOptions: { enabled: true }, autoReview: true },
 		});
 	});

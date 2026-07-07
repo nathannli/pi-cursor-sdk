@@ -32,6 +32,8 @@ import {
 	CURSOR_CLOUD_DIRECT_PUSH_ENV,
 	CURSOR_CLOUD_ENV_ENV,
 	CURSOR_CLOUD_ENV_FROM_FILES_ENV,
+	CURSOR_CLOUD_ENV_NAME_ENV,
+	CURSOR_CLOUD_ENV_TYPE_ENV,
 	CURSOR_CLOUD_ACK_ENV,
 	CURSOR_CLOUD_REPO_ENV,
 	CURSOR_RUNTIME_ENV,
@@ -100,6 +102,8 @@ let cliCursorCloudDirectPush = false;
 let cliCursorCloudAllowLocalState = false;
 let cliCursorCloudEnv: string | undefined;
 let cliCursorCloudEnvFromFiles = false;
+let cliCursorCloudEnvType: string | undefined;
+let cliCursorCloudEnvName: string | undefined;
 let cliCursorCloudAck = false;
 let sessionCursorAgentMode: AgentModeOption | undefined;
 let sessionCursorRuntime: "local" | "cloud" | undefined;
@@ -262,6 +266,10 @@ export function getCursorCliConfig(): CursorSdkConfig {
 			...(cliCursorCloudAllowLocalState ? { allowLocalState: true } : {}),
 			envNames: splitCliEnvNames(cliCursorCloudEnv),
 			...(cliCursorCloudEnvFromFiles ? { envFromFiles: true } : {}),
+			environment: {
+				type: cliCursorCloudEnvType,
+				name: cliCursorCloudEnvName,
+			},
 			...(cliCursorCloudAck ? { acknowledged: true } : {}),
 		},
 		local: {
@@ -539,6 +547,18 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		default: false,
 	});
 
+	pi.registerFlag("cursor-cloud-env-type", {
+		description: `Select Cursor-managed cloud environment type: cloud, pool, or machine (or set ${CURSOR_CLOUD_ENV_TYPE_ENV})`,
+		type: "string",
+		default: "",
+	});
+
+	pi.registerFlag("cursor-cloud-env-name", {
+		description: `Select Cursor-managed cloud environment name (or set ${CURSOR_CLOUD_ENV_NAME_ENV})`,
+		type: "string",
+		default: "",
+	});
+
 	pi.registerFlag("cursor-cloud-ack", {
 		description: `Acknowledge first-use Cursor cloud runtime risks for this run (or set ${CURSOR_CLOUD_ACK_ENV}=1)`,
 		type: "boolean",
@@ -733,6 +753,8 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			cliCursorCloudAllowLocalState = pi.getFlag("cursor-cloud-allow-local-state") === true;
 			cliCursorCloudEnv = stringFlagValue(pi.getFlag("cursor-cloud-env"));
 			cliCursorCloudEnvFromFiles = pi.getFlag("cursor-cloud-env-from-files") === true;
+			cliCursorCloudEnvType = stringFlagValue(pi.getFlag("cursor-cloud-env-type"));
+			cliCursorCloudEnvName = stringFlagValue(pi.getFlag("cursor-cloud-env-name"));
 			cliCursorCloudAck = pi.getFlag("cursor-cloud-ack") === true;
 			restoreSessionFastPreferences(ctx);
 			restoreSessionCursorMode(ctx);
@@ -764,6 +786,8 @@ function resetCursorModeStateForTests(): void {
 	cliCursorCloudAllowLocalState = false;
 	cliCursorCloudEnv = undefined;
 	cliCursorCloudEnvFromFiles = false;
+	cliCursorCloudEnvType = undefined;
+	cliCursorCloudEnvName = undefined;
 	cliCursorCloudAck = false;
 	invalidCursorModeNotifiedSessionScopeKeys.clear();
 }

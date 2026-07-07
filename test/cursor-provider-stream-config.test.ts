@@ -245,6 +245,60 @@ describe("streamCursor prompt and model config", () => {
 		expect(sentMessage.text).not.toContain("old assistant context");
 	});
 
+	it("passes explicit Cursor-managed cloud environment selection into Agent.create", async () => {
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		process.env.PI_CURSOR_CLOUD_ENV_TYPE = "machine";
+		process.env.PI_CURSOR_CLOUD_ENV_NAME = "large-runner";
+		mockCreatedAgent({
+			agentId: "bc-agent-1",
+			send: vi.fn().mockResolvedValue({
+				id: "run-1",
+				agentId: "bc-agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "cloud done" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			}),
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate.mock.calls[0][0]).toMatchObject({ cloud: { env: { type: "machine", name: "large-runner" } } });
+	});
+
+	it("passes CLI cloud environment selection into Agent.create", async () => {
+		const pi = createPiHarness({
+			flagValues: {
+				"cursor-runtime": "cloud",
+				"cursor-cloud-allow-local-state": true,
+				"cursor-cloud-ack": true,
+				"cursor-cloud-env-type": "pool",
+				"cursor-cloud-env-name": "gpu-pool",
+			},
+		});
+		registerCursorRuntimeControls(pi);
+		await pi.runSessionStart({ model: makeModel("gpt-5.5@1m") });
+		mockCreatedAgent({
+			agentId: "bc-agent-1",
+			send: vi.fn().mockResolvedValue({
+				id: "run-1",
+				agentId: "bc-agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "cloud done" }),
+				cancel: vi.fn(),
+				supports: () => true,
+				unsupportedReason: () => undefined,
+			}),
+		});
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedCreate.mock.calls[0][0]).toMatchObject({ cloud: { env: { type: "pool", name: "gpu-pool" } } });
+	});
+
 	it("names cloud agents from the current pi session", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
 		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
