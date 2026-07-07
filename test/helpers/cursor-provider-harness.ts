@@ -21,6 +21,7 @@ vi.mock("@cursor/sdk", () => {
 	return {
 		Agent: {
 			create: vi.fn().mockResolvedValue(mockAgent),
+			resume: vi.fn().mockResolvedValue(mockAgent),
 			messages: {
 				list: vi.fn().mockResolvedValue([]),
 			},
@@ -35,6 +36,7 @@ vi.mock("@cursor/sdk", () => {
 
 import { Agent, createAgentPlatform } from "@cursor/sdk";
 import { __testUtils as cursorSessionScopeTestUtils } from "../../src/cursor-session-scope.js";
+import { __testUtils as cursorSessionResumeTestUtils } from "../../src/cursor-session-agent-resume.js";
 import { __testUtils as cursorStateTestUtils } from "../../src/cursor-state.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../../src/cursor-provider.js";
 import { registerCursorPiToolBridge, __testUtils as cursorPiToolBridgeTestUtils } from "../../src/cursor-pi-tool-bridge.js";
@@ -78,6 +80,7 @@ export {
 
 // Access the mocks via the module
 export const mockedCreate = vi.mocked(Agent.create);
+export const mockedResume = vi.mocked(Agent.resume);
 export const mockedMessagesList = vi.mocked(Agent.messages.list);
 export const mockedCreateAgentPlatform = vi.mocked(createAgentPlatform, { partial: true });
 
@@ -365,12 +368,14 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	delete process.env.PI_CURSOR_AUTO_REVIEW;
 	delete process.env.PI_CURSOR_SANDBOX;
 	delete process.env.PI_CURSOR_LOCAL_FORCE;
+	delete process.env.PI_CURSOR_LOCAL_RESUME;
 	process.env.PI_CURSOR_TOOL_MANIFEST = "0";
 	expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 	cursorProviderTestUtils.resetCursorNativeReplayIdleDisposeMs();
 	await cursorProviderTestUtils.resetSessionCursorAgents();
 	cursorProviderTestUtils.resetSessionTurnQueue();
 	cursorSessionScopeTestUtils.reset();
+	cursorSessionResumeTestUtils.reset();
 	cursorStateTestUtils.resetCursorModeStateForTests();
 	nativeToolDisplayTestUtils.reset();
 	modelDiscoveryTestUtils.registerModelItems(cursorModelItems);

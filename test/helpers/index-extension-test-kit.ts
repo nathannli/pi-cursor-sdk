@@ -8,11 +8,13 @@ import {
 import { __testUtils as nativeToolDisplayTestUtils } from "../../src/cursor-native-tool-display-state.js";
 import { __testUtils as cursorPiToolBridgeTestUtils } from "../../src/cursor-pi-tool-bridge.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../../src/cursor-session-scope.js";
+import { __testUtils as cursorSessionResumeTestUtils } from "../../src/cursor-session-agent-resume.js";
 
 export {
 	nativeToolDisplayTestUtils,
 	cursorPiToolBridgeTestUtils,
 	cursorSessionScopeTestUtils,
+	cursorSessionResumeTestUtils,
 };
 
 export function createExtensionPi(
@@ -30,5 +32,6 @@ export async function resetIndexExtensionTestState(): Promise<void> {
 	delete process.env.PI_CURSOR_SANDBOX;
 	await cursorPiToolBridgeTestUtils.resetRegisteredBridgeForTests();
 	cursorSessionScopeTestUtils.reset();
+	cursorSessionResumeTestUtils.reset();
 	nativeToolDisplayTestUtils.reset();
 }

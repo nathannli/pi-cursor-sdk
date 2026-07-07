@@ -116,6 +116,10 @@ describe("extension registration and discovery", () => {
 			"cursor-sandbox",
 			expect.objectContaining({ type: "boolean", default: false }),
 		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-local-resume",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
 		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-fast",
 			expect.objectContaining({ description: expect.stringContaining("Toggle Cursor fast") }),

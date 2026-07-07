@@ -1,4 +1,4 @@
-import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
+import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { abandonSessionCursorAgent, cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
 import {
 	classifyCursorRunEmission,
@@ -28,6 +28,7 @@ import type {
 } from "./cursor-provider-turn-types.js";
 import { applyCursorUsage } from "./cursor-usage-accounting.js";
 import { hasUsableText } from "./cursor-record-utils.js";
+import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
 export type CursorTurnTerminalEvent =
 	| {
 			kind: "direct";
@@ -36,19 +37,6 @@ export type CursorTurnTerminalEvent =
 			displayOnlyTraceBlock?: string;
 	  }
 	| { kind: "error"; prepared: CursorProviderTurnPrepareResult | undefined; error: unknown };
-
-function withDisplayOnlyThinking(partial: AssistantMessage, thinking: string): AssistantMessage {
-	return { ...partial, content: [...partial.content, { type: "thinking", thinking }] };
-}
-
-function emitDisplayOnlyTraceBlock(stream: AssistantMessageEventStream, partial: AssistantMessage, text: string): void {
-	const traceText = text.endsWith("\n") ? text : `${text}\n`;
-	const contentIndex = partial.content.length;
-	stream.push({ type: "thinking_start", contentIndex, partial: withDisplayOnlyThinking(partial, "") });
-	const displayPartial = withDisplayOnlyThinking(partial, traceText);
-	stream.push({ type: "thinking_delta", contentIndex, delta: traceText, partial: displayPartial });
-	stream.push({ type: "thinking_end", contentIndex, content: traceText, partial: displayPartial });
-}
 
 function applyLiveRunOutcome(
 	outcome: CursorRunOutcome,
@@ -61,6 +49,7 @@ function applyLiveRunOutcome(
 	switch (classifyCursorRunEmission(outcome)) {
 		case "finished":
 			prepared.sessionAgentLease.commitSend(context, prepared.meta.bootstrap);
+			if (prepared.meta.resumeNotice) liveRun.resumeNotice = prepared.meta.resumeNotice;
 			cursorLiveRuns.markFinished(liveRun, outcome.kind === "finished" ? outcome.finalText : "");
 			break;
 		case "cancelled":
@@ -200,6 +189,7 @@ export class CursorRunFinalizer {
 				applyCursorUsage(partial, model, context, prepared.meta.promptInputTokens, {
 					turn: prepared.runtime.turnCoordinator.lastSdkTurnUsage,
 				});
+				if (prepared.meta.resumeNotice) emitDisplayOnlyTraceBlock(stream, partial, prepared.meta.resumeNotice);
 				if (displayOnlyTraceBlock) emitDisplayOnlyTraceBlock(stream, partial, displayOnlyTraceBlock);
 				stream.push({ type: "done", reason: "stop", message: partial });
 				break;

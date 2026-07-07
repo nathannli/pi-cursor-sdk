@@ -610,7 +610,17 @@ describe("streamCursor prompt and model config", () => {
 		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 
 		expect(mockedCreate).toHaveBeenCalledWith(expect.objectContaining({ mode: "plan" }));
-		expect(mockSend.mock.calls[0]?.[1]).toMatchObject({ mode: "plan" });
+		expect(mockSend.mock.calls[0]?.[1]).toMatchObject({
+			mode: "plan",
+			model: {
+				id: "gpt-5.5",
+				params: [
+					{ id: "context", value: "1m" },
+					{ id: "fast", value: "false" },
+					{ id: "reasoning", value: "none" },
+				],
+			},
+		});
 		expect((mockSend.mock.calls[0]?.[0] as { text: string }).text).toContain("Cursor SDK mode is plan for this run");
 	});
 

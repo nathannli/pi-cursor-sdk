@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { computeCursorContextFingerprint, shouldBootstrapCursorContext } from "../src/context.js";
 import { createEventHarness, createExtensionTestContext, makeContext } from "./helpers/pi-harness.js";
 import { __testUtils as cursorSessionScopeTestUtils, registerCursorSessionScope } from "../src/cursor-session-scope.js";
+import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
 import {
 	acquireSessionCursorAgent,
 	__testUtils as sessionAgentTestUtils,
@@ -11,6 +12,7 @@ import { registerCursorSessionAgentLifecycle } from "../src/cursor-session-agent
 describe("cursor-session-agent", () => {
 	beforeEach(async () => {
 		cursorSessionScopeTestUtils.reset();
+		resumeTestUtils.reset();
 		await sessionAgentTestUtils.disposeAllSessionCursorAgents();
 		vi.clearAllMocks();
 	});
