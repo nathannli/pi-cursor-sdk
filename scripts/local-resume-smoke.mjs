@@ -35,7 +35,9 @@ function printHelp() {
 
 Usage:
   npm run smoke:local-resume
+  npm run smoke:local-resume:safety
   node scripts/local-resume-smoke.mjs
+  node scripts/local-resume-smoke.mjs --safety
 
 Environment:
   CURSOR_LOCAL_RESUME_SMOKE_MODEL          Cursor model id (default: cursor/composer-2-5:slow).
@@ -179,6 +181,28 @@ async function readLastAssistantText(rpc) {
 	return typeof lastResponse?.data?.text === "string" ? lastResponse.data.text : "";
 }
 
+async function rpcData(rpc, type, extra = {}, timeoutMs = 120000) {
+	const response = await rpc.send(type, extra, timeoutMs);
+	if (!response.success) fail(`${type} RPC failed`, response.error ?? JSON.stringify(response));
+	return response.data ?? {};
+}
+
+async function getState(rpc) {
+	return rpcData(rpc, "get_state");
+}
+
+async function getEntries(rpc) {
+	return rpcData(rpc, "get_entries");
+}
+
+function resumeEntryCount(entries) {
+	return (entries.entries ?? []).filter((entry) => entry?.type === "custom" && entry.customType === "cursor-sdk-agent-resume").length;
+}
+
+function userEntryContaining(entries, text) {
+	return (entries.entries ?? []).find((entry) => entry?.type === "message" && entry.message?.role === "user" && String(entry.message?.content?.[0]?.text ?? entry.message?.content ?? "").includes(text));
+}
+
 async function promptAndRead({ rpc, artifactDir, message, timeoutMs, seenMetadata }) {
 	const eventStart = rpc.events.length;
 	await rpc.send("prompt", { message }, timeoutMs);
@@ -205,14 +229,32 @@ function assertTurnMetadata(label, turn, expected) {
 	if (!turn.metadata.run?.agentId?.startsWith?.("agent-")) fail(`${label} did not record local agent id`, turn.metadataPath);
 }
 
-async function runSmoke() {
+function assertNotResumedFrom(label, turn, agentId) {
+	assertTurnMetadata(label, turn, { resumedAgent: false });
+	if (turn.metadata.run.agentId === agentId) fail(`${label} reused original local SDK agent`, JSON.stringify({ original: agentId, actual: turn.metadata.run.agentId }, null, 2));
+}
+
+function createRunContext(prefix) {
+	const artifactRoot = mkdtempSync(join(tmpdir(), prefix));
+	return {
+		artifactRoot,
+		sessionDir: join(artifactRoot, "sessions"),
+		sessionId: `local-resume-${Date.now()}`,
+		seenMetadata: new Set(),
+	};
+}
+
+function parseTimeout() {
 	const timeoutMs = Number(process.env.CURSOR_LOCAL_RESUME_SMOKE_TIMEOUT_MS || 300000);
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) fail("CURSOR_LOCAL_RESUME_SMOKE_TIMEOUT_MS must be a positive number");
-	const artifactRoot = mkdtempSync(join(tmpdir(), "pi-cursor-local-resume-smoke-"));
-	const sessionDir = join(artifactRoot, "sessions");
-	const sessionId = `local-resume-${Date.now()}`;
+	return timeoutMs;
+}
+
+async function runSmoke() {
+	const timeoutMs = parseTimeout();
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) fail("CURSOR_LOCAL_RESUME_SMOKE_TIMEOUT_MS must be a positive number");
+	const { artifactRoot, sessionDir, sessionId, seenMetadata } = createRunContext("pi-cursor-local-resume-smoke-");
 	const token = `LOCAL_RESUME_${Date.now()}`;
-	const seenMetadata = new Set();
 	let first;
 	let second;
 	console.error(`[local-resume-smoke] artifacts: ${artifactRoot}`);
@@ -255,8 +297,100 @@ async function runSmoke() {
 	}
 }
 
+async function runSafetySmoke() {
+	const timeoutMs = parseTimeout();
+	const { artifactRoot, sessionDir, sessionId, seenMetadata } = createRunContext("pi-cursor-local-resume-safety-smoke-");
+	const baseToken = `LOCAL_BASE_${Date.now()}`;
+	const futureToken = `LOCAL_FUTURE_${Date.now()}`;
+	let originalSessionFile;
+	let originalAgentId;
+	let futureEntryId;
+	console.error(`[local-resume-smoke] artifacts: ${artifactRoot}`);
+	try {
+		let rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId });
+		try {
+			const first = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: `Remember exact base token ${baseToken}. Reply exactly BASE_OK.`,
+				timeoutMs,
+				seenMetadata,
+			});
+			assertTurnMetadata("base turn", first, { resumedAgent: false });
+			const future = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: `Remember exact future-only token ${futureToken}. Reply exactly FUTURE_OK.`,
+				timeoutMs,
+				seenMetadata,
+			});
+			assertTurnMetadata("future turn", future, { resumedAgent: false });
+			if (future.metadata.run.agentId !== first.metadata.run.agentId) fail("same process did not keep one local SDK agent", JSON.stringify({ first: first.metadata.run.agentId, future: future.metadata.run.agentId }, null, 2));
+			originalAgentId = future.metadata.run.agentId;
+			const state = await getState(rpc);
+			originalSessionFile = state.sessionFile;
+			const entries = await getEntries(rpc);
+			if (resumeEntryCount(entries) < 2) fail("original branch did not persist resume entries", JSON.stringify({ resumeEntries: resumeEntryCount(entries), sessionFile: originalSessionFile }, null, 2));
+			futureEntryId = userEntryContaining(entries, futureToken)?.id;
+			if (!futureEntryId) fail("could not find future-token user entry", originalSessionFile ?? "");
+		} finally {
+			await rpc.stop();
+		}
+
+		rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId });
+		try {
+			const same = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: "What exact LOCAL_FUTURE token did I ask you to remember? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				timeoutMs,
+				seenMetadata,
+			});
+			if (!same.text.includes(`TOKEN=${futureToken}`)) fail("same-session restart did not recall future token", JSON.stringify({ expected: `TOKEN=${futureToken}`, actual: same.text }, null, 2));
+			assertTurnMetadata("same-session restart", same, { resumedAgent: true });
+			if (same.metadata.run.agentId !== originalAgentId) fail("same-session restart did not resume original agent", JSON.stringify({ original: originalAgentId, actual: same.metadata.run.agentId }, null, 2));
+
+			const clone = await rpcData(rpc, "clone", {}, 120000);
+			if (clone.cancelled === true) fail("clone was cancelled");
+			const cloneState = await getState(rpc);
+			if (cloneState.sessionFile === originalSessionFile) fail("clone did not switch session file", String(originalSessionFile));
+			const cloneEntries = await getEntries(rpc);
+			if (resumeEntryCount(cloneEntries) < 1) fail("clone did not carry any resume entries to reject", JSON.stringify({ sessionFile: cloneState.sessionFile }, null, 2));
+			const cloneTurn = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: "What exact LOCAL_FUTURE token is visible in this cloned pi transcript? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				timeoutMs,
+				seenMetadata,
+			});
+			assertNotResumedFrom("clone session", cloneTurn, originalAgentId);
+
+			await rpcData(rpc, "switch_session", { sessionPath: originalSessionFile }, 120000);
+			const fork = await rpcData(rpc, "fork", { entryId: futureEntryId }, 120000);
+			if (fork.cancelled === true) fail("fork was cancelled");
+			const forkEntries = await getEntries(rpc);
+			if (JSON.stringify(forkEntries).includes(futureToken)) fail("fork branch already contained future token before prompt", String(futureEntryId));
+			const forkTurn = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: "What exact LOCAL_FUTURE token is visible on this forked earlier branch? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				timeoutMs,
+				seenMetadata,
+			});
+			assertNotResumedFrom("fork before future", forkTurn, originalAgentId);
+			if (forkTurn.text.includes(futureToken)) fail("forked earlier branch leaked future token", forkTurn.text);
+		} finally {
+			await rpc.stop();
+		}
+		console.log("local-resume-safety-smoke-ok");
+		console.error(`[local-resume-smoke] original ${originalAgentId} rejected for clone and fork-before-future`);
+	} finally {
+		if (process.env.CURSOR_LOCAL_RESUME_SMOKE_KEEP_ARTIFACTS !== "1") rmSync(artifactRoot, { recursive: true, force: true });
+	}
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	runSmoke().catch((error) => {
+	(args.has("--safety") ? runSafetySmoke() : runSmoke()).catch((error) => {
 		reportFailure(error);
 		process.exit(1);
 	});
