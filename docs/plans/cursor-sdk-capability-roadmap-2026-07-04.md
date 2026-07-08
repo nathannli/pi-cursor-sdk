@@ -490,6 +490,7 @@ Current minimal live cloud smoke lane:
 - starts one non-interactive cloud request with explicit acknowledgement and fresh context;
 - asserts cloud runtime metadata, no pi bridge, no native replay live-run mode, and cloud agent id shape;
 - archives the throwaway cloud agent when an id is available and verifies `archived: true` before passing;
+- provides `npm run smoke:cloud:context` as an opt-in sessionful matrix proving `fresh` does not send prior pi context and `bootstrap` does;
 - keeps branch/PR/direct-push/artifact/usage scenarios out of the default local platform gate.
 
 Expanded cloud smoke matrix when product scope requires it:
@@ -505,6 +506,7 @@ Expanded cloud smoke matrix when product scope requires it:
 - env forwarding disabled in initial cloud runtime → explicit env-name config fails preflight with Cursor-native env setup guidance; no env values are persisted or forwarded;
 - inline cloud MCP → rejected for initial pi cloud runtime because live parity failed;
 - cloud run result → pushed branch/PR/artifact list surfaced without auto-download;
+- context handoff → opt-in `smoke:cloud:context` proves fresh vs bootstrap token visibility and verifies cleanup of every observed cloud agent id;
 - cancel/delete cleanup and richer archive checks → validated against throwaway agents; expanded smoke must leave no remote mutation outside the throwaway repo.
 
 Docs to update before landing behavior changes:

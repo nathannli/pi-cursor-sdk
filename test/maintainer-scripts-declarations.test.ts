@@ -28,6 +28,7 @@ import {
 	parseDebugSdkEventsArgs,
 	type CursorSdkEventJsonlSink,
 } from "../scripts/debug-sdk-events.mjs";
+import type { buildCloudSmokeEnv as cloudSmokeEnvDeclaration } from "../scripts/cloud-runtime-smoke.d.mts";
 import {
 	commonBooleanFlag,
 	commonProbeFlags,
@@ -235,6 +236,8 @@ const _readArgvValue: string = readArgvValue(["--model", "cursor"], 1, "--model"
 const _parsedArgv: Record<string, unknown> = parseArgv([], { defaults: {}, flags: {}, fail: createScriptFail("test") });
 const _sealedNodePath: string = sealedNodePath("/usr/local/bin/node", "/tmp/bin");
 const _smokeEnv: Record<string, string | undefined> = buildCursorSmokeEnv({ settingSources: "none", nativeToolDisplay: true });
+const _cloudSmokeEnvReturn: AssertEqual<ReturnType<typeof cloudSmokeEnvDeclaration>, NodeJS.ProcessEnv> = true;
+const _cloudSmokeEnvContextArg: AssertEqual<Parameters<typeof cloudSmokeEnvDeclaration>[1], { contextHandoff?: "fresh" | "bootstrap" | "never" } | undefined> = true;
 const _smokeEnvPlan: { envEntries: Array<[string, string]> } = buildCursorSmokeEnvPlan({ settingSources: "none" });
 const _terminalHtml: string = buildTerminalHtml({
 	ansi: "ok",
@@ -342,6 +345,8 @@ void [
 	_isOutputSuppressed,
 	_isStartupNoise,
 	_parsedJsonLines,
+	_cloudSmokeEnvReturn,
+	_cloudSmokeEnvContextArg,
 	_failFactory,
 	_scrubbedFromShared,
 	_scrubbedFromScriptLib,
