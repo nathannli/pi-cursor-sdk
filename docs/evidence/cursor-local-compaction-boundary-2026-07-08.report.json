@@ -1,6 +1,6 @@
 {
   "capturedAt": "2026-07-08T04:17:07Z",
-  "sourceArtifactDir": "/Users/mitchfultz/Projects/AI/pi-cursor-sdk/.artifacts/compaction-boundary-three-turn-2026-07-08T04-17-07-848Z",
+  "sourceArtifactDir": ".artifacts/compaction-boundary-three-turn-2026-07-08T04-17-07-848Z",
   "sourceArtifactSha256": {
     "report": "b8c1c81c550711251dd352d7ed531ce497eaab10a72d0948e49559695dce7756",
     "beforeCompactSession": "77249acb3523ec101f94fbf91f9e50493a57ffb5d946892f82dfef21d68c6c4b",
