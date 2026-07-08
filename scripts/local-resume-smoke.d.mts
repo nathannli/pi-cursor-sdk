@@ -1,1 +1,1 @@
-export function buildLocalResumeSmokeEnv(artifactDir: string, options?: { baseEnv?: NodeJS.ProcessEnv }): NodeJS.ProcessEnv;
+export function buildLocalResumeSmokeEnv(artifactDir: string, options?: { baseEnv?: NodeJS.ProcessEnv; bridge?: boolean; exposeBuiltinTools?: boolean }): NodeJS.ProcessEnv;

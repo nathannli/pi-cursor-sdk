@@ -36,8 +36,10 @@ function printHelp() {
 Usage:
   npm run smoke:local-resume
   npm run smoke:local-resume:safety
+  npm run smoke:local-resume:tool-surface
   node scripts/local-resume-smoke.mjs
   node scripts/local-resume-smoke.mjs --safety
+  node scripts/local-resume-smoke.mjs --tool-surface
 
 Environment:
   CURSOR_LOCAL_RESUME_SMOKE_MODEL          Cursor model id (default: cursor/composer-2-5:slow).
@@ -70,10 +72,10 @@ function findPiCommand() {
 	return { command: existsSync(local) ? local : process.platform === "win32" ? "pi.cmd" : "pi", argsPrefix: [] };
 }
 
-export function buildLocalResumeSmokeEnv(artifactDir, { baseEnv = process.env } = {}) {
+export function buildLocalResumeSmokeEnv(artifactDir, { baseEnv = process.env, bridge = false, exposeBuiltinTools = false } = {}) {
 	const agentDir = join(artifactDir, "agent");
 	mkdirSync(agentDir, { recursive: true });
-	const env = buildCursorSmokeEnv({ baseEnv, settingSources: "none", bridge: false, nativeToolDisplay: false, registerNativeTools: false, exposeBuiltinTools: false, eventDebugDir: join(artifactDir, "debug") });
+	const env = buildCursorSmokeEnv({ baseEnv, settingSources: "none", bridge, nativeToolDisplay: false, registerNativeTools: false, exposeBuiltinTools, eventDebugDir: join(artifactDir, "debug") });
 	for (const name of CLOUD_RUNTIME_ENV_NAMES) delete env[name];
 	return {
 		...env,
@@ -83,7 +85,7 @@ export function buildLocalResumeSmokeEnv(artifactDir, { baseEnv = process.env } 
 	};
 }
 
-function startRpc({ artifactDir, sessionDir, sessionId }) {
+function startRpc({ artifactDir, sessionDir, sessionId, bridge = false, exposeBuiltinTools = false }) {
 	const model = process.env.CURSOR_LOCAL_RESUME_SMOKE_MODEL || "cursor/composer-2-5:slow";
 	const workspaceDir = join(artifactDir, "workspace");
 	mkdirSync(workspaceDir, { recursive: true });
@@ -91,7 +93,7 @@ function startRpc({ artifactDir, sessionDir, sessionId }) {
 	const child = spawn(
 		pi.command,
 		[...pi.argsPrefix, "--mode", "rpc", "-e", root, "--model", model, "--cursor-runtime", "local", "--approve", "--session-dir", sessionDir, "--session-id", sessionId],
-		{ cwd: workspaceDir, env: buildLocalResumeSmokeEnv(artifactDir), stdio: ["pipe", "pipe", "pipe"] },
+		{ cwd: workspaceDir, env: buildLocalResumeSmokeEnv(artifactDir, { bridge, exposeBuiltinTools }), stdio: ["pipe", "pipe", "pipe"] },
 	);
 	let stdoutBuffer = "";
 	let stderr = "";
@@ -195,8 +197,16 @@ async function getEntries(rpc) {
 	return rpcData(rpc, "get_entries");
 }
 
+function resumeEntries(entries) {
+	return (entries.entries ?? []).filter((entry) => entry?.type === "custom" && entry.customType === "cursor-sdk-agent-resume");
+}
+
+function latestResumeEntry(entries) {
+	return resumeEntries(entries).at(-1)?.data;
+}
+
 function resumeEntryCount(entries) {
-	return (entries.entries ?? []).filter((entry) => entry?.type === "custom" && entry.customType === "cursor-sdk-agent-resume").length;
+	return resumeEntries(entries).length;
 }
 
 function userEntryContaining(entries, text) {
@@ -252,7 +262,6 @@ function parseTimeout() {
 
 async function runSmoke() {
 	const timeoutMs = parseTimeout();
-	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) fail("CURSOR_LOCAL_RESUME_SMOKE_TIMEOUT_MS must be a positive number");
 	const { artifactRoot, sessionDir, sessionId, seenMetadata } = createRunContext("pi-cursor-local-resume-smoke-");
 	const token = `LOCAL_RESUME_${Date.now()}`;
 	let first;
@@ -389,8 +398,82 @@ async function runSafetySmoke() {
 	}
 }
 
+async function runToolSurfaceSmoke() {
+	const timeoutMs = parseTimeout();
+	const { artifactRoot, sessionDir, sessionId, seenMetadata } = createRunContext("pi-cursor-local-resume-tool-surface-smoke-");
+	const token = `LOCAL_TOOL_SURFACE_${Date.now()}`;
+	let originalAgentId;
+	let originalPoolKey;
+	console.error(`[local-resume-smoke] artifacts: ${artifactRoot}`);
+	try {
+		let rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId });
+		try {
+			const first = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: `Remember exact tool-surface token ${token}. Reply exactly TOOL_SURFACE_OK.`,
+				timeoutMs,
+				seenMetadata,
+			});
+			assertTurnMetadata("baseline tool surface", first, { resumedAgent: false });
+			originalAgentId = first.metadata.run.agentId;
+			originalPoolKey = latestResumeEntry(await getEntries(rpc))?.poolKey;
+			if (!originalPoolKey) fail("baseline turn did not persist a resume pool key");
+		} finally {
+			await rpc.stop();
+		}
+
+		rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId });
+		try {
+			const sameSurface = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: "What exact LOCAL_TOOL_SURFACE token did I ask you to remember? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				timeoutMs,
+				seenMetadata,
+			});
+			if (!sameSurface.text.includes(`TOKEN=${token}`)) fail("same tool surface did not recall token", JSON.stringify({ expected: `TOKEN=${token}`, actual: sameSurface.text }, null, 2));
+			assertTurnMetadata("same tool surface restart", sameSurface, { resumedAgent: true });
+			if (sameSurface.metadata.run.agentId !== originalAgentId) fail("same tool surface restart did not resume original agent", JSON.stringify({ original: originalAgentId, actual: sameSurface.metadata.run.agentId }, null, 2));
+		} finally {
+			await rpc.stop();
+		}
+
+		rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId, bridge: true, exposeBuiltinTools: true });
+		try {
+			const changedSurface = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: "What exact LOCAL_TOOL_SURFACE token is visible in this pi transcript? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				timeoutMs,
+				seenMetadata,
+			});
+			if (!changedSurface.text.includes(`TOKEN=${token}`)) fail("changed tool surface did not bootstrap transcript token", JSON.stringify({ expected: `TOKEN=${token}`, actual: changedSurface.text }, null, 2));
+			assertNotResumedFrom("changed tool surface", changedSurface, originalAgentId);
+			if (!changedSurface.metadata.providerMeta?.bridgeRunId) fail("changed tool surface did not start a bridge run", changedSurface.metadataPath);
+			const changedHandle = latestResumeEntry(await getEntries(rpc));
+			if (!changedHandle?.poolKey) fail("changed tool surface did not persist a resume pool key");
+			if (changedHandle.agentId !== changedSurface.metadata.run.agentId) fail("changed tool surface persisted handle for a different agent", JSON.stringify({ handle: changedHandle.agentId, run: changedSurface.metadata.run.agentId }, null, 2));
+			if (changedHandle.poolKey === originalPoolKey) fail("changed tool surface reused the original pool key");
+		} finally {
+			await rpc.stop();
+		}
+		console.log("local-resume-tool-surface-smoke-ok");
+		console.error(`[local-resume-smoke] original ${originalAgentId} rejected after bridge builtin tool surface change`);
+	} finally {
+		if (process.env.CURSOR_LOCAL_RESUME_SMOKE_KEEP_ARTIFACTS !== "1") rmSync(artifactRoot, { recursive: true, force: true });
+	}
+}
+
+function selectedRun() {
+	if (args.has("--tool-surface")) return runToolSurfaceSmoke;
+	if (args.has("--safety")) return runSafetySmoke;
+	return runSmoke;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	(args.has("--safety") ? runSafetySmoke() : runSmoke()).catch((error) => {
+	const run = selectedRun();
+	run().catch((error) => {
 		reportFailure(error);
 		process.exit(1);
 	});
