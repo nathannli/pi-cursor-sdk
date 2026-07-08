@@ -16,6 +16,7 @@ export default {
 		"cursor-native-visual-matrix",
 		"cursor-bridge-visual-matrix",
 		"cursor-abort-cleanup",
+		"cursor-local-resume-restart",
 	],
 	requiredCrabbox: {
 		install: "Homebrew package or PLATFORM_SMOKE_CRABBOX override",

@@ -19,6 +19,11 @@ export const SCENARIOS = {
 		},
 	},
 
+	"cursor-local-resume-restart": {
+		description: "Prove guarded local resume across a pi process restart.",
+		cursorCalls: 2,
+	},
+
 	"cursor-native-visual-matrix": {
 		description: "Prove provider reality, native tool replay, card rendering, JSONL correctness.",
 		cursorCalls: 1,

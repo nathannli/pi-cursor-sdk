@@ -477,7 +477,7 @@ function writeProcessSnapshot(logDir, name, platform) {
 		? spawnSync("powershell.exe", [
 			"-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
 			"Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress",
-		], { encoding: "utf8", timeout: 30_000 })
+		], { encoding: "utf8", timeout: 90_000 })
 		: spawnSync("sh", ["-lc", "ps -axo pid,ppid,comm,args"], { encoding: "utf8", timeout: 30_000 });
 	writeRedactedTextFile(join(logDir, `${name}.stdout.txt`), result.stdout ?? "");
 	writeRedactedTextFile(join(logDir, `${name}.stderr.txt`), result.stderr ?? "");
