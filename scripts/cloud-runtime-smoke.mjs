@@ -165,6 +165,10 @@ async function archiveCloudAgent(agentId) {
 	if (!agentId) return;
 	const { Agent } = await import("@cursor/sdk");
 	await Agent.archive(agentId, {});
+	const archived = await Agent.get(agentId, {});
+	if (archived.archived !== true) {
+		fail(`cloud agent ${agentId} did not report archived after cleanup`, JSON.stringify(archived, null, 2));
+	}
 	console.error(`[cloud-smoke] archived agent ${agentId}`);
 }
 

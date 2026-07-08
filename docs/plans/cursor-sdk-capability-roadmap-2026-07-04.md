@@ -489,7 +489,7 @@ Current minimal live cloud smoke lane:
 - requires `CURSOR_API_KEY`;
 - starts one non-interactive cloud request with explicit acknowledgement and fresh context;
 - asserts cloud runtime metadata, no pi bridge, no native replay live-run mode, and cloud agent id shape;
-- archives the throwaway cloud agent when an id is available;
+- archives the throwaway cloud agent when an id is available and verifies `archived: true` before passing;
 - keeps branch/PR/direct-push/artifact/usage scenarios out of the default local platform gate.
 
 Expanded cloud smoke matrix when product scope requires it:
