@@ -135,6 +135,8 @@ export async function runTargetSuite(config, targetName, suiteName, leaseSession
 	switch (suiteName) {
 		case "platform-build":
 			return await executePlatformBuild(config, targetName, suiteDir, slug, platform, leaseSession);
+		case "cursor-local-resume-restart":
+			return await executeLocalResumeSuite(config, targetName, suiteName, suiteDir, slug, leaseSession);
 		case "cursor-native-visual-matrix":
 		case "cursor-bridge-visual-matrix":
 		case "cursor-abort-cleanup":
@@ -490,6 +492,89 @@ export function buildPlatformBuildCommand(targetName, packageName = "pi-cursor-s
 		lines.push(`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\platform-smoke\\platform-build-windows.ps1 -PackageName ${packageName} -NodeValidationMajor ${nodeValidationMajor}`);
 	}
 	return lines.join("\n");
+}
+
+async function executeLocalResumeSuite(config, targetName, suiteName, suiteDir, slug, leaseSession) {
+	const startedAt = Date.now();
+	let warmup = leaseSession;
+	const ownsLease = !warmup;
+	const command = buildLocalResumeSuiteCommand(targetName, ownsLease);
+	writeCommand(suiteDir, command);
+
+	if (!warmup) {
+		console.log(`  warmup ${targetName}...`);
+		warmup = await warmupLease(targetName, slug, config);
+		if (!warmup.ok) {
+			writeExitCode(suiteDir, warmup.code, warmup.signal);
+			writeRedactedFile(resolve(suiteDir, "crabbox.warmup.stdout.txt"), warmup.stdout);
+			writeRedactedFile(resolve(suiteDir, "crabbox.warmup.stderr.txt"), warmup.stderr);
+			return failSuite(suiteDir, targetName, suiteName, `Crabbox warmup failed (exit ${warmup.code}): ${warmup.stderr.slice(-500)}`);
+		}
+	}
+
+	console.log(`  executing local resume smoke on ${targetName}...`);
+	const result = await runOnLeaseWithTransientRetry(suiteDir, targetName, warmup.leaseId, command, {
+		shell: true,
+		timeout: 900_000,
+		allowEnv: ["CURSOR_API_KEY"],
+		sync: leaseSession?.sync,
+		config,
+	});
+	const elapsed = Date.now() - startedAt;
+	writeRedactedFile(resolve(suiteDir, "crabbox.stdout.txt"), result.stdout);
+	writeRedactedFile(resolve(suiteDir, "crabbox.stderr.txt"), result.stderr);
+	writeFileSync(resolve(suiteDir, "crabbox.timing.json"), JSON.stringify({
+		startedAt: new Date(startedAt).toISOString(),
+		elapsedMs: elapsed,
+		code: result.code,
+		signal: result.signal,
+	}, null, 2));
+	writeExitCode(suiteDir, result.code, result.signal);
+
+	let stopResult;
+	if (ownsLease) {
+		console.log(`  stopping lease ${warmup.leaseId}...`);
+		stopResult = await stopLease(targetName, warmup.leaseId, config);
+		writeStopLeaseArtifacts(suiteDir, stopResult);
+	}
+
+	const violations = [
+		...scanForSecrets(`${result.stdout}\n${result.stderr}`).map((violation) => ({ file: "process-output", violation })),
+		...scanArtifacts(suiteDir),
+	];
+	if (violations.length > 0) writeFileSync(resolve(suiteDir, "redaction-violations.json"), JSON.stringify(violations, null, 2));
+
+	const checks = [
+		{ id: "local-resume-exit-zero", fn: () => result.code === 0 },
+		{ id: "local-resume-marker", fn: () => result.stdout.includes("local-resume-smoke-ok") },
+		{ id: "local-resume-agent-id", fn: () => /agent-[0-9a-f-]{36}\s+resumed across restart/i.test(result.stderr) },
+		{ id: "no-secrets", fn: () => violations.length === 0 },
+	];
+	if (stopResult) checks.push(stopLeaseCheck(stopResult));
+	const expectedFiles = [
+		"summary.json", "target.json", "suite.json", "command.txt", "exit-code.txt",
+		"crabbox.stdout.txt", "crabbox.stderr.txt", "crabbox.timing.json", "assertions.json",
+	];
+	if (stopResult) expectedFiles.push("crabbox.stop.stdout.txt", "crabbox.stop.stderr.txt", "crabbox.stop.exit-code.txt");
+	const { assertions } = finalizeSuiteArtifacts(suiteDir, checks, {
+		target: targetName,
+		suite: suiteName,
+		exitCode: result.code,
+		signal: result.signal,
+		elapsedMs: elapsed,
+	}, expectedFiles);
+	console.log(`  ${assertions.ok ? "PASS" : "FAIL"} ${suiteName} on ${targetName} (${elapsed}ms)`);
+	return { ok: assertions.ok, suiteDir, assertions };
+}
+
+function buildLocalResumeSuiteCommand(targetName, ensureDeps = false) {
+	if (platformFor(targetName) === "powershell") {
+		const command = ensureDeps
+			? "npm ci; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm run smoke:local-resume"
+			: "npm run smoke:local-resume";
+		return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "${command}"`;
+	}
+	return ensureDeps ? "npm ci && npm run smoke:local-resume" : "npm run smoke:local-resume";
 }
 
 async function executeLiveSuite(config, targetName, suiteName, suiteDir, slug, leaseSession) {

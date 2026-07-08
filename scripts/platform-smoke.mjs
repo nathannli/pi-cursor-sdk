@@ -32,7 +32,7 @@ Commands:
 
 Options:
   --target       Comma-separated target names: macos,ubuntu,windows-native
-  --suite        Suite name: platform-build,cursor-native-visual-matrix,cursor-bridge-visual-matrix,cursor-abort-cleanup
+  --suite        Suite name: platform-build,cursor-local-resume-restart,cursor-native-visual-matrix,cursor-bridge-visual-matrix,cursor-abort-cleanup
   --help, -h     Show this help
 
 Examples:
@@ -40,6 +40,7 @@ Examples:
   node scripts/platform-smoke.mjs run --target macos
   node scripts/platform-smoke.mjs run --target macos,ubuntu
   node scripts/platform-smoke.mjs run --suite platform-build
+  node scripts/platform-smoke.mjs run --target macos --suite cursor-local-resume-restart
   node scripts/platform-smoke.mjs run --target macos --suite cursor-native-visual-matrix
 
 Environment:

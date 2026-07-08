@@ -116,6 +116,7 @@ start target session
   run cursor-native-visual-matrix
   run cursor-bridge-visual-matrix
   run cursor-abort-cleanup
+  run cursor-local-resume-restart
   download artifacts after every suite
   stop target
   write lease-cleanup stop evidence
@@ -169,7 +170,7 @@ This lane is a cloud-runtime release gate, not a substitute for the local macOS/
 
 ## Focused local resume smoke
 
-`npm run smoke:local-resume` is a focused live proof for guarded local resume. It is not part of the required release gate yet. Use it when changing local resume behavior or gathering evidence for default-on decisions.
+`cursor-local-resume-restart` is part of the local platform matrix. `npm run smoke:local-resume` runs the same focused proof on the current host for inner-loop debugging. Use it when changing local resume behavior or gathering evidence for default-on decisions.
 
 The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`, records the SDK agent id from provider debug metadata, restarts pi against the same session, asks for the remembered token, and verifies:
 
@@ -241,6 +242,7 @@ export default {
     "cursor-native-visual-matrix",
     "cursor-bridge-visual-matrix",
     "cursor-abort-cleanup",
+    "cursor-local-resume-restart",
   ],
   requiredCrabbox: {
     install: "Homebrew package or PLATFORM_SMOKE_CRABBOX override",
@@ -454,6 +456,18 @@ Purpose:
 
 The host `smoke:platform:all` entrypoint enforces doctor first before running targets. Required artifacts include `node-version.txt`, `npm-version.txt`, stdout/stderr for `npm ci`, `npm run check:platform-smoke`, `npm test`, `npm run typecheck`, `npm pack`, packed npm install, `pi install --approve`, and `pi list --approve`, plus `packed-tarball.txt`, `summary.json`, `artifact-manifest.json`, `assertions.json`, and `failures.md` on failed assertions.
 
+### `cursor-local-resume-restart`
+
+Cursor calls: `2`.
+
+Purpose:
+
+- prove guarded local resume with `PI_CURSOR_LOCAL_RESUME=1` across a pi process restart on each required OS;
+- assert the first turn creates a local `agent-*` and the second turn resumes the same `agent-*`;
+- force local runtime and clear cloud env knobs so ambient cloud settings cannot satisfy this suite.
+
+The suite runs `npm run smoke:local-resume` on the target and asserts the `local-resume-smoke-ok` marker plus the resumed local agent id line. It is platform evidence for the same-session restart slice only; it does not make local resume default-ready.
+
 ### `cursor-native-visual-matrix`
 
 Cursor calls: `1`.
@@ -660,14 +674,15 @@ Required evidence:
 Per target maximum live Cursor invocations:
 
 ```text
+cursor-local-resume-restart: 2
 cursor-native-visual-matrix: 1
 cursor-bridge-visual-matrix: 1
 cursor-abort-cleanup: 1
 ```
 
-Maximum per target: `3` Cursor invocations.
+Maximum per target: `5` Cursor invocations.
 
-Maximum full gate: `9` Cursor invocations.
+Maximum full gate: `15` Cursor invocations.
 
 The merge gate is `npm run smoke:platform:all`; that script runs doctor first and then the matrix to preserve this budget. No suite adds a new Cursor invocation without updating this plan and `platform-smoke.config.mjs`.
 
