@@ -104,6 +104,7 @@
     "smoke:local-resume": "node scripts/local-resume-smoke.mjs",
     "smoke:local-resume:safety": "node scripts/local-resume-smoke.mjs --safety",
     "smoke:local-resume:tool-surface": "node scripts/local-resume-smoke.mjs --tool-surface",
+    "smoke:local-resume:abort": "node scripts/local-resume-smoke.mjs --abort",
     "smoke:steering": "node scripts/steering-rpc-smoke.mjs",
     "smoke:jsonl": "node scripts/validate-smoke-jsonl.mjs",
     "debug:sdk-events": "node scripts/debug-sdk-events.mjs",
