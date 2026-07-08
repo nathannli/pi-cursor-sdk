@@ -35,6 +35,7 @@ describe("smoke tooling package checks", () => {
 		const sdkEventsHelp = run(process.execPath, ["scripts/debug-sdk-events.mjs", "--help"]);
 		const providerEventsHelp = run(process.execPath, ["scripts/debug-provider-events.mjs", "--help"]);
 		const platformLiveHelp = run(process.execPath, ["scripts/platform-smoke/live-suite-runner.mjs", "--help"]);
+		const cloudHelp = run(process.execPath, ["scripts/cloud-runtime-smoke.mjs", "--help"]);
 
 		if (process.platform !== "win32") {
 			expect(liveHelp!.status).toBe(0);
@@ -59,6 +60,8 @@ describe("smoke tooling package checks", () => {
 		expect(providerEventsHelp.stdout).toContain("Capture raw Cursor SDK onDelta/onStep payloads through pi's provider path");
 		expect(platformLiveHelp.status).toBe(0);
 		expect(platformLiveHelp.stdout).toContain("--prep-dir");
+		expect(cloudHelp.status).toBe(0);
+		expect(cloudHelp.stdout).toContain("--context-matrix");
 
 		if (process.platform !== "win32") {
 			const failedCommand = run("bash", [
@@ -113,6 +116,7 @@ describe("smoke tooling package checks", () => {
 			expect(existsSync(workspace)).toBe(true);
 			expect(env.PI_CURSOR_RUNTIME).toBe("cloud");
 			expect(env.PI_CURSOR_CLOUD_CONTEXT).toBe("fresh");
+			expect(buildCloudSmokeEnv(artifactRoot, { contextHandoff: "bootstrap" }).PI_CURSOR_CLOUD_CONTEXT).toBe("bootstrap");
 			expect(env.PI_CURSOR_SETTING_SOURCES).toBe("none");
 			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_DIRECT_PUSH).toBeUndefined();

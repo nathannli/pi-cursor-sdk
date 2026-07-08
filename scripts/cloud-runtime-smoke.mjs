@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync }
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { terminateChild } from "./lib/cursor-child-process.mjs";
 import { buildCursorSmokeEnv } from "./lib/cursor-smoke-env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,7 +35,8 @@ function printHelp() {
 
 Usage:
   npm run smoke:cloud
-  node scripts/cloud-runtime-smoke.mjs
+  npm run smoke:cloud:context
+  node scripts/cloud-runtime-smoke.mjs [--context-matrix]
 
 Environment:
   CURSOR_API_KEY                    Required for the cloud run and archival cleanup.
@@ -43,6 +45,9 @@ Environment:
   CURSOR_CLOUD_SMOKE_ENV_TYPE       Optional Cursor-managed env type: cloud, pool, or machine.
   CURSOR_CLOUD_SMOKE_ENV_NAME       Optional Cursor-managed env name, used only with type.
   CURSOR_CLOUD_SMOKE_KEEP_ARTIFACTS Keep temp artifacts when set to 1.
+
+Options:
+  --context-matrix                  Run sessionful fresh-vs-bootstrap context handoff proof.
 
 Exit codes:
   0  cloud run passed and artifact contract matched
@@ -73,7 +78,7 @@ function optionalSmokeValue(name) {
 	return value ? value : undefined;
 }
 
-export function buildCloudSmokeEnv(artifactDir) {
+export function buildCloudSmokeEnv(artifactDir, options = {}) {
 	const agentDir = join(artifactDir, "agent");
 	mkdirSync(agentDir, { recursive: true });
 	const env = buildCursorSmokeEnv({ settingSources: "none", eventDebugDir: artifactDir });
@@ -85,7 +90,7 @@ export function buildCloudSmokeEnv(artifactDir) {
 		PI_CURSOR_CLOUD_ACK: "1",
 		PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE: "1",
 		PI_CODING_AGENT_DIR: agentDir,
-		PI_CURSOR_CLOUD_CONTEXT: "fresh",
+		PI_CURSOR_CLOUD_CONTEXT: options.contextHandoff ?? "fresh",
 		...(smokeEnvType ? { PI_CURSOR_CLOUD_ENV_TYPE: smokeEnvType } : {}),
 		...(smokeEnvType && smokeEnvName ? { PI_CURSOR_CLOUD_ENV_NAME: smokeEnvName } : {}),
 	});
@@ -148,6 +153,20 @@ function readLatestMetadataIfPresent(artifactDir) {
 	return { metadataPath, metadata: JSON.parse(readFileSync(metadataPath, "utf8")) };
 }
 
+function cloudAgentIdsFromMetadata(artifactDir) {
+	const ids = new Set();
+	for (const metadataPath of metadataFiles(artifactDir)) {
+		try {
+			const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+			const agentId = metadata.run?.agentId ?? metadata.providerMeta?.cloudAgentId;
+			if (agentId?.startsWith?.("bc-")) ids.add(agentId);
+		} catch {
+			// Cleanup is best-effort per metadata file; one corrupt debug artifact must not block other archived ids.
+		}
+	}
+	return [...ids];
+}
+
 function resolveMetadataArtifactPath(metadataPath, artifactPath) {
 	if (!artifactPath) return undefined;
 	return resolve(artifactPath) === artifactPath ? artifactPath : join(dirname(metadataPath), artifactPath);
@@ -161,6 +180,140 @@ function readJsonlIfPresent(path) {
 		.map((line) => JSON.parse(line));
 }
 
+function startRpc({ artifactDir, contextHandoff, sessionId }) {
+	const model = process.env.CURSOR_CLOUD_SMOKE_MODEL || "cursor/composer-2-5";
+	const sessionDir = join(artifactDir, "sessions");
+	mkdirSync(sessionDir, { recursive: true });
+	const child = spawn(
+		findPiBin(),
+		["--mode", "rpc", "-e", root, "--model", model, "--approve", "--session-dir", sessionDir, "--session-id", sessionId],
+		{ cwd: buildCloudSmokeWorkspace(artifactDir), env: buildCloudSmokeEnv(artifactDir, { contextHandoff }), stdio: ["pipe", "pipe", "pipe"] },
+	);
+	let stderr = "";
+	const events = [];
+	const pending = new Map();
+	let requestId = 0;
+	let stdoutBuffer = "";
+	child.stdout.setEncoding("utf8");
+	child.stderr.setEncoding("utf8");
+	child.stderr.on("data", (chunk) => { stderr += chunk; });
+	child.stdout.on("data", (chunk) => {
+		stdoutBuffer += chunk;
+		let newlineIndex;
+		while ((newlineIndex = stdoutBuffer.indexOf("\n")) >= 0) {
+			const line = stdoutBuffer.slice(0, newlineIndex);
+			stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+			if (!line.trim()) continue;
+			let message;
+			try {
+				message = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (message.type === "response" && pending.has(message.id)) {
+				const request = pending.get(message.id);
+				pending.delete(message.id);
+				clearTimeout(request.timer);
+				request.resolve(message);
+				continue;
+			}
+			events.push(message);
+		}
+	});
+	const send = (type, extra = {}, timeoutMs = 120000) => new Promise((resolveRequest, rejectRequest) => {
+		const id = `cloud_smoke_${++requestId}`;
+		const timer = setTimeout(() => {
+			pending.delete(id);
+			rejectRequest(new Error(`timeout waiting for ${type}. Stderr: ${stderr}`));
+		}, timeoutMs);
+		pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer });
+		child.stdin.write(`${JSON.stringify({ id, type, ...extra })}\n`);
+	});
+	const stop = async () => {
+		await terminateChild(child);
+	};
+	return { events, send, stop, get stderr() { return stderr; } };
+}
+
+async function waitForAgentEnd(rpc, fromIndex, timeoutMs) {
+	const started = Date.now();
+	while (Date.now() - started < timeoutMs) {
+		if (rpc.events.slice(fromIndex).some((event) => event.type === "agent_end")) return;
+		await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+	}
+	throw new Error(`timeout waiting for agent_end. Stderr: ${rpc.stderr}`);
+}
+
+async function promptAndRead({ rpc, artifactDir, message, timeoutMs, expectedContextHandoff }) {
+	const fromIndex = rpc.events.length;
+	await rpc.send("prompt", { message }, timeoutMs);
+	await waitForAgentEnd(rpc, fromIndex, timeoutMs);
+	const textResponse = await rpc.send("get_last_assistant_text", {}, 120000);
+	if (!textResponse.success) fail("failed to read last assistant text", textResponse.error);
+	const latestMetadata = readLatestMetadataIfPresent(artifactDir);
+	if (!latestMetadata) fail("context smoke metadata missing", artifactDir);
+	assertCloudMetadata(latestMetadata.metadata, latestMetadata.metadataPath, { requireReport: false });
+	if (expectedContextHandoff && latestMetadata.metadata.providerMeta?.contextHandoff !== expectedContextHandoff) {
+		fail("context smoke metadata recorded wrong handoff", JSON.stringify({ expected: expectedContextHandoff, actual: latestMetadata.metadata.providerMeta?.contextHandoff }, null, 2));
+	}
+	return {
+		text: typeof textResponse.data?.text === "string" ? textResponse.data.text : "",
+		agentId: latestMetadata.metadata.run?.agentId ?? latestMetadata.metadata.providerMeta?.cloudAgentId,
+		runId: latestMetadata.metadata.run?.runId,
+	};
+}
+
+async function runContextScenario({ artifactRoot, contextHandoff, timeoutMs }) {
+	const artifactDir = join(artifactRoot, `context-${contextHandoff}`);
+	mkdirSync(artifactDir, { recursive: true });
+	const token = `CLOUD_CONTEXT_${contextHandoff}_${Date.now()}`;
+	const rpc = startRpc({ artifactDir, contextHandoff, sessionId: `cloud-context-${contextHandoff}-${Date.now()}` });
+	try {
+		const first = await promptAndRead({
+			rpc,
+			artifactDir,
+			message: `Remember exact token ${token}. Reply exactly FIRST_OK.`,
+			timeoutMs,
+			expectedContextHandoff: contextHandoff,
+		});
+		if (firstNonEmptyLine(first.text) !== "FIRST_OK") fail(`cloud ${contextHandoff} setup turn did not return FIRST_OK`, first.text);
+		const second = await promptAndRead({
+			rpc,
+			artifactDir,
+			message: "What exact CLOUD_CONTEXT token did I ask you to remember earlier in this pi session? Reply exactly TOKEN=<token> if visible, otherwise NO_CONTEXT.",
+			timeoutMs,
+			expectedContextHandoff: contextHandoff,
+		});
+		return { contextHandoff, token, first, second };
+	} finally {
+		await rpc.stop();
+	}
+}
+
+function nonEmptyLines(text) {
+	return String(text ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function firstNonEmptyLine(text) {
+	return nonEmptyLines(text).at(0) ?? "";
+}
+
+function lastNonEmptyLine(text) {
+	return nonEmptyLines(text).at(-1) ?? "";
+}
+
+async function runContextMatrix({ artifactRoot, timeoutMs }) {
+	const fresh = await runContextScenario({ artifactRoot, contextHandoff: "fresh", timeoutMs });
+	if (fresh.second.text.includes(fresh.token) || lastNonEmptyLine(fresh.second.text) !== "NO_CONTEXT") {
+		fail("fresh cloud context handoff leaked prior pi context", JSON.stringify({ expected: "NO_CONTEXT", actual: fresh.second.text, token: fresh.token }, null, 2));
+	}
+	const bootstrap = await runContextScenario({ artifactRoot, contextHandoff: "bootstrap", timeoutMs });
+	if (lastNonEmptyLine(bootstrap.second.text) !== `TOKEN=${bootstrap.token}`) {
+		fail("bootstrap cloud context handoff did not include prior pi context", JSON.stringify({ expected: `TOKEN=${bootstrap.token}`, actual: bootstrap.second.text }, null, 2));
+	}
+	return [fresh, bootstrap];
+}
+
 async function archiveCloudAgent(agentId) {
 	if (!agentId) return;
 	const { Agent } = await import("@cursor/sdk");
@@ -172,7 +325,7 @@ async function archiveCloudAgent(agentId) {
 	console.error(`[cloud-smoke] archived agent ${agentId}`);
 }
 
-function assertCloudMetadata(metadata, metadataPath) {
+function assertCloudMetadata(metadata, metadataPath, options = {}) {
 	if (metadata.providerMeta?.runtime !== "cloud") fail("provider metadata did not record cloud runtime", metadataPath);
 	if (metadata.send?.bridgeEnabled !== false) fail("cloud send unexpectedly enabled pi bridge", metadataPath);
 	if (metadata.send?.useNativeToolReplay !== false) fail("cloud send unexpectedly enabled native replay live-run mode", metadataPath);
@@ -181,6 +334,7 @@ function assertCloudMetadata(metadata, metadataPath) {
 	const providerEventsPath = resolveMetadataArtifactPath(metadataPath, metadata.artifacts?.providerEvents);
 	const providerEvents = readJsonlIfPresent(providerEventsPath);
 	const report = providerEvents.find((event) => event.phase === "cloud_run_report")?.payload;
+	if (!report && options.requireReport === false) return;
 	if (report?.agentId !== metadata.run.agentId) fail("cloud report did not include the cloud agent id", providerEventsPath ?? metadataPath);
 	if (report?.runId !== metadata.run.runId) fail("cloud report did not include the cloud run id", providerEventsPath ?? metadataPath);
 	if (!Array.isArray(report.branches)) fail("cloud report branches were not an array", providerEventsPath ?? metadataPath);
@@ -198,25 +352,32 @@ async function main() {
 	let failure;
 	console.error(`[cloud-smoke] artifacts: ${artifactRoot}`);
 	try {
-		const run = await runPi({ artifactDir: artifactRoot, timeoutMs });
-		const latestMetadata = readLatestMetadataIfPresent(artifactRoot);
-		agentId = latestMetadata?.metadata.run?.agentId ?? latestMetadata?.metadata.providerMeta?.cloudAgentId;
-		if (run.code !== 0) {
-			fail(`pi cloud smoke exited ${run.code}${run.signal ? ` (${run.signal})` : ""}`, `${run.stderr}\n${run.stdout}`.trim());
+		if (args.has("--context-matrix")) {
+			await runContextMatrix({ artifactRoot, timeoutMs });
+			console.error("[cloud-smoke] context matrix passed");
+		} else {
+			const run = await runPi({ artifactDir: artifactRoot, timeoutMs });
+			const latestMetadata = readLatestMetadataIfPresent(artifactRoot);
+			agentId = latestMetadata?.metadata.run?.agentId ?? latestMetadata?.metadata.providerMeta?.cloudAgentId;
+			if (run.code !== 0) {
+				fail(`pi cloud smoke exited ${run.code}${run.signal ? ` (${run.signal})` : ""}`, `${run.stderr}\n${run.stdout}`.trim());
+			}
+			if (!/cloud-smoke-ok/i.test(run.stdout)) {
+				fail("cloud smoke output missing exact marker", `${run.stderr}\n${run.stdout}`.trim());
+			}
+			if (!latestMetadata) fail("no SDK event debug metadata was written", artifactRoot);
+			assertCloudMetadata(latestMetadata.metadata, latestMetadata.metadataPath);
 		}
-		if (!/cloud-smoke-ok/i.test(run.stdout)) {
-			fail("cloud smoke output missing exact marker", `${run.stderr}\n${run.stdout}`.trim());
-		}
-		if (!latestMetadata) fail("no SDK event debug metadata was written", artifactRoot);
-		assertCloudMetadata(latestMetadata.metadata, latestMetadata.metadataPath);
 	} catch (error) {
 		failure = error;
 	}
-	try {
-		await archiveCloudAgent(agentId);
-	} catch (error) {
-		console.error(`[cloud-smoke] cleanup failed for ${agentId}: ${error instanceof Error ? error.message : String(error)}`);
-		failure ??= error;
+	for (const id of new Set([agentId, ...cloudAgentIdsFromMetadata(artifactRoot)].filter(Boolean))) {
+		try {
+			await archiveCloudAgent(id);
+		} catch (error) {
+			console.error(`[cloud-smoke] cleanup failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
+			failure ??= error;
+		}
 	}
 	if (process.env.CURSOR_CLOUD_SMOKE_KEEP_ARTIFACTS !== "1") {
 		rmSync(artifactRoot, { recursive: true, force: true });
