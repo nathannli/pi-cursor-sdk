@@ -131,6 +131,7 @@ Done means:
 - `npm pack --dry-run` passes when package metadata, publishable docs, dependencies, or ignored artifacts change.
 - Related README/docs/tests are updated when behavior, commands, user-visible model IDs, flags, or troubleshooting change.
 - No secrets, local API keys, or noisy local state are added.
+- Session, resume, lifecycle, and cleanup behavior is verified against persisted session entries and provider/debug metadata, not assistant text alone.
 
 If validation fails:
 
@@ -151,6 +152,7 @@ When plans, reviews, investigations, or generated smoke/debug artifacts are no l
 - `PI_CURSOR_SDK_EVENT_DEBUG=1` and `npm run debug:provider-events` write raw local artifacts that may include prompts, tool args/results, local paths, or secrets; keep them under gitignored `.debug/`, do not print or commit them, and keep run-scoped debug state explicit rather than process-global.
 - Ambient Cursor settings/rules loading is enabled by default through `PI_CURSOR_SETTING_SOURCES=all`; keep SDK startup log filtering intact so settings/skills output does not corrupt pi's TUI. Users can narrow or disable Cursor setting sources explicitly when desired.
 - Live `pi`/Cursor smoke tests may call external services and require Cursor auth in `~/.pi/agent/auth.json` and/or `CURSOR_API_KEY`; run them for Cursor provider/runtime changes. If auth is unavailable, report live smoke as release-blocked instead of skipped-ready. See `docs/cursor-testing-lessons.md` for isolated harness auth seeding.
+- Live Cursor Cloud probes that create `bc-*` agents must capture agent/run IDs, verify archive/delete cleanup, and report any residual agent; do not assume cleanup from a passed smoke.
 - For Cursor provider/runtime changes, the canonical local runtime release and pre-commit gate is `npm run smoke:platform:all`; see `docs/platform-smoke.md`. That script runs doctor before the macOS/Ubuntu/Windows local-runtime matrix. Cloud runtime changes must also run the opt-in `npm run smoke:cloud` lane. The platform gate uses packed installs across macOS, Ubuntu, and Windows native with PTY/ConPTY capture, host-rendered xterm/PNG visual evidence, JSONL assertions, bridge diagnostics, usage/cache checks, abort cleanup, artifact manifests, and redaction scans. Use `docs/cursor-live-smoke-checklist.md`, `npm run smoke:visual`, `npm run smoke:live`, or direct `pi --approve -e . --cursor-no-fast --model cursor/composer-2-5` runs only for inner-loop debugging and focused visual/card audits before the full platform gate. Do not mark release-ready with optional/deferred/mostly-passing platform smoke items outstanding.
 
 ## PR review workflow (maintainer)
@@ -197,4 +199,6 @@ This is a `pi` provider extension (not a server/web app). "Running the app" mean
 - Run the extension locally with `./node_modules/.bin/pi -e . --model cursor/composer-2-5` (the bare `pi` is not on `PATH`). Add `--approve` for interactive sessions; print-mode smoke: `./node_modules/.bin/pi -e . --model cursor/composer-2-5 --cursor-no-fast --no-session -p "..."`.
 - Cold-start gotcha: the *first* Cursor SDK run in a fresh VM can take several minutes (SDK/transport warm-up); subsequent runs complete in ~10s. Warm up with one throwaway run before any timing-sensitive or recorded demo, and don't treat a slow first run as a hang.
 - When capturing print-mode (`-p`) output, redirect stdout to a file rather than piping through `tail`/`head` — those pipes buffer until the process exits, hiding streaming progress.
+- Use sessionful runs (`--session-dir`/`--session-id`, not `--no-session`) when testing session ledgers, resume identity, branch/fork/clone/switch behavior, or slash commands such as `/cursor-cloud`; `--no-session` is only proof for one-shot provider behavior.
+- For slow cloud or slash-command probes, prefer print mode for model turns or raw JSONL RPC with an explicit timeout; the packaged `RpcClient` has a fixed 30s request timeout that can falsely fail long cloud operations.
 - The maintainer platform/live smoke gates (`npm run smoke:platform:all`, etc.) are heavy (Crabbox, PTY, Playwright) and are not needed to validate basic environment setup; use the unit/typecheck/print-mode flow above for that.
