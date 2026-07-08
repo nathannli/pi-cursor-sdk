@@ -151,7 +151,6 @@ Run:
 
 ```bash
 npm run smoke:cloud
-npm run smoke:cloud:context
 ```
 
 The default lane is intentionally minimal: it starts one non-interactive cloud run with explicit acknowledgement, fresh context, no pi bridge, no env forwarding, SDK event-debug contract checks, bounded stream-only cloud report shape checks, and cloud-agent archival cleanup with post-archive `archived: true` verification. Raw usage/artifact presence is account-dependent, so display-only accounting and artifact formatting contracts stay covered by unit/provider tests. It must fail closed when requested but unavailable:
@@ -162,7 +161,7 @@ The default lane is intentionally minimal: it starts one non-interactive cloud r
 - do not forward local env values;
 - archive the throwaway cloud agent when the SDK/API returns an agent id and verify the archived metadata before passing.
 
-`npm run smoke:cloud:context` runs a separate sessionful context-handoff matrix: `fresh` must answer `NO_CONTEXT` for a prior-token recall prompt, while `bootstrap` must recall the token. It archives and verifies every cloud agent id observed in smoke metadata.
+Focused optional proof: `npm run smoke:cloud:context` runs a separate sessionful context-handoff matrix. Use it when changing cloud context-handoff behavior or gathering default-on/cloud-resume evidence. `fresh` must answer `NO_CONTEXT` for a prior-token recall prompt, while `bootstrap` must recall the token. It archives and verifies every cloud agent id observed in smoke metadata.
 
 Future expanded cloud smoke work should add throwaway repo/branch coverage, dirty/unpushed warning assertions, branch/PR behavior, explicit direct-push opt-in, missing-branch failure, cancel/delete cleanup, and account-backed artifact/raw-usage fixtures when those contracts need live proof beyond the current report-shape and context-handoff smokes.
 
@@ -201,7 +200,8 @@ Package scripts:
   "smoke:platform:ubuntu": "node scripts/platform-smoke.mjs run --target ubuntu",
   "smoke:platform:windows-native": "node scripts/platform-smoke.mjs run --target windows-native",
   "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native",
-  "smoke:cloud": "node scripts/cloud-runtime-smoke.mjs"
+  "smoke:cloud": "node scripts/cloud-runtime-smoke.mjs",
+  "smoke:cloud:context": "node scripts/cloud-runtime-smoke.mjs --context-matrix"
 }
 ```
 
