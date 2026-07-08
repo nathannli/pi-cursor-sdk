@@ -37,9 +37,11 @@ Usage:
   npm run smoke:local-resume
   npm run smoke:local-resume:safety
   npm run smoke:local-resume:tool-surface
+  npm run smoke:local-resume:abort
   node scripts/local-resume-smoke.mjs
   node scripts/local-resume-smoke.mjs --safety
   node scripts/local-resume-smoke.mjs --tool-surface
+  node scripts/local-resume-smoke.mjs --abort
 
 Environment:
   CURSOR_LOCAL_RESUME_SMOKE_MODEL          Cursor model id (default: cursor/composer-2-5:slow).
@@ -148,6 +150,16 @@ async function waitForAgentEnd(rpc, fromIndex, timeoutMs) {
 	throw new Error(`timeout waiting for agent_end. Stderr: ${rpc.stderr}`);
 }
 
+async function waitForFile(path, timeoutMs, rpc) {
+	const started = Date.now();
+	while (Date.now() - started < timeoutMs) {
+		if (existsSync(path)) return;
+		if (rpc?.events.some((event) => event.type === "agent_end")) fail(`agent ended before ${path} existed`, rpc.stderr);
+		await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+	}
+	fail(`timeout waiting for ${path}`, rpc?.stderr ?? "");
+}
+
 function metadataFiles(artifactDir) {
 	const files = [];
 	const stack = [join(artifactDir, "debug")];
@@ -213,20 +225,35 @@ function userEntryContaining(entries, text) {
 	return (entries.entries ?? []).find((entry) => entry?.type === "message" && entry.message?.role === "user" && String(entry.message?.content?.[0]?.text ?? entry.message?.content ?? "").includes(text));
 }
 
-async function promptAndRead({ rpc, artifactDir, message, timeoutMs, seenMetadata }) {
-	const eventStart = rpc.events.length;
-	await rpc.send("prompt", { message }, timeoutMs);
-	await waitForAgentEnd(rpc, eventStart, timeoutMs);
-	const text = await readLastAssistantText(rpc);
+function takeLatestMetadata(artifactDir, seenMetadata) {
 	const metadata = readMetadataSince(artifactDir, seenMetadata);
 	for (const item of metadata) seenMetadata.add(item.metadataPath);
 	const latest = metadata.at(-1);
 	if (!latest) fail("no new metadata was written", artifactDir);
 	return {
-		text,
 		metadataPath: latest.metadataPath,
 		metadata: latest.metadata,
 	};
+}
+
+async function promptAndRead({ rpc, artifactDir, message, timeoutMs, seenMetadata }) {
+	const eventStart = rpc.events.length;
+	await rpc.send("prompt", { message }, timeoutMs);
+	await waitForAgentEnd(rpc, eventStart, timeoutMs);
+	const text = await readLastAssistantText(rpc);
+	return {
+		text,
+		...takeLatestMetadata(artifactDir, seenMetadata),
+	};
+}
+
+async function promptAbortAndRead({ rpc, artifactDir, message, markerPath, timeoutMs, seenMetadata }) {
+	const eventStart = rpc.events.length;
+	await rpc.send("prompt", { message }, timeoutMs);
+	await waitForFile(markerPath, timeoutMs, rpc);
+	await rpcData(rpc, "abort", {}, 120000);
+	await waitForAgentEnd(rpc, eventStart, timeoutMs);
+	return takeLatestMetadata(artifactDir, seenMetadata);
 }
 
 function assertTurnMetadata(label, turn, expected) {
@@ -398,6 +425,13 @@ async function runSafetySmoke() {
 	}
 }
 
+function longRunningAbortPrompt(markerDir) {
+	return `Call pi__bash with command:
+node -e "const fs=require('fs');fs.mkdirSync('${markerDir}',{recursive:true});fs.writeFileSync('${markerDir}/started.txt',String(process.pid));setTimeout(()=>console.log('LOCAL_RESUME_ABORT_SHOULD_NOT_PRINT'),30000)"
+
+Do not answer until the tool completes.`;
+}
+
 async function runToolSurfaceSmoke() {
 	const timeoutMs = parseTimeout();
 	const { artifactRoot, sessionDir, sessionId, seenMetadata } = createRunContext("pi-cursor-local-resume-tool-surface-smoke-");
@@ -465,7 +499,78 @@ async function runToolSurfaceSmoke() {
 	}
 }
 
+async function runAbortSmoke() {
+	const timeoutMs = parseTimeout();
+	const { artifactRoot, sessionDir, sessionId, seenMetadata } = createRunContext("pi-cursor-local-resume-abort-smoke-");
+	const token = `LOCAL_ABORT_${Date.now()}`;
+	const markerDir = ".debug/local-resume-abort";
+	const markerPath = join(artifactRoot, "workspace", markerDir, "started.txt");
+	let originalAgentId;
+	let resumeCountBeforeAbort;
+	console.error(`[local-resume-smoke] artifacts: ${artifactRoot}`);
+	try {
+		let rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId, bridge: true, exposeBuiltinTools: true });
+		try {
+			const baseline = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: `Remember exact abort token ${token}. Reply exactly ABORT_BASELINE_OK.`,
+				timeoutMs,
+				seenMetadata,
+			});
+			assertTurnMetadata("abort baseline", baseline, { resumedAgent: false });
+			if (!baseline.metadata.providerMeta?.bridgeRunId) fail("abort baseline did not start a bridge run", baseline.metadataPath);
+			originalAgentId = baseline.metadata.run.agentId;
+			resumeCountBeforeAbort = resumeEntryCount(await getEntries(rpc));
+			if (resumeCountBeforeAbort < 1) fail("abort baseline did not persist a resume handle");
+		} finally {
+			await rpc.stop();
+		}
+
+		rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId, bridge: true, exposeBuiltinTools: true });
+		try {
+			const aborted = await promptAbortAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: longRunningAbortPrompt(markerDir),
+				markerPath,
+				timeoutMs,
+				seenMetadata,
+			});
+			assertTurnMetadata("aborted turn", aborted, { resumedAgent: true });
+			if (aborted.metadata.run.agentId !== originalAgentId) fail("aborted turn did not start from the original resumed agent", JSON.stringify({ original: originalAgentId, actual: aborted.metadata.run.agentId }, null, 2));
+			const entriesAfterAbort = await getEntries(rpc);
+			const resumeCountAfterAbort = resumeEntryCount(entriesAfterAbort);
+			if (resumeCountAfterAbort !== resumeCountBeforeAbort) fail("aborted turn persisted a new resume handle", JSON.stringify({ before: resumeCountBeforeAbort, after: resumeCountAfterAbort }, null, 2));
+		} finally {
+			await rpc.stop();
+		}
+
+		rpc = startRpc({ artifactDir: artifactRoot, sessionDir, sessionId, bridge: true, exposeBuiltinTools: true });
+		try {
+			const afterAbort = await promptAndRead({
+				rpc,
+				artifactDir: artifactRoot,
+				message: "Reply exactly AFTER_ABORT_OK.",
+				timeoutMs,
+				seenMetadata,
+			});
+			assertNotResumedFrom("after aborted turn restart", afterAbort, originalAgentId);
+			if (!afterAbort.metadata.providerMeta?.bridgeRunId) fail("after aborted turn restart did not start a bridge run", afterAbort.metadataPath);
+			const handle = latestResumeEntry(await getEntries(rpc));
+			if (handle?.agentId !== afterAbort.metadata.run.agentId) fail("after aborted turn did not persist the new agent handle", JSON.stringify({ handle: handle?.agentId, run: afterAbort.metadata.run.agentId }, null, 2));
+		} finally {
+			await rpc.stop();
+		}
+		console.log("local-resume-abort-smoke-ok");
+		console.error(`[local-resume-smoke] original ${originalAgentId} not reused after aborted bridge turn`);
+	} finally {
+		if (process.env.CURSOR_LOCAL_RESUME_SMOKE_KEEP_ARTIFACTS !== "1") rmSync(artifactRoot, { recursive: true, force: true });
+	}
+}
+
 function selectedRun() {
+	if (args.has("--abort")) return runAbortSmoke;
 	if (args.has("--tool-surface")) return runToolSurfaceSmoke;
 	if (args.has("--safety")) return runSafetySmoke;
 	return runSmoke;

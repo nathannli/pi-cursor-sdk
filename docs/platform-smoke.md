@@ -170,7 +170,7 @@ This lane is a cloud-runtime release gate, not a substitute for the local macOS/
 
 ## Focused local resume smoke
 
-`cursor-local-resume-restart` is part of the local platform matrix. `npm run smoke:local-resume` runs the same focused proof on the current host for inner-loop debugging. `npm run smoke:local-resume:safety` runs the local fork/clone safety proof, and `npm run smoke:local-resume:tool-surface` runs the local bridge tool-surface mismatch proof before promoting more cases into the platform matrix. Use these when changing local resume behavior or gathering evidence for default-on decisions.
+`cursor-local-resume-restart` is part of the local platform matrix. `npm run smoke:local-resume` runs the same focused proof on the current host for inner-loop debugging. `npm run smoke:local-resume:safety` runs the local fork/clone safety proof, `npm run smoke:local-resume:tool-surface` runs the local bridge tool-surface mismatch proof, and `npm run smoke:local-resume:abort` runs the local interrupted-turn persistence proof before promoting more cases into the platform matrix. Use these when changing local resume behavior or gathering evidence for default-on decisions.
 
 The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`, records the SDK agent id from provider debug metadata, restarts pi against the same session, asks for the remembered token, and verifies:
 
@@ -182,6 +182,8 @@ The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`
 The safety lane verifies an original session resumes the same local agent after restart, then proves cloned-session copied resume entries and a fork before a future-token prompt both create a new local `agent-*`. The forked earlier branch must not reveal the future token.
 
 The tool-surface lane verifies same-session restart reuses the original local agent with the same bridge/tool surface, then enables the builtin pi tool bridge surface and verifies the old resume handle is rejected, a bridge run is created, a new local `agent-*` is used, and a new resume pool key is persisted.
+
+The abort lane verifies a completed bridge-enabled turn persists a local resume handle, an interrupted long-running bridge turn starts from that handle but does not append a new one, and the next same-surface restart uses a new local `agent-*` instead of resuming the pre-abort agent.
 
 ## Files and scripts
 
@@ -220,7 +222,8 @@ Package scripts:
   "smoke:cloud:context": "node scripts/cloud-runtime-smoke.mjs --context-matrix",
   "smoke:local-resume": "node scripts/local-resume-smoke.mjs",
   "smoke:local-resume:safety": "node scripts/local-resume-smoke.mjs --safety",
-  "smoke:local-resume:tool-surface": "node scripts/local-resume-smoke.mjs --tool-surface"
+  "smoke:local-resume:tool-surface": "node scripts/local-resume-smoke.mjs --tool-surface",
+  "smoke:local-resume:abort": "node scripts/local-resume-smoke.mjs --abort"
 }
 ```
 

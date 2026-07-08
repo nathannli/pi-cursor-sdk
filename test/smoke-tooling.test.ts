@@ -68,6 +68,7 @@ describe("smoke tooling package checks", () => {
 		expect(localResumeHelp.stdout).toContain("smoke:local-resume");
 		expect(localResumeHelp.stdout).toContain("--safety");
 		expect(localResumeHelp.stdout).toContain("--tool-surface");
+		expect(localResumeHelp.stdout).toContain("--abort");
 
 		if (process.platform !== "win32") {
 			const failedCommand = run("bash", [
