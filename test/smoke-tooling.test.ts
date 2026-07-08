@@ -67,6 +67,7 @@ describe("smoke tooling package checks", () => {
 		expect(localResumeHelp.status).toBe(0);
 		expect(localResumeHelp.stdout).toContain("smoke:local-resume");
 		expect(localResumeHelp.stdout).toContain("--safety");
+		expect(localResumeHelp.stdout).toContain("--tool-surface");
 
 		if (process.platform !== "win32") {
 			const failedCommand = run("bash", [
@@ -159,6 +160,11 @@ describe("smoke tooling package checks", () => {
 			expect(env.PI_CURSOR_CLOUD_ACK).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_ENV).toBeUndefined();
+			expect(env.PI_CURSOR_PI_TOOL_BRIDGE).toBe("0");
+			expect(env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS).toBe("0");
+			const bridgeEnv = buildLocalResumeSmokeEnv(artifactRoot, { bridge: true, exposeBuiltinTools: true });
+			expect(bridgeEnv.PI_CURSOR_PI_TOOL_BRIDGE).toBe("1");
+			expect(bridgeEnv.PI_CURSOR_EXPOSE_BUILTIN_TOOLS).toBe("1");
 			expect(env.PI_CODING_AGENT_DIR).toBe(join(artifactRoot, "agent"));
 			expect(existsSync(env.PI_CODING_AGENT_DIR!)).toBe(true);
 		} finally {
