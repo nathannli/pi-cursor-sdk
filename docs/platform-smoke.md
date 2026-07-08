@@ -167,6 +167,17 @@ Future expanded cloud smoke work should add throwaway repo/branch coverage, dirt
 
 This lane is a cloud-runtime release gate, not a substitute for the local macOS/Ubuntu/Windows `smoke:platform:all` gate.
 
+## Focused local resume smoke
+
+`npm run smoke:local-resume` is a focused live proof for guarded local resume. It is not part of the required release gate yet. Use it when changing local resume behavior or gathering evidence for default-on decisions.
+
+The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`, records the SDK agent id from provider debug metadata, restarts pi against the same session, asks for the remembered token, and verifies:
+
+- the first run records `localResume: true` and `resumedAgent: false`;
+- the second run records `localResume: true` and `resumedAgent: true`;
+- both runs use the same local SDK `agent-*` id;
+- the remembered token survives the process restart.
+
 ## Files and scripts
 
 Files:
@@ -201,7 +212,8 @@ Package scripts:
   "smoke:platform:windows-native": "node scripts/platform-smoke.mjs run --target windows-native",
   "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native",
   "smoke:cloud": "node scripts/cloud-runtime-smoke.mjs",
-  "smoke:cloud:context": "node scripts/cloud-runtime-smoke.mjs --context-matrix"
+  "smoke:cloud:context": "node scripts/cloud-runtime-smoke.mjs --context-matrix",
+  "smoke:local-resume": "node scripts/local-resume-smoke.mjs"
 }
 ```
 

@@ -163,6 +163,7 @@ Implemented local slice:
 
 Remaining before default-on or cloud resume:
 
+- Focused same-session restart proof is now covered by `npm run smoke:local-resume`, but default-on still needs platform-matrix and branch/tree/fork/import/abort/tool-surface coverage.
 - Cloud resume/default-on remain deferred pending broader live smoke and product decision.
 - Cleanup commands landed and must continue rejecting empty SDK delete filters and only delete IDs recorded by this extension.
 - Broader live smoke must prove tree, fork, clone, import/session switch, abort, tool-surface changes, and resume failure fallback.
@@ -218,6 +219,7 @@ Required resume probes/tests before flipping defaults:
 | Tool re-supply without accidental persistence | **Validated**                      | Missing resupply fails; `send({ local: { customTools } })` succeeds.                                                                                                       |
 | Model re-supply every turn                    | **Validated**                      | `modelBeforeSend: null` after resume until `send({ model })`.                                                                                                              |
 | MCP bridge Pi tool through real pi lifecycle  | **Validated**                      | Loopback-style `mcpServers` must be re-supplied on resume; missing resupply can finish as assistant-visible MCP failure.                                                   |
+| Same-session process restart                  | **Pi policy**                      | Focused live smoke `npm run smoke:local-resume` proves a recorded local SDK agent resumes across a pi process restart when `PI_CURSOR_LOCAL_RESUME=1`. Platform-matrix coverage remains before default-on. |
 | Fork isolation                                | **Pi policy**                      | Local implementation rejects copied session-entry reuse through session file/id and active-branch-prefix identity. More live tree/fork/clone/import smoke remains before default-on. |
 | Post-compaction new SDK agent                 | **Pi policy**                      | Live manual compaction evidence captured in `docs/evidence/cursor-local-compaction-boundary-2026-07-08.md` supports the boundary rule: pre-compaction agent `agent-9f5c78fb-458c-4225-9976-a95b22806221` was not reused after compaction; post-compaction agent `agent-b5e5e885-9c63-4415-9593-575418449607` was recorded with `compactionGeneration: 1` and resumed on the next restart. Automated platform smoke remains before default-on. |
 | `RunResult.usage` without `turn-ended`        | **Rejected**                       | Local Composer 2.5 returns `RunResult.usage`, but real long-session evidence shows it can represent full agent context and poison pi compaction totals. Do not use it for pi message usage. |
