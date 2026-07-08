@@ -170,7 +170,7 @@ This lane is a cloud-runtime release gate, not a substitute for the local macOS/
 
 ## Focused local resume smoke
 
-`cursor-local-resume-restart` is part of the local platform matrix. `npm run smoke:local-resume` runs the same focused proof on the current host for inner-loop debugging. `npm run smoke:local-resume:safety` runs the local fork/clone safety proof, `npm run smoke:local-resume:tool-surface` runs the local bridge tool-surface mismatch proof, and `npm run smoke:local-resume:abort` runs the local interrupted-turn persistence proof before promoting more cases into the platform matrix. Use these when changing local resume behavior or gathering evidence for default-on decisions.
+The platform matrix includes the required local-resume lanes: restart, safety, tool-surface, abort, tree, copy/switch, fallback, compaction, and isolated default/opt-out dry-run. The same lanes are available as focused host-local scripts for inner-loop debugging and default-on evidence collection.
 
 The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`, records the SDK agent id from provider debug metadata, restarts pi against the same session, asks for the remembered token, and verifies:
 
@@ -184,6 +184,16 @@ The safety lane verifies an original session resumes the same local agent after 
 The tool-surface lane verifies same-session restart reuses the original local agent with the same bridge/tool surface, then enables the builtin pi tool bridge surface and verifies the old resume handle is rejected, a bridge run is created, a new local `agent-*` is used, and a new resume pool key is persisted.
 
 The abort lane verifies a completed bridge-enabled turn persists a local resume handle, an interrupted long-running bridge turn starts from that handle but does not append a new one, and the next same-surface restart uses a new local `agent-*` instead of resuming the pre-abort agent.
+
+The tree lane verifies both realistic navigation to an earlier assistant entry and direct navigation to an earlier `cursor-sdk-agent-resume` custom entry reject the future-seeing SDK agent and do not reveal the future-only token.
+
+The copy/switch lane copies a session file containing resume custom entries, switches to that copied file, and verifies the copied handle is rejected while transcript bootstrap still recalls the token.
+
+The fallback lane rewrites a persisted handle to a missing local SDK `agent-*`, verifies create+bootstrap fallback, and asserts the continuity notice is emitted in `pi-stream-events.jsonl`.
+
+The compaction lane uses an isolated temp pi settings file with `compaction.keepRecentTokens: 1` to force manual compaction without huge dummy prompts. It verifies the pre-compaction SDK agent is not reused, the new handle records `compactionGeneration: 1`, and restart resumes the post-compaction agent.
+
+The default dry-run lane writes `cursor-sdk.json` with `{ "local": { "resume": true } }` only inside the temp `PI_CODING_AGENT_DIR`, verifies that config default resumes, then verifies `PI_CURSOR_LOCAL_RESUME=0` opts out and creates a new agent while bootstrapping the transcript.
 
 ## Files and scripts
 
@@ -223,7 +233,12 @@ Package scripts:
   "smoke:local-resume": "node scripts/local-resume-smoke.mjs",
   "smoke:local-resume:safety": "node scripts/local-resume-smoke.mjs --safety",
   "smoke:local-resume:tool-surface": "node scripts/local-resume-smoke.mjs --tool-surface",
-  "smoke:local-resume:abort": "node scripts/local-resume-smoke.mjs --abort"
+  "smoke:local-resume:abort": "node scripts/local-resume-smoke.mjs --abort",
+  "smoke:local-resume:tree": "node scripts/local-resume-smoke.mjs --tree",
+  "smoke:local-resume:copy-switch": "node scripts/local-resume-smoke.mjs --copy-switch",
+  "smoke:local-resume:fallback": "node scripts/local-resume-smoke.mjs --fallback",
+  "smoke:local-resume:compaction": "node scripts/local-resume-smoke.mjs --compaction",
+  "smoke:local-resume:default-dry-run": "node scripts/local-resume-smoke.mjs --default-dry-run"
 }
 ```
 
@@ -236,6 +251,8 @@ All repo-specific behavior lives in `platform-smoke.config.mjs` so the framework
 Required config fields:
 
 ```js
+import { LOCAL_RESUME_SUITE_NAMES } from "./scripts/platform-smoke/local-resume-suites.mjs";
+
 export default {
   packageName: "pi-cursor-sdk",
   cursorModel: "cursor/composer-2-5",
@@ -251,7 +268,7 @@ export default {
     "cursor-native-visual-matrix",
     "cursor-bridge-visual-matrix",
     "cursor-abort-cleanup",
-    "cursor-local-resume-restart",
+    ...LOCAL_RESUME_SUITE_NAMES,
   ],
   requiredCrabbox: {
     install: "Homebrew package or PLATFORM_SMOKE_CRABBOX override",
@@ -475,7 +492,22 @@ Purpose:
 - assert the first turn creates a local `agent-*` and the second turn resumes the same `agent-*`;
 - force local runtime and clear cloud env knobs so ambient cloud settings cannot satisfy this suite.
 
-The suite runs `npm run smoke:local-resume` on the target and asserts the `local-resume-smoke-ok` marker plus the resumed local agent id line. It is platform evidence for the same-session restart slice only; it does not make local resume default-ready.
+The suite runs `npm run smoke:local-resume` on the target and asserts the `local-resume-smoke-ok` marker plus the resumed local agent id line. It is platform evidence for the same-session restart slice.
+
+### `cursor-local-resume-*` focused proof lanes
+
+The remaining local-resume platform suites run the matching focused package script on each target and assert its success marker plus stderr evidence line:
+
+| Suite | Package script | Purpose |
+| --- | --- | --- |
+| `cursor-local-resume-safety` | `npm run smoke:local-resume:safety` | clone rejection and fork-before-future no-leak |
+| `cursor-local-resume-tool-surface` | `npm run smoke:local-resume:tool-surface` | stale handle rejection after bridge/tool-surface change |
+| `cursor-local-resume-abort` | `npm run smoke:local-resume:abort` | interrupted bridge turn does not persist/reuse stale handle |
+| `cursor-local-resume-tree` | `npm run smoke:local-resume:tree` | earlier assistant and resume-entry tree targets reject future-seeing agent |
+| `cursor-local-resume-copy-switch` | `npm run smoke:local-resume:copy-switch` | copied session file rejects copied resume handle |
+| `cursor-local-resume-fallback` | `npm run smoke:local-resume:fallback` | missing local agent falls back with continuity notice |
+| `cursor-local-resume-compaction` | `npm run smoke:local-resume:compaction` | compaction boundary creates/resumes post-compaction generation |
+| `cursor-local-resume-default-dry-run` | `npm run smoke:local-resume:default-dry-run` | isolated config-default resumes and env opt-out wins |
 
 ### `cursor-native-visual-matrix`
 
@@ -683,17 +715,25 @@ Required evidence:
 Per target maximum live Cursor invocations:
 
 ```text
-cursor-local-resume-restart: 2
 cursor-native-visual-matrix: 1
 cursor-bridge-visual-matrix: 1
 cursor-abort-cleanup: 1
+cursor-local-resume-restart: 2
+cursor-local-resume-safety: 4
+cursor-local-resume-tool-surface: 3
+cursor-local-resume-abort: 3
+cursor-local-resume-tree: 4
+cursor-local-resume-copy-switch: 2
+cursor-local-resume-fallback: 2
+cursor-local-resume-compaction: 5
+cursor-local-resume-default-dry-run: 3
 ```
 
-Maximum per target: `5` Cursor invocations.
+Maximum per target: `31` Cursor invocations.
 
-Maximum full gate: `15` Cursor invocations.
+Maximum full gate: `93` Cursor invocations.
 
-The merge gate is `npm run smoke:platform:all`; that script runs doctor first and then the matrix to preserve this budget. No suite adds a new Cursor invocation without updating this plan and `platform-smoke.config.mjs`.
+The merge gate is `npm run smoke:platform:all`; that script runs doctor first and then the matrix to preserve this budget. No suite adds a new Cursor invocation without updating this plan and the scenario source of truth (`scripts/platform-smoke/scenarios.mjs`, plus `scripts/platform-smoke/local-resume-suites.mjs` for local-resume lanes).
 
 ## Artifact contract
 
