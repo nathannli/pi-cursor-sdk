@@ -148,14 +148,38 @@ function canResumeHandleSpanEntry(entry: SessionEntry): boolean {
 	return entry.type === "message" && entry.message.role === "user";
 }
 
-function restoreFromBranch(branch: readonly SessionEntry[]): void {
+function isSameResumeAgentLineage(a: CursorSessionAgentResumeEntryData, b: CursorSessionAgentResumeEntryData): boolean {
+	return a.agentId === b.agentId &&
+		a.scopeKey === b.scopeKey &&
+		a.sessionFile === b.sessionFile &&
+		a.sessionId === b.sessionId &&
+		a.cwd === b.cwd &&
+		a.repoRoot === b.repoRoot &&
+		a.poolKey === b.poolKey;
+}
+
+function isResumeHandleSuperseded(data: CursorSessionAgentResumeEntryData, entries: readonly SessionEntry[]): boolean {
+	for (const entry of entries) {
+		if (entry.type !== "custom" || entry.customType !== CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) continue;
+		const candidate = parseResumeEntryData(entry.data);
+		if (!candidate || !isSameResumeAgentLineage(data, candidate)) continue;
+		if (candidate.createdAt > data.createdAt) return true;
+	}
+	return false;
+}
+
+function restoreFromBranch(branch: readonly SessionEntry[], allEntries: readonly SessionEntry[] = branch): void {
 	let branchPathHash = EMPTY_BRANCH_HASH;
 	let compactionGeneration = 0;
 	let activeHandle: CursorSessionAgentResumeEntryData | undefined;
 	for (const entry of branch) {
 		if (entry.type === "custom" && entry.customType === CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) {
 			const data = parseResumeEntryData(entry.data);
-			if (data && matchesCurrentSession(data, branchPathHash, compactionGeneration)) activeHandle = data;
+			if (
+				data &&
+				matchesCurrentSession(data, branchPathHash, compactionGeneration) &&
+				!isResumeHandleSuperseded(data, allEntries)
+			) activeHandle = data;
 			continue;
 		}
 		if (activeHandle && !canResumeHandleSpanEntry(entry)) activeHandle = undefined;
@@ -227,27 +251,32 @@ interface CursorSessionAgentResumeExtensionApi {
 
 export function registerCursorSessionAgentResume(pi: CursorSessionAgentResumeExtensionApi): void {
 	state.appendEntry = pi.appendEntry;
+	const restoreFromSessionManager = (sessionManager: { getBranch(): SessionEntry[]; getEntries(): SessionEntry[] }): void => {
+		const branch = sessionManager.getBranch();
+		const entries = sessionManager.getEntries();
+		restoreFromBranch(branch, entries.length > 0 ? entries : branch);
+	};
 	pi.on("session_start", (_event, ctx) => {
 		state.scopeKey = getCursorSessionScopeKey();
 		state.sessionFile = ctx.sessionManager.getSessionFile?.() ?? undefined;
 		state.sessionId = ctx.sessionManager.getSessionId?.() ?? undefined;
 		state.cwd = ctx.cwd;
 		state.repoRoot = getGitRepoRoot(ctx.cwd);
-		restoreFromBranch(ctx.sessionManager.getBranch());
+		restoreFromSessionManager(ctx.sessionManager);
 	});
 	pi.on("before_agent_start", (_event, ctx) => {
-		restoreFromBranch(ctx.sessionManager.getBranch());
+		restoreFromSessionManager(ctx.sessionManager);
 	});
 	pi.on("turn_end", (_event, ctx) => {
 		flushPendingCursorSessionAgentResumeHandle(ctx.sessionManager.getBranch());
 	});
 	pi.on("session_tree", (_event, ctx) => {
-		restoreFromBranch(ctx.sessionManager.getBranch());
+		restoreFromSessionManager(ctx.sessionManager);
 	});
 	pi.on("session_compact", (event, ctx) => {
 		const branch = ctx.sessionManager.getBranch();
 		if (branch.length > 0) {
-			restoreFromBranch(branch);
+			restoreFromSessionManager(ctx.sessionManager);
 			return;
 		}
 		state.activeHandle = undefined;

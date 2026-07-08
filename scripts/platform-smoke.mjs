@@ -22,6 +22,8 @@ try {
 }
 
 function printHelp() {
+	const targetList = (config?.requiredTargets ?? ["macos", "ubuntu", "windows-native"]).join(",");
+	const suiteList = (config?.requiredSuites ?? []).join(",");
 	console.log(`Usage: node scripts/platform-smoke.mjs <command> [options]
 
 Commands:
@@ -31,8 +33,8 @@ Commands:
   run --target <n> --suite <n>
 
 Options:
-  --target       Comma-separated target names: macos,ubuntu,windows-native
-  --suite        Suite name: platform-build,cursor-local-resume-restart,cursor-native-visual-matrix,cursor-bridge-visual-matrix,cursor-abort-cleanup
+  --target       Comma-separated target names: ${targetList}
+  --suite        Suite name: ${suiteList}
   --help, -h     Show this help
 
 Examples:

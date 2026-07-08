@@ -165,6 +165,72 @@ describe("cursor-session-agent-resume", () => {
 		expect(getMatchingCursorSessionAgentResumeHandle("pool-1")).toBeUndefined();
 	});
 
+	it("rejects old tree-selected handles superseded by a newer handle for the same SDK agent", async () => {
+		const pi = createPiHarness();
+		registerCursorSessionScope(pi);
+		registerCursorSessionAgentResume(pi);
+		const first = messageEntry("u1", null);
+		const assistant = messageEntry("a1", "u1", "assistant");
+		const baseHash = resumeTestUtils.hashBranchStep(
+			resumeTestUtils.hashBranchStep(resumeTestUtils.EMPTY_BRANCH_HASH, first),
+			assistant,
+		);
+		const oldHandle: CursorSessionAgentResumeEntryData = {
+			version: 1,
+			runtime: "local",
+			agentId: "agent-1",
+			scopeKey: "/tmp/session.jsonl",
+			sessionFile: "/tmp/session.jsonl",
+			sessionId: "session-1",
+			cwd: "/tmp/project",
+			poolKey: "pool-1",
+			branchPathHash: baseHash,
+			compactionGeneration: 0,
+			sendState: { bootstrapped: true, contextFingerprint: "fp-old", incrementalSendCount: 0 },
+			createdAt: "2026-07-07T00:00:00.000Z",
+		};
+		const oldResume = resumeEntry("r1", "a1", oldHandle);
+		const futureUser = messageEntry("u2", "r1");
+		const futureAssistant = messageEntry("a2", "u2", "assistant");
+		const futureHash = resumeTestUtils.hashBranchStep(resumeTestUtils.hashBranchStep(baseHash, futureUser), futureAssistant);
+		const newerHandle: CursorSessionAgentResumeEntryData = {
+			...oldHandle,
+			branchPathHash: futureHash,
+			sendState: { bootstrapped: true, contextFingerprint: "fp-new", incrementalSendCount: 1 },
+			createdAt: "2026-07-07T00:01:00.000Z",
+		};
+		const newerResume = resumeEntry("r2", "a2", newerHandle);
+		const treeUser = messageEntry("u3", "r1");
+		const allEntries = [first, assistant, oldResume, futureUser, futureAssistant, newerResume, treeUser];
+
+		await pi.runSessionStart({
+			cwd: "/tmp/project",
+			sessionManager: {
+				getSessionFile: vi.fn(() => "/tmp/session.jsonl"),
+				getSessionId: vi.fn(() => "session-1"),
+				getBranch: vi.fn(() => [first, assistant, oldResume, treeUser]),
+				getEntries: vi.fn(() => allEntries),
+			},
+		});
+
+		expect(getMatchingCursorSessionAgentResumeHandle("pool-1")).toBeUndefined();
+
+		await pi.runSessionStart({
+			cwd: "/tmp/project",
+			sessionManager: {
+				getSessionFile: vi.fn(() => "/tmp/session.jsonl"),
+				getSessionId: vi.fn(() => "session-1"),
+				getBranch: vi.fn(() => [first, assistant, oldResume, futureUser, futureAssistant, newerResume, treeUser]),
+				getEntries: vi.fn(() => allEntries),
+			},
+		});
+
+		expect(getMatchingCursorSessionAgentResumeHandle("pool-1")).toMatchObject({
+			agentId: "agent-1",
+			sendState: { contextFingerprint: "fp-new", incrementalSendCount: 1 },
+		});
+	});
+
 	it("rejects copied resume entries from another session identity", async () => {
 		const pi = createPiHarness();
 		registerCursorSessionScope(pi);

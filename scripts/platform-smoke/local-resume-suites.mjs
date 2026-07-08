@@ -1,0 +1,77 @@
+export const LOCAL_RESUME_SUITES = [
+	{
+		suite: "cursor-local-resume-restart",
+		script: "smoke:local-resume",
+		marker: "local-resume-smoke-ok",
+		stderrPattern: /agent-[0-9a-f-]{36}\s+resumed across restart/i,
+		description: "Prove guarded local resume across a pi process restart.",
+		cursorCalls: 2,
+	},
+	{
+		suite: "cursor-local-resume-safety",
+		script: "smoke:local-resume:safety",
+		marker: "local-resume-safety-smoke-ok",
+		stderrPattern: /rejected for clone and fork-before-future/i,
+		description: "Prove local resume fork/clone safety for copied handles and future-token branches.",
+		cursorCalls: 4,
+	},
+	{
+		suite: "cursor-local-resume-tool-surface",
+		script: "smoke:local-resume:tool-surface",
+		marker: "local-resume-tool-surface-smoke-ok",
+		stderrPattern: /rejected after bridge builtin tool surface change/i,
+		description: "Prove local resume rejects stale handles after a Pi bridge/tool-surface change.",
+		cursorCalls: 3,
+	},
+	{
+		suite: "cursor-local-resume-abort",
+		script: "smoke:local-resume:abort",
+		marker: "local-resume-abort-smoke-ok",
+		stderrPattern: /not reused after aborted bridge turn/i,
+		description: "Prove local resume does not persist or reuse an interrupted bridge turn handle.",
+		cursorCalls: 3,
+	},
+	{
+		suite: "cursor-local-resume-tree",
+		script: "smoke:local-resume:tree",
+		marker: "local-resume-tree-smoke-ok",
+		stderrPattern: /rejected for tree assistant and resume-entry targets/i,
+		description: "Prove local resume tree navigation rejects future-seeing SDK agents.",
+		cursorCalls: 4,
+	},
+	{
+		suite: "cursor-local-resume-copy-switch",
+		script: "smoke:local-resume:copy-switch",
+		marker: "local-resume-copy-switch-smoke-ok",
+		stderrPattern: /rejected for copied session switch/i,
+		description: "Prove copied session files reject copied local resume handles.",
+		cursorCalls: 2,
+	},
+	{
+		suite: "cursor-local-resume-fallback",
+		script: "smoke:local-resume:fallback",
+		marker: "local-resume-fallback-smoke-ok",
+		stderrPattern: /missing agent-missing-.* fell back from original/i,
+		description: "Prove missing local SDK agent fallback creates a new agent and emits continuity notice.",
+		cursorCalls: 2,
+	},
+	{
+		suite: "cursor-local-resume-compaction",
+		script: "smoke:local-resume:compaction",
+		marker: "local-resume-compaction-smoke-ok",
+		stderrPattern: /replaced by and resumed post-compaction/i,
+		description: "Prove compaction creates a post-compaction local agent and restart resumes that generation.",
+		cursorCalls: 5,
+	},
+	{
+		suite: "cursor-local-resume-default-dry-run",
+		script: "smoke:local-resume:default-dry-run",
+		marker: "local-resume-default-dry-run-smoke-ok",
+		stderrPattern: /config default resumed .* env opt-out rejected it/i,
+		description: "Prove an isolated local.resume config default resumes, and env opt-out wins, without changing built-in defaults.",
+		cursorCalls: 3,
+	},
+];
+
+export const LOCAL_RESUME_SUITE_NAMES = LOCAL_RESUME_SUITES.map((suite) => suite.suite);
+export const LOCAL_RESUME_SUITE_BY_NAME = new Map(LOCAL_RESUME_SUITES.map((suite) => [suite.suite, suite]));

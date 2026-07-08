@@ -69,6 +69,11 @@ describe("smoke tooling package checks", () => {
 		expect(localResumeHelp.stdout).toContain("--safety");
 		expect(localResumeHelp.stdout).toContain("--tool-surface");
 		expect(localResumeHelp.stdout).toContain("--abort");
+		expect(localResumeHelp.stdout).toContain("--tree");
+		expect(localResumeHelp.stdout).toContain("--copy-switch");
+		expect(localResumeHelp.stdout).toContain("--fallback");
+		expect(localResumeHelp.stdout).toContain("--compaction");
+		expect(localResumeHelp.stdout).toContain("--default-dry-run");
 
 		if (process.platform !== "win32") {
 			const failedCommand = run("bash", [
@@ -163,6 +168,10 @@ describe("smoke tooling package checks", () => {
 			expect(env.PI_CURSOR_CLOUD_ENV).toBeUndefined();
 			expect(env.PI_CURSOR_PI_TOOL_BRIDGE).toBe("0");
 			expect(env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS).toBe("0");
+			const unsetEnv = buildLocalResumeSmokeEnv(artifactRoot, { localResumeEnv: "unset", baseEnv: { ...process.env, PI_CURSOR_LOCAL_RESUME: "1" } });
+			expect(unsetEnv.PI_CURSOR_LOCAL_RESUME).toBeUndefined();
+			const optOutEnv = buildLocalResumeSmokeEnv(artifactRoot, { localResumeEnv: "off", baseEnv: { ...process.env, PI_CURSOR_LOCAL_RESUME: "1" } });
+			expect(optOutEnv.PI_CURSOR_LOCAL_RESUME).toBe("0");
 			const bridgeEnv = buildLocalResumeSmokeEnv(artifactRoot, { bridge: true, exposeBuiltinTools: true });
 			expect(bridgeEnv.PI_CURSOR_PI_TOOL_BRIDGE).toBe("1");
 			expect(bridgeEnv.PI_CURSOR_EXPOSE_BUILTIN_TOOLS).toBe("1");

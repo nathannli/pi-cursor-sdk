@@ -16,6 +16,7 @@ import { renderAll } from "./render-ansi.mjs";
 import { assertRequiredCards, detectCards, writeCardArtifacts } from "./card-detect.mjs";
 import { collectVisualEvidence } from "./visual-evidence.mjs";
 import { extractContentText, extractFinalTextContent } from "./jsonl-text.mjs";
+import { LOCAL_RESUME_SUITE_BY_NAME } from "./local-resume-suites.mjs";
 
 export function platformFor(targetName) {
 	return targetName === "windows-native" ? "powershell" : "posix";
@@ -131,12 +132,12 @@ export async function runTargetSuite(config, targetName, suiteName, leaseSession
 		return result;
 	}
 
+	if (LOCAL_RESUME_SUITE_BY_NAME.has(suiteName)) return await executeLocalResumeSuite(config, targetName, suiteName, suiteDir, slug, leaseSession);
+
 	// Route to suite-specific executor
 	switch (suiteName) {
 		case "platform-build":
 			return await executePlatformBuild(config, targetName, suiteDir, slug, platform, leaseSession);
-		case "cursor-local-resume-restart":
-			return await executeLocalResumeSuite(config, targetName, suiteName, suiteDir, slug, leaseSession);
 		case "cursor-native-visual-matrix":
 		case "cursor-bridge-visual-matrix":
 		case "cursor-abort-cleanup":
@@ -498,7 +499,8 @@ async function executeLocalResumeSuite(config, targetName, suiteName, suiteDir, 
 	const startedAt = Date.now();
 	let warmup = leaseSession;
 	const ownsLease = !warmup;
-	const command = buildLocalResumeSuiteCommand(targetName, ownsLease);
+	const variant = LOCAL_RESUME_SUITE_BY_NAME.get(suiteName);
+	const command = buildLocalResumeSuiteCommand(targetName, ownsLease, variant.script);
 	writeCommand(suiteDir, command);
 
 	if (!warmup) {
@@ -546,8 +548,8 @@ async function executeLocalResumeSuite(config, targetName, suiteName, suiteDir, 
 
 	const checks = [
 		{ id: "local-resume-exit-zero", fn: () => result.code === 0 },
-		{ id: "local-resume-marker", fn: () => result.stdout.includes("local-resume-smoke-ok") },
-		{ id: "local-resume-agent-id", fn: () => /agent-[0-9a-f-]{36}\s+resumed across restart/i.test(result.stderr) },
+		{ id: "local-resume-marker", fn: () => result.stdout.includes(variant.marker) },
+		{ id: "local-resume-stderr-evidence", fn: () => variant.stderrPattern.test(result.stderr) },
 		{ id: "no-secrets", fn: () => violations.length === 0 },
 	];
 	if (stopResult) checks.push(stopLeaseCheck(stopResult));
@@ -567,14 +569,14 @@ async function executeLocalResumeSuite(config, targetName, suiteName, suiteDir, 
 	return { ok: assertions.ok, suiteDir, assertions };
 }
 
-function buildLocalResumeSuiteCommand(targetName, ensureDeps = false) {
+function buildLocalResumeSuiteCommand(targetName, ensureDeps = false, script = "smoke:local-resume") {
 	if (platformFor(targetName) === "powershell") {
 		const command = ensureDeps
-			? "npm ci; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm run smoke:local-resume"
-			: "npm run smoke:local-resume";
+			? `npm ci; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm run ${script}`
+			: `npm run ${script}`;
 		return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "${command}"`;
 	}
-	return ensureDeps ? "npm ci && npm run smoke:local-resume" : "npm run smoke:local-resume";
+	return ensureDeps ? `npm ci && npm run ${script}` : `npm run ${script}`;
 }
 
 async function executeLiveSuite(config, targetName, suiteName, suiteDir, slug, leaseSession) {
