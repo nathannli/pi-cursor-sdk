@@ -1,6 +1,6 @@
 # Cursor local compaction boundary evidence — 2026-07-08
 
-Purpose: prove local Cursor SDK resume treats pi compaction as an SDK-agent identity boundary before any default-on resume decision.
+Purpose: record one live local Cursor SDK resume probe across a pi compaction boundary before any default-on resume decision.
 
 Scope:
 
@@ -8,7 +8,10 @@ Scope:
 - Model: `cursor/composer-2-5:slow`.
 - User behavior/defaults changed: none.
 
-Durable proof:
+Captured evidence:
+
+- Sanitized report excerpt: `docs/evidence/cursor-local-compaction-boundary-2026-07-08.report.json`
+- The report excerpt omits large filler prompt/session bodies and keeps the relevant metadata, compaction result, run IDs, and SHA-256 hashes for local raw artifacts.
 
 | Fact | Evidence |
 | --- | --- |
@@ -39,7 +42,8 @@ Local artifacts retained outside git:
 
 Decision impact:
 
-- This validates one live manual compaction boundary for local resume.
+- This records one live manual compaction boundary for local resume.
+- It does **not** by itself move local resume to the roadmap's broad **Validated** contract bucket.
 - It does **not** flip local resume default-on.
 - It does **not** change cloud resume or cloud runtime policy.
 - Default-on still needs automated platform smoke coverage for tree, fork, clone, import/session switch, abort, tool-surface changes, resume failure fallback, cleanup, and compaction.
