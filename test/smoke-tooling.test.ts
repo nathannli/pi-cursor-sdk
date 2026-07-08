@@ -22,6 +22,7 @@ describe("smoke tooling package checks", () => {
 		expect(run(process.execPath, ["--check", "scripts/validate-smoke-jsonl.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/debug-sdk-events.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/debug-provider-events.mjs"]).status).toBe(0);
+		expect(run(process.execPath, ["--check", "scripts/local-resume-smoke.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/platform-smoke.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/platform-smoke/doctor.mjs"]).status).toBe(0);
 		expect(run(process.execPath, ["--check", "scripts/platform-smoke/live-suite-runner.mjs"]).status).toBe(0);
@@ -36,6 +37,7 @@ describe("smoke tooling package checks", () => {
 		const providerEventsHelp = run(process.execPath, ["scripts/debug-provider-events.mjs", "--help"]);
 		const platformLiveHelp = run(process.execPath, ["scripts/platform-smoke/live-suite-runner.mjs", "--help"]);
 		const cloudHelp = run(process.execPath, ["scripts/cloud-runtime-smoke.mjs", "--help"]);
+		const localResumeHelp = run(process.execPath, ["scripts/local-resume-smoke.mjs", "--help"]);
 
 		if (process.platform !== "win32") {
 			expect(liveHelp!.status).toBe(0);
@@ -62,6 +64,8 @@ describe("smoke tooling package checks", () => {
 		expect(platformLiveHelp.stdout).toContain("--prep-dir");
 		expect(cloudHelp.status).toBe(0);
 		expect(cloudHelp.stdout).toContain("--context-matrix");
+		expect(localResumeHelp.status).toBe(0);
+		expect(localResumeHelp.stdout).toContain("smoke:local-resume");
 
 		if (process.platform !== "win32") {
 			const failedCommand = run("bash", [
@@ -131,6 +135,32 @@ describe("smoke tooling package checks", () => {
 			delete process.env.PI_CURSOR_CLOUD_ENV_NAME;
 			delete process.env.CURSOR_CLOUD_SMOKE_ENV_TYPE;
 			delete process.env.CURSOR_CLOUD_SMOKE_ENV_NAME;
+			rmSync(artifactRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("forces local runtime for local resume smoke", async () => {
+		const artifactRoot = mkdtempSync(join(tmpdir(), "local-resume-smoke-env-test-"));
+		try {
+			const { buildLocalResumeSmokeEnv } = await import("../scripts/local-resume-smoke.mjs");
+			const env = buildLocalResumeSmokeEnv(artifactRoot, {
+				baseEnv: {
+					...process.env,
+					PI_CURSOR_RUNTIME: "cloud",
+					PI_CURSOR_CLOUD_ACK: "1",
+					PI_CURSOR_CLOUD_REPO: "ambient/repo",
+					PI_CURSOR_CLOUD_ENV: "SECRET",
+				},
+			});
+
+			expect(env.PI_CURSOR_RUNTIME).toBe("local");
+			expect(env.PI_CURSOR_LOCAL_RESUME).toBe("1");
+			expect(env.PI_CURSOR_CLOUD_ACK).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_ENV).toBeUndefined();
+			expect(env.PI_CODING_AGENT_DIR).toBe(join(artifactRoot, "agent"));
+			expect(existsSync(env.PI_CODING_AGENT_DIR!)).toBe(true);
+		} finally {
 			rmSync(artifactRoot, { recursive: true, force: true });
 		}
 	});
