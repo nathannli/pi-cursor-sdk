@@ -170,7 +170,7 @@ This lane is a cloud-runtime release gate, not a substitute for the local macOS/
 
 ## Focused local resume smoke
 
-`cursor-local-resume-restart` is part of the local platform matrix. `npm run smoke:local-resume` runs the same focused proof on the current host for inner-loop debugging. Use it when changing local resume behavior or gathering evidence for default-on decisions.
+`cursor-local-resume-restart` is part of the local platform matrix. `npm run smoke:local-resume` runs the same focused proof on the current host for inner-loop debugging. `npm run smoke:local-resume:safety` runs the local fork/clone safety proof before promoting more cases into the platform matrix. Use these when changing local resume behavior or gathering evidence for default-on decisions.
 
 The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`, records the SDK agent id from provider debug metadata, restarts pi against the same session, asks for the remembered token, and verifies:
 
@@ -178,6 +178,8 @@ The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`
 - the second run records `localResume: true` and `resumedAgent: true`;
 - both runs use the same local SDK `agent-*` id;
 - the remembered token survives the process restart.
+
+The safety lane verifies an original session resumes the same local agent after restart, then proves cloned-session copied resume entries and a fork before a future-token prompt both create a new local `agent-*`. The forked earlier branch must not reveal the future token.
 
 ## Files and scripts
 
@@ -214,7 +216,8 @@ Package scripts:
   "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native",
   "smoke:cloud": "node scripts/cloud-runtime-smoke.mjs",
   "smoke:cloud:context": "node scripts/cloud-runtime-smoke.mjs --context-matrix",
-  "smoke:local-resume": "node scripts/local-resume-smoke.mjs"
+  "smoke:local-resume": "node scripts/local-resume-smoke.mjs",
+  "smoke:local-resume:safety": "node scripts/local-resume-smoke.mjs --safety"
 }
 ```
 

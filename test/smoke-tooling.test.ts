@@ -66,6 +66,7 @@ describe("smoke tooling package checks", () => {
 		expect(cloudHelp.stdout).toContain("--context-matrix");
 		expect(localResumeHelp.status).toBe(0);
 		expect(localResumeHelp.stdout).toContain("smoke:local-resume");
+		expect(localResumeHelp.stdout).toContain("--safety");
 
 		if (process.platform !== "win32") {
 			const failedCommand = run("bash", [
