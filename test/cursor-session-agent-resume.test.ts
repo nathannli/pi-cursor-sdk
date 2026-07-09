@@ -231,6 +231,53 @@ describe("cursor-session-agent-resume", () => {
 		});
 	});
 
+	it("records the previous local agent as a cleanup candidate when a new agent replaces it", async () => {
+		const pi = createPiHarness();
+		registerCursorSessionScope(pi);
+		registerCursorSessionAgentResume(pi);
+		const first = messageEntry("u1", null);
+		const branchHash = resumeTestUtils.hashBranchStep(resumeTestUtils.EMPTY_BRANCH_HASH, first);
+		const oldHandle: CursorSessionAgentResumeEntryData = {
+			version: 1,
+			runtime: "local",
+			agentId: "agent-old",
+			scopeKey: "/tmp/session.jsonl",
+			sessionFile: "/tmp/session.jsonl",
+			sessionId: "session-1",
+			cwd: "/tmp/project",
+			poolKey: "pool-old",
+			branchPathHash: branchHash,
+			compactionGeneration: 0,
+			sendState: { bootstrapped: true, contextFingerprint: "fp-old", incrementalSendCount: 1 },
+			createdAt: "2026-07-07T00:00:00.000Z",
+		};
+		const oldResume = resumeEntry("r1", "u1", oldHandle);
+		const branch = [first, oldResume, messageEntry("u2", "r1")];
+
+		await pi.runSessionStart({
+			cwd: "/tmp/project",
+			sessionManager: {
+				getSessionFile: vi.fn(() => "/tmp/session.jsonl"),
+				getSessionId: vi.fn(() => "session-1"),
+				getBranch: vi.fn(() => branch),
+				getEntries: vi.fn(() => branch),
+			},
+		});
+		persistCursorSessionAgentResumeHandle({
+			runtime: "local",
+			agentId: "agent-new",
+			poolKey: "pool-new",
+			sendState: { bootstrapped: true, contextFingerprint: "fp-new", incrementalSendCount: 0 },
+		});
+
+		await pi.runTurnEnd({}, { sessionManager: { getBranch: vi.fn(() => branch) } });
+
+		expect(pi.appendEntry).toHaveBeenCalledWith(CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE, expect.objectContaining({
+			agentId: "agent-new",
+			cleanupCandidateAgentIds: ["agent-old"],
+		}));
+	});
+
 	it("rejects copied resume entries from another session identity", async () => {
 		const pi = createPiHarness();
 		registerCursorSessionScope(pi);

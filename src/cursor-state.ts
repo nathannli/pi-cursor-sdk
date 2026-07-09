@@ -9,6 +9,7 @@ import {
 	registerCursorCloudLifecycleLedger,
 	runCursorCloudLifecycleCommand,
 } from "./cursor-cloud-lifecycle.js";
+import { runCursorSessionAgentCleanupCommand } from "./cursor-session-agent-cleanup.js";
 import {
 	buildCursorPiToolBridgeSnapshot,
 	CURSOR_PI_TOOL_BRIDGE_ENV,
@@ -692,6 +693,13 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 		description: "List, archive, or delete recorded Cursor cloud agents for this session branch",
 		handler: async (args, ctx) => {
 			await runCursorCloudLifecycleCommand(pi, args, ctx);
+		},
+	});
+
+	pi.registerCommand("cursor-local-resume-cleanup", {
+		description: "Dry-run or delete recorded superseded local Cursor SDK agents",
+		handler: async (args, ctx) => {
+			await runCursorSessionAgentCleanupCommand(pi, args, ctx);
 		},
 	});
 

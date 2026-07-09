@@ -304,7 +304,7 @@ PI_CURSOR_LOCAL_RESUME=1 pi --model cursor/composer-2-5
 pi --model cursor/composer-2-5 --cursor-local-resume
 ```
 
-Resume is strict: the current pi session file/id, branch path prefix, cwd/repo root, model/API/tool-surface pool key, and compaction generation must match. If `Agent.resume()` fails, pi bootstraps a new local Cursor agent from the current transcript and streams one display-only continuity note. Cloud resume remains disabled; `/cursor-cloud list|archive|delete` only manages recorded cloud agents.
+Resume is strict: the current pi session file/id, branch path prefix, cwd/repo root, model/API/tool-surface pool key, and compaction generation must match. If `Agent.resume()` fails, pi bootstraps a new local Cursor agent from the current transcript and streams one display-only continuity note. Superseded local agents can be cleaned up explicitly with `/cursor-local-resume-cleanup --dry-run` and `/cursor-local-resume-cleanup --yes`; cleanup only deletes exact recorded `agent-*` IDs. Cloud resume remains disabled; `/cursor-cloud list|archive|delete` only manages recorded cloud agents.
 
 Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trusted `.pi/cursor-sdk.json`:
 
@@ -331,6 +331,15 @@ Cloud lifecycle commands are explicit and session-branch scoped:
 ```
 
 They only accept cloud agent IDs recorded by successful runs in the current session branch.
+
+Local resume cleanup is explicit and session-ledger scoped:
+
+```bash
+/cursor-local-resume-cleanup --dry-run
+/cursor-local-resume-cleanup --yes
+```
+
+It only deletes superseded local `agent-*` IDs that this extension recorded as cleanup candidates, one exact ID at a time through the Cursor SDK. It does not sweep the SDK store or call lower-level empty delete filters.
 
 Only enabled local safety values are passed to `Agent.create({ local })`; false/default values are omitted to preserve the current local-agent behavior. Local force is one-shot/manual-only through CLI/env and is passed only to the next `Agent.send({ local: { force: true } })`. Local resume is guarded by `local.resume`, `--cursor-local-resume`, or `PI_CURSOR_LOCAL_RESUME=1` and remains default-off.
 
