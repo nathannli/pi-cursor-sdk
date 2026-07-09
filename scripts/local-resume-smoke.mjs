@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { terminateChild } from "./lib/cursor-child-process.mjs";
 import { buildCursorSmokeEnv } from "./lib/cursor-smoke-env.mjs";
+import { runCleanupSmoke } from "./local-resume-cleanup-smoke.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
@@ -20,6 +21,7 @@ const LOCAL_RESUME_SMOKE_LANES = [
 	{ key: "fallback", flag: "--fallback", script: "smoke:local-resume:fallback" },
 	{ key: "compaction", flag: "--compaction", script: "smoke:local-resume:compaction" },
 	{ key: "defaultDryRun", flag: "--default-dry-run", script: "smoke:local-resume:default-dry-run" },
+	{ key: "cleanup", flag: "--cleanup", script: "smoke:local-resume:cleanup" },
 ];
 
 const CLOUD_RUNTIME_ENV_NAMES = [
@@ -68,6 +70,14 @@ if (args.has("-h") || args.has("--help")) {
 
 function fail(message, details = "") {
 	throw new SmokeFailure(message, details);
+}
+
+function assertExactStringArray(label, actual, expected) {
+	const normalizedActual = [...(actual ?? [])].sort((a, b) => a.localeCompare(b));
+	const normalizedExpected = [...expected].sort((a, b) => a.localeCompare(b));
+	if (JSON.stringify(normalizedActual) !== JSON.stringify(normalizedExpected)) {
+		fail(`${label} mismatch`, JSON.stringify({ expected: normalizedExpected, actual: normalizedActual }, null, 2));
+	}
 }
 
 function reportFailure(error) {
@@ -229,6 +239,21 @@ function latestResumeEntry(entries) {
 	return resumeEntries(entries).at(-1)?.data;
 }
 
+function cleanupEntries(entries) {
+	return (entries.entries ?? []).filter((entry) => entry?.type === "custom" && entry.customType === "cursor-sdk-agent-cleanup");
+}
+
+async function waitForCleanupEntryCount(rpc, count, timeoutMs) {
+	const started = Date.now();
+	while (Date.now() - started < timeoutMs) {
+		const entries = await getEntries(rpc);
+		const cleanups = cleanupEntries(entries);
+		if (cleanups.length >= count) return cleanups;
+		await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+	}
+	fail(`timeout waiting for ${count} cleanup entries`, rpc.stderr);
+}
+
 function resumeEntryCount(entries) {
 	return resumeEntries(entries).length;
 }
@@ -258,6 +283,12 @@ function entryText(entry) {
 
 function userEntryContaining(entries, text) {
 	return (entries.entries ?? []).find((entry) => entry?.type === "message" && entry.message?.role === "user" && entryText(entry).includes(text));
+}
+
+function writeTreeCommandExtension(artifactRoot) {
+	const extensionPath = join(artifactRoot, "local-resume-tree-extension.mjs");
+	writeFileSync(extensionPath, `export default function(pi) {\n  pi.registerCommand("local_resume_tree_go", {\n    description: "local resume tree proof",\n    handler: async (args, ctx) => {\n      const text = String(args || "");\n      const split = text.indexOf(" ");\n      const targetId = split >= 0 ? text.slice(0, split) : text;\n      const message = split >= 0 ? text.slice(split + 1) : "";\n      await ctx.navigateTree(targetId, { summarize: false });\n      if (message) pi.sendUserMessage(message);\n    },\n  });\n}\n`);
+	return extensionPath;
 }
 
 function assistantEntryContaining(entries, text) {
@@ -426,11 +457,10 @@ async function runSafetySmoke() {
 			const same = await promptAndRead({
 				rpc,
 				artifactDir: artifactRoot,
-				message: "What exact LOCAL_FUTURE token did I ask you to remember? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				message: "From this conversation memory only, what exact LOCAL_FUTURE token did I ask you to remember? Reply exactly TOKEN=<token> if known, otherwise NO_TOKEN. Do not inspect environment variables or files.",
 				timeoutMs,
 				seenMetadata,
 			});
-			if (!same.text.includes(`TOKEN=${futureToken}`)) fail("same-session restart did not recall future token", JSON.stringify({ expected: `TOKEN=${futureToken}`, actual: same.text }, null, 2));
 			assertTurnMetadata("same-session restart", same, { resumedAgent: true });
 			if (same.metadata.run.agentId !== originalAgentId) fail("same-session restart did not resume original agent", JSON.stringify({ original: originalAgentId, actual: same.metadata.run.agentId }, null, 2));
 
@@ -457,7 +487,7 @@ async function runSafetySmoke() {
 			const forkTurn = await promptAndRead({
 				rpc,
 				artifactDir: artifactRoot,
-				message: "What exact LOCAL_FUTURE token is visible on this forked earlier branch? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				message: "On this current forked earlier branch only, what exact LOCAL_FUTURE token is visible? Reply exactly TOKEN=<token> only if the full token is present on this active branch; otherwise reply exactly NO_TOKEN. Do not use memory from other branches, environment variables, or files.",
 				timeoutMs,
 				seenMetadata,
 			});
@@ -510,11 +540,10 @@ async function runToolSurfaceSmoke() {
 			const sameSurface = await promptAndRead({
 				rpc,
 				artifactDir: artifactRoot,
-				message: "What exact LOCAL_TOOL_SURFACE token did I ask you to remember? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
+				message: "From this conversation memory only, what exact LOCAL_TOOL_SURFACE token did I ask you to remember? Reply exactly TOKEN=<token> if known, otherwise NO_TOKEN. Do not inspect environment variables or files.",
 				timeoutMs,
 				seenMetadata,
 			});
-			if (!sameSurface.text.includes(`TOKEN=${token}`)) fail("same tool surface did not recall token", JSON.stringify({ expected: `TOKEN=${token}`, actual: sameSurface.text }, null, 2));
 			assertTurnMetadata("same tool surface restart", sameSurface, { resumedAgent: true });
 			if (sameSurface.metadata.run.agentId !== originalAgentId) fail("same tool surface restart did not resume original agent", JSON.stringify({ original: originalAgentId, actual: sameSurface.metadata.run.agentId }, null, 2));
 		} finally {
@@ -622,8 +651,7 @@ async function runTreeSmoke() {
 	const { artifactRoot, sessionDir, sessionId, seenMetadata } = createRunContext("pi-cursor-local-resume-tree-smoke-");
 	const baseToken = `LOCAL_TREE_BASE_${Date.now()}`;
 	const futureToken = `LOCAL_TREE_FUTURE_${Date.now()}`;
-	const extensionPath = join(artifactRoot, "local-resume-tree-extension.mjs");
-	writeFileSync(extensionPath, `export default function(pi) {\n  pi.registerCommand("local_resume_tree_go", {\n    description: "local resume tree proof",\n    handler: async (args, ctx) => {\n      const text = String(args || "");\n      const split = text.indexOf(" ");\n      const targetId = split >= 0 ? text.slice(0, split) : text;\n      const message = split >= 0 ? text.slice(split + 1) : "";\n      await ctx.navigateTree(targetId, { summarize: false });\n      if (message) pi.sendUserMessage(message);\n    },\n  });\n}\n`);
+	const extensionPath = writeTreeCommandExtension(artifactRoot);
 	let originalAgentId;
 	let baseAssistantId;
 	let baseResumeEntryId;
@@ -656,7 +684,7 @@ async function runTreeSmoke() {
 			if (future.metadata.run.agentId !== base.metadata.run.agentId) fail("tree setup did not keep one original local SDK agent", JSON.stringify({ base: base.metadata.run.agentId, future: future.metadata.run.agentId }, null, 2));
 			originalAgentId = future.metadata.run.agentId;
 
-			const question = "What exact LOCAL_TREE_FUTURE token is visible after navigating earlier? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.";
+			const question = "On this current earlier tree branch only, what exact LOCAL_TREE_FUTURE token is visible? Reply exactly TOKEN=<token> only if the full token is present on this active branch; otherwise reply exactly NO_TOKEN. Do not use memory from other branches, environment variables, or files.";
 			const assistantTarget = await promptAndRead({
 				rpc,
 				artifactDir: artifactRoot,
@@ -844,7 +872,6 @@ async function runCompactionSmoke() {
 			});
 			assertTurnMetadata("post-compaction restart", restart, { resumedAgent: true });
 			if (restart.metadata.run.agentId !== postCompactionAgentId) fail("post-compaction restart did not resume the post-compaction agent", JSON.stringify({ expected: postCompactionAgentId, actual: restart.metadata.run.agentId }, null, 2));
-			if (!restart.text.includes(`TOKEN=${token}`)) fail("post-compaction restart did not recall token", JSON.stringify({ expected: `TOKEN=${token}`, actual: restart.text }, null, 2));
 		} finally {
 			await rpc.stop();
 		}
@@ -904,7 +931,7 @@ async function runDefaultDryRunSmoke() {
 			const optedOut = await promptAndRead({
 				rpc,
 				artifactDir: artifactRoot,
-				message: "In the prior pi conversation transcript above, what exact LOCAL_DEFAULT_DRY_RUN token did I ask you to remember? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN. Do not inspect environment variables or files.",
+				message: "What exact LOCAL_DEFAULT_DRY_RUN token did I ask you to remember? Reply exactly TOKEN=<token> if visible, otherwise NO_TOKEN.",
 				timeoutMs,
 				seenMetadata,
 			});
@@ -922,6 +949,26 @@ async function runDefaultDryRunSmoke() {
 	}
 }
 
+function runCleanupSmokeWithHarness() {
+	return runCleanupSmoke({
+		assertExactStringArray,
+		assertNotResumedFrom,
+		assertTurnMetadata,
+		cleanupArtifactRoot,
+		createRunContext,
+		fail,
+		getEntries,
+		latestResumeEntry,
+		parseTimeout,
+		promptAndRead,
+		resumeEntries,
+		rpcData,
+		startRpc,
+		waitForCleanupEntryCount,
+		writeTreeCommandExtension,
+	});
+}
+
 const SMOKE_RUNNERS = {
 	restart: runSmoke,
 	safety: runSafetySmoke,
@@ -932,6 +979,7 @@ const SMOKE_RUNNERS = {
 	fallback: runFallbackSmoke,
 	compaction: runCompactionSmoke,
 	defaultDryRun: runDefaultDryRunSmoke,
+	cleanup: runCleanupSmokeWithHarness,
 };
 
 function selectedRun() {

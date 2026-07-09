@@ -164,10 +164,10 @@ Implemented local slice:
 Remaining before default-on or cloud resume:
 
 - Same-session restart proof is covered by `cursor-local-resume-restart` in `npm run smoke:platform:all` and by focused `npm run smoke:local-resume`.
-- Fork/clone, tool-surface mismatch, abort/interrupted-turn, tree navigation, copied session switch, missing-agent fallback, compaction boundary, and isolated default/opt-out dry-run now have focused smoke lanes and are part of the required platform suite list.
+- Fork/clone, tool-surface mismatch, abort/interrupted-turn, tree navigation, copied session switch, missing-agent fallback, compaction boundary, isolated default/opt-out dry-run, and recorded-ID-only cleanup now have focused smoke lanes and are part of the required platform suite list.
 - Tree safety was tightened after live proof found that direct navigation to an earlier `cursor-sdk-agent-resume` custom entry could reuse a future-seeing SDK agent. Old handles are rejected when the same session/pool/agent has a newer resume handle anywhere in the session file.
 - Cloud resume/default-on remain deferred pending broader live smoke and product decision.
-- Local cleanup/GC remains the main default-on blocker: no recorded-ID-only local cleanup implementation exists yet. SDK local-store delete filters treat omitted or empty IDs as match-all, so do not add a destructive cleanup lane until cleanup owns exact recorded agent/run/checkpoint IDs and rejects empty filters.
+- Local cleanup/GC now has an explicit command and proof lane: `/cursor-local-resume-cleanup --dry-run` lists exact recorded superseded `agent-*` IDs and `/cursor-local-resume-cleanup --yes` deletes only those IDs through `Agent.delete(agentId, { cwd })`. SDK local-store delete filters remain match-all when IDs are omitted or empty, so do not add lower-level store deletes or bulk cleanup paths.
 - Reuse across fork/clone/import by copied custom entry alone remains rejected.
 
 Persistence:
@@ -201,16 +201,16 @@ Reuse rules:
 
 Garbage collection:
 
-- Every new branch agent, compaction boundary, tool-surface fallback, or periodic rebootstrap can mint another SDK agent. Record predecessors and add cleanup of superseded local agents when safe.
+- Every new branch agent, compaction boundary, tool-surface fallback, or periodic rebootstrap can mint another SDK agent. New resume entries record replaced predecessor agent IDs as cleanup candidates when a different local agent supersedes the prior branch handle.
 - Cleanup must only delete/archive SDK agent IDs that pi-cursor-sdk recorded for this session/project lineage. Never sweep the SDK store globally because other SDK consumers may share the same state root.
-- **Validated**: SDK local-store delete filters treat omitted or empty IDs as match-all. Cleanup code must reject empty delete filters and only delete recorded agent/run/checkpoint IDs.
+- **Validated**: SDK local-store delete filters treat omitted or empty IDs as match-all. Cleanup uses SDK `Agent.delete(agentId, { cwd })` with one exact recorded `agent-*` ID per call and records successful deletions in `cursor-sdk-agent-cleanup` custom entries so repeated cleanup does not retry deleted IDs.
 - Preserve cloud agents after normal pi exit; explicit cloud list/archive/delete cleanup commands have landed, while cloud resume/default-on remain deferred pending broader live smoke and product decision.
-- Periodic rebootstrap after `MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP` must re-record the replacement SDK agent. Predecessor deletion remains blocked until recorded-ID-only local cleanup exists.
+- Periodic rebootstrap after `MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP` must re-record the replacement SDK agent and mark the predecessor cleanup-eligible via the same recorded-ID-only path.
 
 Rollout:
 
 - Branch-scoped local resume has started behind feature flag/config.
-- Current create/bootstrap behavior remains default until automated validation proves resume handles tree, fork, clone, compaction, abort, tool-surface changes, resume failure fallback, and cleanup.
+- Current create/bootstrap behavior remains default until automated validation proves resume handles tree, fork, clone, compaction, abort, tool-surface changes, resume failure fallback, cleanup, and any remaining product/default-on risks.
 
 Required resume probes/tests before flipping defaults:
 
@@ -228,7 +228,7 @@ Required resume probes/tests before flipping defaults:
 | Resume failure fallback                       | **Pi policy**                      | `cursor-local-resume-fallback` / `npm run smoke:local-resume:fallback` prove missing local agent IDs fall back to create+bootstrap and emit the continuity notice in `pi-stream-events.jsonl`. |
 | Post-compaction new SDK agent                 | **Pi policy**                      | `cursor-local-resume-compaction` / `npm run smoke:local-resume:compaction` prove pre-compaction agent rejection, `compactionGeneration: 1` post-compaction handle persistence, and restart resume of the post-compaction agent. |
 | Default-on / opt-out dry run                  | **Pi policy**                      | `cursor-local-resume-default-dry-run` / `npm run smoke:local-resume:default-dry-run` prove an isolated temp user config with `local.resume: true` resumes, and `PI_CURSOR_LOCAL_RESUME=0` opts out without changing built-in defaults. |
-| Local cleanup/GC                              | **Blocked**                        | No local recorded-ID-only cleanup implementation exists yet. SDK local-store delete filters are match-all when IDs are omitted or empty; cleanup proof must wait for exact recorded agent/run/checkpoint ownership and empty-filter guards. |
+| Local cleanup/GC                              | **Pi policy**                      | `cursor-local-resume-cleanup` / `npm run smoke:local-resume:cleanup` prove `/cursor-local-resume-cleanup --dry-run` reports exact recorded superseded IDs, `/cursor-local-resume-cleanup --yes` deletes the old recorded agent, the current recorded agent still resumes, and tree navigation to the old handle falls back instead of resuming the deleted agent. |
 | `RunResult.usage` without `turn-ended`        | **Rejected**                       | Local Composer 2.5 returns `RunResult.usage`, but real long-session evidence shows it can represent full agent context and poison pi compaction totals. Do not use it for pi message usage. |
 | Bounded pi estimate fallback                  | **Pi policy**                      | Use bounded pi estimates when `turn-ended` is absent or outside the selected model window.                                                                                  |
 | Empty delete filters rejected                 | **Pi policy**                      | SDK local-store delete filters treat omitted or empty IDs as match-all; pi must guard before SDK store calls.                                                              |

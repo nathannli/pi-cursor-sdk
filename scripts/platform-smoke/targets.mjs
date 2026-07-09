@@ -571,10 +571,8 @@ async function executeLocalResumeSuite(config, targetName, suiteName, suiteDir, 
 
 function buildLocalResumeSuiteCommand(targetName, ensureDeps = false, script = "smoke:local-resume") {
 	if (platformFor(targetName) === "powershell") {
-		const command = ensureDeps
-			? `npm ci; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm run ${script}`
-			: `npm run ${script}`;
-		return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "${command}"`;
+		if (ensureDeps) return `cmd.exe /d /s /c "npm ci && npm run ${script}"`;
+		return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "npm run ${script}"`;
 	}
 	return ensureDeps ? `npm ci && npm run ${script}` : `npm run ${script}`;
 }

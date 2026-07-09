@@ -74,6 +74,7 @@ describe("smoke tooling package checks", () => {
 		expect(localResumeHelp.stdout).toContain("--fallback");
 		expect(localResumeHelp.stdout).toContain("--compaction");
 		expect(localResumeHelp.stdout).toContain("--default-dry-run");
+		expect(localResumeHelp.stdout).toContain("--cleanup");
 
 		if (process.platform !== "win32") {
 			const failedCommand = run("bash", [

@@ -170,7 +170,7 @@ This lane is a cloud-runtime release gate, not a substitute for the local macOS/
 
 ## Focused local resume smoke
 
-The platform matrix includes the required local-resume lanes: restart, safety, tool-surface, abort, tree, copy/switch, fallback, compaction, and isolated default/opt-out dry-run. The same lanes are available as focused host-local scripts for inner-loop debugging and default-on evidence collection.
+The platform matrix includes the required local-resume lanes: restart, safety, tool-surface, abort, tree, copy/switch, fallback, compaction, isolated default/opt-out dry-run, and recorded-ID-only cleanup. The same lanes are available as focused host-local scripts for inner-loop debugging and default-on evidence collection.
 
 The smoke starts one sessionful local Cursor run with `PI_CURSOR_LOCAL_RESUME=1`, records the SDK agent id from provider debug metadata, restarts pi against the same session, asks for the remembered token, and verifies:
 
@@ -194,6 +194,8 @@ The fallback lane rewrites a persisted handle to a missing local SDK `agent-*`, 
 The compaction lane uses an isolated temp pi settings file with `compaction.keepRecentTokens: 1` to force manual compaction without huge dummy prompts. It verifies the pre-compaction SDK agent is not reused, the new handle records `compactionGeneration: 1`, and restart resumes the post-compaction agent.
 
 The default dry-run lane writes `cursor-sdk.json` with `{ "local": { "resume": true } }` only inside the temp `PI_CODING_AGENT_DIR`, verifies that config default resumes, then verifies `PI_CURSOR_LOCAL_RESUME=0` opts out and creates a new agent while bootstrapping the transcript.
+
+The cleanup lane verifies `/cursor-local-resume-cleanup --dry-run` reports only recorded superseded local `agent-*` IDs, `/cursor-local-resume-cleanup --yes` deletes exactly the old recorded ID, the current recorded agent still resumes, and tree navigation to the old handle falls back instead of resuming the deleted agent.
 
 ## Files and scripts
 
@@ -238,7 +240,8 @@ Package scripts:
   "smoke:local-resume:copy-switch": "node scripts/local-resume-smoke.mjs --copy-switch",
   "smoke:local-resume:fallback": "node scripts/local-resume-smoke.mjs --fallback",
   "smoke:local-resume:compaction": "node scripts/local-resume-smoke.mjs --compaction",
-  "smoke:local-resume:default-dry-run": "node scripts/local-resume-smoke.mjs --default-dry-run"
+  "smoke:local-resume:default-dry-run": "node scripts/local-resume-smoke.mjs --default-dry-run",
+  "smoke:local-resume:cleanup": "node scripts/local-resume-smoke.mjs --cleanup"
 }
 ```
 
@@ -508,6 +511,7 @@ The remaining local-resume platform suites run the matching focused package scri
 | `cursor-local-resume-fallback` | `npm run smoke:local-resume:fallback` | missing local agent falls back with continuity notice |
 | `cursor-local-resume-compaction` | `npm run smoke:local-resume:compaction` | compaction boundary creates/resumes post-compaction generation |
 | `cursor-local-resume-default-dry-run` | `npm run smoke:local-resume:default-dry-run` | isolated config-default resumes and env opt-out wins |
+| `cursor-local-resume-cleanup` | `npm run smoke:local-resume:cleanup` | recorded-ID-only cleanup deletes old agent and preserves current agent |
 
 ### `cursor-native-visual-matrix`
 
@@ -727,11 +731,12 @@ cursor-local-resume-copy-switch: 2
 cursor-local-resume-fallback: 2
 cursor-local-resume-compaction: 5
 cursor-local-resume-default-dry-run: 3
+cursor-local-resume-cleanup: 4
 ```
 
-Maximum per target: `31` Cursor invocations.
+Maximum per target: `35` Cursor invocations.
 
-Maximum full gate: `93` Cursor invocations.
+Maximum full gate: `105` Cursor invocations.
 
 The merge gate is `npm run smoke:platform:all`; that script runs doctor first and then the matrix to preserve this budget. No suite adds a new Cursor invocation without updating this plan and the scenario source of truth (`scripts/platform-smoke/scenarios.mjs`, plus `scripts/platform-smoke/local-resume-suites.mjs` for local-resume lanes).
 

@@ -71,6 +71,14 @@ export const LOCAL_RESUME_SUITES = [
 		description: "Prove an isolated local.resume config default resumes, and env opt-out wins, without changing built-in defaults.",
 		cursorCalls: 3,
 	},
+	{
+		suite: "cursor-local-resume-cleanup",
+		script: "smoke:local-resume:cleanup",
+		marker: "local-resume-cleanup-smoke-ok",
+		stderrPattern: /cleanup deleted recorded old .* preserved current/i,
+		description: "Prove recorded-ID-only local SDK cleanup deletes an old recorded agent and preserves the current one.",
+		cursorCalls: 4,
+	},
 ];
 
 export const LOCAL_RESUME_SUITE_NAMES = LOCAL_RESUME_SUITES.map((suite) => suite.suite);

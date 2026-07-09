@@ -24,6 +24,7 @@ export interface CursorSessionAgentResumeEntryData {
 	compactionGeneration: number;
 	sendState: SessionCursorAgentSendState;
 	createdAt: string;
+	cleanupCandidateAgentIds?: string[];
 }
 
 interface PendingCursorSessionAgentResumeHandle {
@@ -43,6 +44,7 @@ interface CursorSessionResumeState {
 	branchPathHash: string;
 	compactionGeneration: number;
 	activeHandle?: CursorSessionAgentResumeEntryData;
+	lastBranchHandle?: CursorSessionAgentResumeEntryData;
 	pendingHandle?: PendingCursorSessionAgentResumeHandle;
 }
 
@@ -91,7 +93,7 @@ function isSendState(value: unknown): value is SessionCursorAgentSendState {
 		typeof record.incrementalSendCount === "number";
 }
 
-function parseResumeEntryData(value: unknown): CursorSessionAgentResumeEntryData | undefined {
+export function parseCursorSessionAgentResumeEntryData(value: unknown): CursorSessionAgentResumeEntryData | undefined {
 	const record = asRecord(value);
 	if (!record) return undefined;
 	if (record.version !== RESUME_ENTRY_VERSION || record.runtime !== "local") return undefined;
@@ -108,6 +110,9 @@ function parseResumeEntryData(value: unknown): CursorSessionAgentResumeEntryData
 	if (record.sessionFile !== undefined && typeof record.sessionFile !== "string") return undefined;
 	if (record.sessionId !== undefined && typeof record.sessionId !== "string") return undefined;
 	if (record.repoRoot !== undefined && typeof record.repoRoot !== "string") return undefined;
+	const cleanupCandidateAgentIds = Array.isArray(record.cleanupCandidateAgentIds)
+		? record.cleanupCandidateAgentIds.filter((id): id is string => typeof id === "string")
+		: undefined;
 	return {
 		version: RESUME_ENTRY_VERSION,
 		runtime: "local",
@@ -126,6 +131,7 @@ function parseResumeEntryData(value: unknown): CursorSessionAgentResumeEntryData
 			incrementalSendCount: record.sendState.incrementalSendCount,
 		},
 		createdAt: record.createdAt,
+		...(cleanupCandidateAgentIds?.length ? { cleanupCandidateAgentIds: [...new Set(cleanupCandidateAgentIds)] } : {}),
 	};
 }
 
@@ -161,7 +167,7 @@ function isSameResumeAgentLineage(a: CursorSessionAgentResumeEntryData, b: Curso
 function isResumeHandleSuperseded(data: CursorSessionAgentResumeEntryData, entries: readonly SessionEntry[]): boolean {
 	for (const entry of entries) {
 		if (entry.type !== "custom" || entry.customType !== CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) continue;
-		const candidate = parseResumeEntryData(entry.data);
+		const candidate = parseCursorSessionAgentResumeEntryData(entry.data);
 		if (!candidate || !isSameResumeAgentLineage(data, candidate)) continue;
 		if (candidate.createdAt > data.createdAt) return true;
 	}
@@ -172,14 +178,18 @@ function restoreFromBranch(branch: readonly SessionEntry[], allEntries: readonly
 	let branchPathHash = EMPTY_BRANCH_HASH;
 	let compactionGeneration = 0;
 	let activeHandle: CursorSessionAgentResumeEntryData | undefined;
+	let lastBranchHandle: CursorSessionAgentResumeEntryData | undefined;
 	for (const entry of branch) {
 		if (entry.type === "custom" && entry.customType === CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) {
-			const data = parseResumeEntryData(entry.data);
+			const data = parseCursorSessionAgentResumeEntryData(entry.data);
 			if (
 				data &&
 				matchesCurrentSession(data, branchPathHash, compactionGeneration) &&
 				!isResumeHandleSuperseded(data, allEntries)
-			) activeHandle = data;
+			) {
+				activeHandle = data;
+				lastBranchHandle = data;
+			}
 			continue;
 		}
 		if (activeHandle && !canResumeHandleSpanEntry(entry)) activeHandle = undefined;
@@ -189,6 +199,7 @@ function restoreFromBranch(branch: readonly SessionEntry[], allEntries: readonly
 	state.branchPathHash = branchPathHash;
 	state.compactionGeneration = compactionGeneration;
 	state.activeHandle = activeHandle;
+	state.lastBranchHandle = lastBranchHandle;
 }
 
 export function getMatchingCursorSessionAgentResumeHandle(poolKey: string): CursorSessionAgentResumeEntryData | undefined {
@@ -221,6 +232,8 @@ function flushPendingCursorSessionAgentResumeHandle(branch: readonly SessionEntr
 	const pending = state.pendingHandle;
 	state.pendingHandle = undefined;
 	if (!pending || !state.appendEntry) return;
+	const previousAgentId = state.activeHandle?.agentId ?? state.lastBranchHandle?.agentId;
+	const cleanupCandidateAgentIds = previousAgentId && previousAgentId !== pending.agentId ? [previousAgentId] : undefined;
 	const data: CursorSessionAgentResumeEntryData = {
 		version: RESUME_ENTRY_VERSION,
 		runtime: pending.runtime,
@@ -235,6 +248,7 @@ function flushPendingCursorSessionAgentResumeHandle(branch: readonly SessionEntr
 		compactionGeneration: state.compactionGeneration,
 		sendState: { ...pending.sendState },
 		createdAt: new Date().toISOString(),
+		...(cleanupCandidateAgentIds ? { cleanupCandidateAgentIds } : {}),
 	};
 	try {
 		state.appendEntry<CursorSessionAgentResumeEntryData>(CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE, data);
@@ -280,6 +294,7 @@ export function registerCursorSessionAgentResume(pi: CursorSessionAgentResumeExt
 			return;
 		}
 		state.activeHandle = undefined;
+		state.lastBranchHandle = undefined;
 		state.compactionGeneration += 1;
 		state.branchPathHash = hashBranchStep(state.branchPathHash, event.compactionEntry);
 	});
@@ -299,6 +314,7 @@ function resetStateForTests(): void {
 	state.branchPathHash = EMPTY_BRANCH_HASH;
 	state.compactionGeneration = 0;
 	state.activeHandle = undefined;
+	state.lastBranchHandle = undefined;
 	state.pendingHandle = undefined;
 }
 

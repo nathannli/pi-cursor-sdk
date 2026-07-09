@@ -141,6 +141,10 @@ describe("extension registration and discovery", () => {
 			expect.objectContaining({ description: expect.stringContaining("recorded Cursor cloud agents") }),
 		);
 		expect(pi.registerCommand).toHaveBeenCalledWith(
+			"cursor-local-resume-cleanup",
+			expect.objectContaining({ description: expect.stringContaining("superseded local Cursor SDK agents") }),
+		);
+		expect(pi.registerCommand).toHaveBeenCalledWith(
 			"cursor-refresh-models",
 			expect.objectContaining({ description: expect.stringContaining("Refresh the live Cursor model catalog") }),
 		);
