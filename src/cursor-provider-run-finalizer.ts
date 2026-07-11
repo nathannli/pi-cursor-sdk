@@ -1,5 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
-import { abandonSessionCursorAgent, cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
+import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
 import {
 	classifyCursorRunEmission,
 	getCursorRunAbortMessage,
@@ -40,15 +40,14 @@ export type CursorTurnTerminalEvent =
 
 function applyLiveRunOutcome(
 	outcome: CursorRunOutcome,
-	prepared: CursorProviderTurnPrepareResult,
+	prepared: LocalCursorProviderTurnPrepareResult & { runtime: LiveCursorProviderTurnRuntime },
 	context: CursorProviderTurnRunnerParams["context"],
 ): void {
-	if (prepared.runtimeTarget !== "local") throw new Error("Cursor live runs require a local prepared turn");
-	if (prepared.runtime.kind !== "live" || prepared.runtime.liveRun.disposed) return;
+	if (prepared.runtime.liveRun.disposed) return;
 	const { liveRun } = prepared.runtime;
 	switch (classifyCursorRunEmission(outcome)) {
 		case "finished":
-			prepared.sessionAgentLease.commitSend(context, prepared.meta.bootstrap);
+			prepared.lifecycle.commitSend(context, prepared.meta.bootstrap);
 			if (prepared.meta.resumeNotice) liveRun.resumeNotice = prepared.meta.resumeNotice;
 			cursorLiveRuns.markFinished(liveRun, outcome.kind === "finished" ? outcome.finalText : "");
 			break;
@@ -90,8 +89,6 @@ export class CursorRunFinalizer {
 		const sdkEventDebug = this.params.sdkEventDebug();
 		const { send, prepared, modelId, discardIncompleteTools } = startParams;
 		const { run, cursorAgentMessageOffset } = send;
-		if (prepared.runtimeTarget !== "local") throw new Error("startLiveRunCompletion requires a local prepared turn");
-		if (prepared.runtime.kind !== "live") throw new Error("startLiveRunCompletion requires a live run");
 		const { liveRun } = prepared.runtime;
 		const waitCompletion = awaitFinalizeCursorRunOutcome({
 			run,
@@ -110,20 +107,20 @@ export class CursorRunFinalizer {
 			.then(async (finalized) => {
 				applyLiveRunOutcome(finalized.outcome, prepared, runnerParams.context);
 			})
-			.catch(async (error: unknown) => {
-				sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) });
-				sdkEventDebug?.recordError("run_wait", error);
-				discardIncompleteTools({ status: "error" });
-				await sdkEventDebug?.captureRunArtifacts(run);
-				if (liveRun.disposed) return;
-				cursorLiveRuns.markError(
-					liveRun,
-					sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? runnerParams.options?.apiKey),
-				);
+			.catch((error: unknown) => {
+				this.safeCleanup(() => discardIncompleteTools({ status: "error" }));
+				if (!liveRun.disposed) {
+					cursorLiveRuns.markError(
+						liveRun,
+						sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? runnerParams.options?.apiKey),
+					);
+				}
+				this.safeCleanup(() => sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) }));
+				this.safeCleanup(() => sdkEventDebug?.recordError("run_wait", error));
 			});
 		// Mark the pooled local agent busy as soon as the SDK run exists so auto-compaction summarization
 		// (and other concurrent acquires) wait for run.wait() instead of hitting AgentBusyError.
-		prepared.sessionAgentLease.trackRunCompletion(waitCompletion);
+		prepared.lifecycle.trackRunCompletion(waitCompletion);
 		return { waitCompletion, prepared };
 	}
 
@@ -158,9 +155,7 @@ export class CursorRunFinalizer {
 				.catch(() => {});
 			return;
 		}
-		if (prepared?.runtimeTarget === "cloud") {
-			await prepared.agent[Symbol.asyncDispose]?.().catch(() => {});
-		}
+		await prepared?.lifecycle.dispose().catch(() => {});
 		await this.finalizeSdkEventDebugBestEffort();
 		this.safeCleanup(() => this.params.sdkProcessErrorGuard.dispose());
 	}
@@ -174,15 +169,15 @@ export class CursorRunFinalizer {
 		prepared.runtime.turnCoordinator.closeTraceBlock();
 		switch (classifyCursorRunEmission(outcome)) {
 			case "cancelled":
-				if (prepared.runtimeTarget === "local") await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
+				await prepared.lifecycle.abandon();
 				this.pushTerminalError(partial, "aborted", getCursorRunAbortMessage(outcome));
 				break;
 			case "failed":
-				if (prepared.runtimeTarget === "local") await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
+				await prepared.lifecycle.abandon();
 				this.pushTerminalError(partial, "error", outcome.kind === "error" ? outcome.errorMessage : "Cursor SDK run failed.");
 				break;
 			case "finished":
-				if (prepared.runtimeTarget === "local") prepared.sessionAgentLease.commitSend(context, prepared.meta.bootstrap);
+				prepared.lifecycle.commitSend(context, prepared.meta.bootstrap);
 				prepared.runtime.turnCoordinator.flushText(
 					outcome.kind === "finished" && hasUsableText(outcome.finalText) ? [outcome.finalText] : [],
 				);
@@ -197,19 +192,19 @@ export class CursorRunFinalizer {
 	}
 
 	private async applyErrorOutcome(prepared: CursorProviderTurnPrepareResult | undefined, error: unknown): Promise<void> {
-		this.params.sdkEventDebug()?.recordError("provider_stream", error);
-		prepared?.runtime.turnCoordinator.discardIncompleteStartedToolCalls(
+		this.safeCleanup(() => prepared?.runtime.turnCoordinator.discardIncompleteStartedToolCalls(
 			buildIncompleteCursorToolRunOutcome({
 				status: error instanceof CursorLiveRunAbortError ? "cancelled" : "error",
 				signalAborted: error instanceof CursorLiveRunAbortError,
 			}),
-		);
+		));
 		const activeLiveRun = prepared?.runtime.liveRun;
 		if (activeLiveRun && !activeLiveRun.disposed) {
 			await cursorLiveRuns.release(activeLiveRun);
-		} else if (prepared?.runtimeTarget === "local") {
-			await abandonSessionCursorAgent(prepared.sessionAgentScopeKey);
+		} else {
+			await prepared?.lifecycle.abandon();
 		}
+		this.safeCleanup(() => this.params.sdkEventDebug()?.recordError("provider_stream", error));
 		if (error instanceof CursorLiveRunAbortError) {
 			this.params.sdkProcessErrorGuard.suppressAbortErrors();
 			this.pushTerminalError(this.params.runnerParams.partial, "aborted", this.abortMessage());

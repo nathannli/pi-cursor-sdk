@@ -10,9 +10,9 @@ import {
 } from "./cursor-provider-turn-emit.js";
 import { CursorRunFinalizer, type CursorLiveRunCompletion } from "./cursor-provider-run-finalizer.js";
 import {
-	getCursorProviderRuntimeTarget,
 	prepareCursorProviderTurn,
 	requireCursorApiKey,
+	resolveCursorProviderTurnConfig,
 } from "./cursor-provider-turn-prepare.js";
 import { sendCursorProviderTurn } from "./cursor-provider-turn-send.js";
 import type {
@@ -70,7 +70,10 @@ export class CursorProviderTurnRunner {
 			});
 			sdkEventDebugRef.current = this.sdkEventDebug;
 			this.sdkEventDebug?.recordContextSnapshot(context);
-			if (getCursorProviderRuntimeTarget(cwd) === "local") {
+			// Resolved once here, before any drain await, so the drain decision and the
+			// prepare dispatch below always act on the same config snapshot.
+			const resolvedConfig = resolveCursorProviderTurnConfig(cwd);
+			if (resolvedConfig.runtime.value === "local") {
 				if (
 					(await drainExistingCursorLiveRunBeforeSend(stream, partial, model, context, options?.signal, this.sdkEventDebug)) ===
 					"stream_ended"
@@ -87,6 +90,7 @@ export class CursorProviderTurnRunner {
 				resolvedApiKey: this.resolvedApiKey,
 				sdkEventDebug: this.sdkEventDebug,
 				throwIfAborted: () => this.throwIfAborted(),
+				resolvedConfig,
 			});
 
 			sendResult = await sendCursorProviderTurn({
@@ -95,6 +99,7 @@ export class CursorProviderTurnRunner {
 				sdkEventDebug: this.sdkEventDebug,
 				sdkProcessErrorGuard,
 				throwIfAborted: () => this.throwIfAborted(),
+				resolvedApiKey: this.resolvedApiKey,
 			});
 			const { send } = sendResult;
 
@@ -128,7 +133,7 @@ export class CursorProviderTurnRunner {
 				sdkEventDebug: this.sdkEventDebug,
 				contextWindowAgentId: prepared.contextWindowAgentId,
 			});
-			if (prepared.runtimeTarget === "local") prepared.sessionAgentLease.trackRunCompletion(outcomePromise);
+			prepared.lifecycle.trackRunCompletion(outcomePromise);
 			const finalized = await outcomePromise;
 			await runFinalizer.applyTerminalEvent({
 				kind: "direct",

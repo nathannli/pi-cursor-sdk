@@ -13,10 +13,13 @@ function printHelp() {
 	console.log(`Refresh reviewable Cursor model fallback snapshots.
 
 Usage:
+  npm run check:cursor-snapshots
   npm run refresh:cursor-snapshots -- --write [options]
   node scripts/refresh-cursor-model-snapshots.mjs [options]
 
 Options:
+  --check                       Fetch the live catalog and byte-compare
+                                ${FALLBACK_MODELS_PATH} without writing.
   --write                       Write ${FALLBACK_MODELS_PATH}. Also write
                                 ${CONTEXT_WINDOWS_PATH} when --context-windows is supplied.
                                 Without --write, print a summary only.
@@ -47,10 +50,13 @@ function parseRefreshArgs(argv) {
 		printHelp();
 		process.exit(0);
 	}
+	const check = argv.includes("--check");
 	const write = argv.includes("--write");
-	const filteredArgv = argv.filter((arg) => arg !== "--write");
+	if (check && write) fail("--check and --write cannot be used together");
+	const filteredArgv = argv.filter((arg) => arg !== "--check" && arg !== "--write");
 	const args = parseArgv(filteredArgv, {
 		defaults: {
+			check,
 			write,
 			apiKey: defaultApiKeyFromEnv(),
 			contextWindowsPath: undefined,
@@ -114,8 +120,8 @@ function stableStringify(value) {
 	return JSON.stringify(value, null, "\t").replace(/"([^"\\]+)":/g, "$1:");
 }
 
-function formatFallbackModels(models) {
-	return `import type { ModelListItem } from "@cursor/sdk";\n\n// Generated/maintained fallback Cursor catalog snapshot.\n// Refresh with: npm run refresh:cursor-snapshots -- --write\n// Do not add secrets; this file stores public model metadata only.\nexport const FALLBACK_MODEL_ITEMS = ${stableStringify(models)} satisfies ModelListItem[];\n`;
+function formatFallbackModels(models, sdkVersion) {
+	return `import type { ModelListItem } from "@cursor/sdk";\n\n// Generated with @cursor/sdk@${sdkVersion} from ${models.length} Cursor models.\n// Refresh with: npm run refresh:cursor-snapshots -- --write\n// Do not add secrets; this file stores public model metadata only.\nexport const FALLBACK_MODEL_ITEMS = ${stableStringify(models)} satisfies ModelListItem[];\n`;
 }
 
 function parseExistingContextWindows() {
@@ -165,6 +171,7 @@ function formatContextWindows(models, checkpointWindows, fallbackContextWindow) 
 }
 
 const args = parseRefreshArgs(process.argv.slice(2));
+const sdkVersion = JSON.parse(readFileSync(new URL("../node_modules/@cursor/sdk/package.json", import.meta.url), "utf8")).version;
 let rawModels;
 try {
 	rawModels = await Cursor.models.list({ apiKey: args.apiKey });
@@ -176,15 +183,20 @@ if (!Array.isArray(rawModels) || rawModels.length === 0) fail("Cursor.models.lis
 
 const models = rawModels.map(sanitizeModelItem).sort((a, b) => a.id.localeCompare(b.id));
 const checkpointWindows = parseContextWindowsFile(args.contextWindowsPath);
-const fallbackSource = formatFallbackModels(models);
+const fallbackSource = formatFallbackModels(models, sdkVersion);
 const contextWindowSource = args.contextWindowsPath ? formatContextWindows(models, checkpointWindows, args.fallbackContextWindow) : undefined;
 const existingContextWindowCount = parseExistingContextWindows().size;
 
-console.log(`Fetched ${models.length} Cursor models.`);
+console.log(`Fetched ${models.length} Cursor models with @cursor/sdk@${sdkVersion}.`);
 console.log(`Context windows: ${checkpointWindows.size} checkpoint override(s), ${existingContextWindowCount} existing bundled entr${existingContextWindowCount === 1 ? "y" : "ies"}.`);
 console.log(`First models: ${models.slice(0, 8).map((model) => model.id).join(", ")}${models.length > 8 ? ", ..." : ""}`);
 
-if (args.write) {
+if (args.check) {
+	if (!existsSync(FALLBACK_MODELS_PATH) || !readFileSync(FALLBACK_MODELS_PATH).equals(Buffer.from(fallbackSource))) {
+		fail(`${FALLBACK_MODELS_PATH} is stale; refresh it with: npm run refresh:cursor-snapshots -- --write`);
+	}
+	console.log(`${FALLBACK_MODELS_PATH} is current (${models.length} models, @cursor/sdk@${sdkVersion}).`);
+} else if (args.write) {
 	writeFileSync(FALLBACK_MODELS_PATH, fallbackSource);
 	console.log(`Wrote ${FALLBACK_MODELS_PATH}`);
 	if (contextWindowSource) {

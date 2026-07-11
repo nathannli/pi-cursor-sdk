@@ -1,6 +1,10 @@
 import type { RunError, SDKAgent } from "@cursor/sdk";
 import { loadCursorTranscriptWebToolCallsAfterOffset } from "./cursor-agent-message-web-tools.js";
-import { collectCursorCloudRunReport, formatCursorCloudRunReport } from "./cursor-cloud-reporting.js";
+import {
+	collectCursorCloudRunReport,
+	formatCursorCloudRunReport,
+	type CursorCloudRunReport,
+} from "./cursor-cloud-reporting.js";
 import { recordCursorCloudLifecycleRun } from "./cursor-cloud-lifecycle.js";
 import { getCheckpointContextWindow, saveCachedContextWindow } from "./context-window-cache.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
@@ -121,8 +125,8 @@ export interface FinalizedCursorRunOutcome {
 
 /** Single wait/finalize path for SDK runs: wait, debug capture, transcript replay, incomplete tools, artifacts, context cache. */
 export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorRunOutcomeParams): Promise<FinalizedCursorRunOutcome> {
+	const apiKey = params.resolvedApiKey ?? params.optionsApiKey;
 	const waitResult = params.waitResult ?? (await params.run.wait());
-	params.sdkEventDebug?.recordWaitResult(waitResult);
 	const outcome = buildCursorRunOutcomeFromWait({
 		waitResult,
 		prepared: params.prepared,
@@ -132,6 +136,40 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 		resolvedApiKey: params.resolvedApiKey,
 		optionsApiKey: params.optionsApiKey,
 	});
+	let displayOnlyTraceBlock: string | undefined;
+	if (params.prepared.runtimeTarget === "cloud" && isCursorRunFinishedSuccessfully(outcome)) {
+		let report: CursorCloudRunReport = { agentId: params.run.agentId, runId: params.run.id, branches: [] };
+		try {
+			report = await collectCursorCloudRunReport({
+				agent: params.prepared.agent,
+				run: params.run,
+				waitResult,
+				apiKey,
+			});
+		} catch (error) {
+			recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
+		}
+		try {
+			recordCursorCloudLifecycleRun(report, { apiKey });
+		} catch (error) {
+			recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
+		}
+		try {
+			params.sdkEventDebug?.recordProviderEvent("cloud_run_report", report);
+		} catch (error) {
+			recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
+		}
+		try {
+			displayOnlyTraceBlock = formatCursorCloudRunReport(report, { apiKey });
+		} catch (error) {
+			recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
+		}
+	}
+	try {
+		params.sdkEventDebug?.recordWaitResult(waitResult);
+	} catch {
+		// Debug reporting must never affect provider execution.
+	}
 	if (params.prepared.runtimeTarget === "local" && isCursorRunFinishedSuccessfully(outcome)) {
 		await replayCursorTranscriptWebToolCalls(
 			params.run.agentId,
@@ -142,27 +180,10 @@ export async function awaitFinalizeCursorRunOutcome(params: AwaitFinalizeCursorR
 		);
 	}
 	params.prepared.runtime.turnCoordinator.discardIncompleteStartedToolCalls(outcome.incompleteTools);
-	await params.sdkEventDebug?.captureRunArtifacts(params.run);
-	let displayOnlyTraceBlock: string | undefined;
-	if (params.prepared.runtimeTarget === "cloud" && isCursorRunFinishedSuccessfully(outcome)) {
-		const apiKey = params.resolvedApiKey ?? params.optionsApiKey;
-		try {
-			const report = await collectCursorCloudRunReport({
-				agent: params.prepared.agent,
-				run: params.run,
-				waitResult,
-				apiKey,
-			});
-			params.sdkEventDebug?.recordProviderEvent("cloud_run_report", report);
-			displayOnlyTraceBlock = formatCursorCloudRunReport(report, { apiKey });
-			try {
-				recordCursorCloudLifecycleRun(report);
-			} catch (error) {
-				recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
-			}
-		} catch (error) {
-			recordCursorCloudReportingError(params.sdkEventDebug, error, apiKey);
-		}
+	try {
+		await params.sdkEventDebug?.captureRunArtifacts(params.run);
+	} catch {
+		// Debug artifact failures must never affect provider execution.
 	}
 	if (params.prepared.runtimeTarget === "local" && params.cacheContextWindow !== false) {
 		await cacheSdkContextWindow(params.contextWindowAgentId ?? params.run.agentId, params.modelId, params.prepared.cwd);

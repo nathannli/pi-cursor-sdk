@@ -1,5 +1,7 @@
 # Cursor local compaction boundary evidence — 2026-07-08
 
+> **Historical snapshot — superseded 2026-07-09.** This document records one pre-decision proof. Local resume is now default-on with opt-out and the listed platform/cleanup proofs are complete. See [cleanup proof and current decision](cursor-local-resume-cleanup-proof-2026-07-09.md) and the [current UX spec](../cursor-model-ux-spec.md).
+
 Purpose: record one live local Cursor SDK resume probe across a pi compaction boundary before any default-on resume decision.
 
 Scope:
@@ -40,10 +42,9 @@ Local artifacts retained outside git:
 - `.artifacts/compaction-boundary-three-turn-2026-07-08T04-17-07-848Z/session.after-post-compact-prompt.jsonl`
 - `.artifacts/compaction-boundary-three-turn-2026-07-08T04-17-07-848Z/session.after-post-compact-resume.jsonl`
 
-Decision impact:
+Decision impact at capture time:
 
-- This records one live manual compaction boundary for local resume.
-- It does **not** by itself move local resume to the roadmap's broad **Validated** contract bucket.
-- It does **not** flip local resume default-on.
-- It does **not** change cloud resume or cloud runtime policy.
-- Default-on still needs automated platform smoke coverage for tree, fork, clone, import/session switch, abort, tool-surface changes, resume failure fallback, cleanup, and compaction.
+- This recorded one live manual compaction boundary for local resume.
+- It did **not** by itself move local resume to the roadmap's broad **Validated** contract bucket or flip the default.
+- It did **not** change cloud resume or cloud runtime policy.
+- The then-missing automated platform and cleanup evidence was completed before the 2026-07-09 default-on decision linked above.

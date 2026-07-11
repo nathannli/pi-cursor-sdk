@@ -4,11 +4,21 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync }
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { terminateChild } from "./lib/cursor-child-process.mjs";
+import {
+	CHILD_PROCESS_TREE_SPAWN_OPTIONS,
+	terminateChild,
+} from "./lib/cursor-child-process.mjs";
 import { buildCursorSmokeEnv } from "./lib/cursor-smoke-env.mjs";
+import {
+	CLOUD_AGENT_ID_PATTERN,
+	CLOUD_LIFECYCLE_ENTRY_TYPE,
+	CLOUD_LIFECYCLE_JOURNAL_PREFIX,
+} from "../shared/cursor-cloud-lifecycle-constants.mjs";
+import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const args = new Set(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const args = new Set(argv);
 const CLOUD_ENV_NAMES = [
 	"PI_CURSOR_RUNTIME",
 	"PI_CURSOR_CLOUD_ACK",
@@ -22,6 +32,10 @@ const CLOUD_ENV_NAMES = [
 	"PI_CURSOR_CLOUD_ENV_TYPE",
 	"PI_CURSOR_CLOUD_ENV_NAME",
 ];
+
+function scrubSmokeText(value) {
+	return scrubSensitiveText(String(value), process.env.CURSOR_API_KEY);
+}
 
 class SmokeFailure extends Error {
 	constructor(message, details = "") {
@@ -51,7 +65,8 @@ Options:
 
 Exit codes:
   0  cloud run passed and artifact contract matched
-  1  missing entitlement/auth, run failure, assertion failure, or cleanup failure`);
+  1  missing entitlement/auth, run failure, assertion failure, or cleanup failure
+  2  invalid command-line usage`);
 }
 
 if (args.has("-h") || args.has("--help")) {
@@ -59,13 +74,23 @@ if (args.has("-h") || args.has("--help")) {
 	process.exit(0);
 }
 
+const unknownArgs = argv.filter((arg) => arg !== "--context-matrix");
+const laneArgs = argv.filter((arg) => arg === "--context-matrix");
+if (unknownArgs.length > 0 || laneArgs.length > 1) {
+	const message = unknownArgs.length > 0
+		? `unknown argument(s): ${unknownArgs.join(", ")}`
+		: "only one smoke lane may be selected";
+	console.error(scrubSmokeText(`[cloud-smoke] usage error: ${message}\nRun with --help for usage.`));
+	process.exit(2);
+}
+
 function fail(message, details = "") {
 	throw new SmokeFailure(message, details);
 }
 
 function reportFailure(error) {
-	console.error(`[cloud-smoke] FAIL: ${error instanceof Error ? error.message : String(error)}`);
-	if (error instanceof SmokeFailure && error.details) console.error(error.details);
+	console.error(scrubSmokeText(`[cloud-smoke] FAIL: ${error instanceof Error ? error.message : String(error)}`));
+	if (error instanceof SmokeFailure && error.details) console.error(scrubSmokeText(error.details));
 }
 
 function findPiBin() {
@@ -107,10 +132,23 @@ export function buildCloudSmokeWorkspace(artifactDir) {
 function runPi({ artifactDir, timeoutMs }) {
 	const model = process.env.CURSOR_CLOUD_SMOKE_MODEL || "cursor/composer-2-5";
 	const workspaceDir = buildCloudSmokeWorkspace(artifactDir);
+	const sessionDir = join(artifactDir, "sessions");
+	mkdirSync(sessionDir, { recursive: true });
 	const child = spawn(
 		findPiBin(),
-		["-e", root, "--model", model, "--no-session", "-p", "Reply exactly: cloud-smoke-ok"],
-		{ cwd: workspaceDir, env: buildCloudSmokeEnv(artifactDir), stdio: ["ignore", "pipe", "pipe"] },
+		[
+			"-e", root,
+			"--model", model,
+			"--session-dir", sessionDir,
+			"--session-id", `cloud-smoke-${Date.now()}`,
+			"-p", "Reply exactly: cloud-smoke-ok",
+		],
+		{
+			cwd: workspaceDir,
+			env: buildCloudSmokeEnv(artifactDir),
+			stdio: ["ignore", "pipe", "pipe"],
+			...CHILD_PROCESS_TREE_SPAWN_OPTIONS,
+		},
 	);
 	let stdout = "";
 	let stderr = "";
@@ -118,12 +156,22 @@ function runPi({ artifactDir, timeoutMs }) {
 	child.stderr.setEncoding("utf8");
 	child.stdout.on("data", (chunk) => { stdout += chunk; });
 	child.stderr.on("data", (chunk) => { stderr += chunk; });
-	return new Promise((resolveRun) => {
+	return new Promise((resolveRun, rejectRun) => {
+		let timedOut = false;
 		const timer = setTimeout(() => {
-			child.kill("SIGTERM");
-			setTimeout(() => child.kill("SIGKILL"), 5000).unref?.();
+			timedOut = true;
+			void terminateChild(child).then(
+				() => rejectRun(new Error(`pi cloud smoke timed out after ${timeoutMs}ms`)),
+				(error) => rejectRun(new Error(`pi cloud smoke timed out and process-tree cleanup failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error })),
+			);
 		}, timeoutMs);
-		child.on("close", (code, signal) => {
+		child.once("error", (error) => {
+			if (timedOut) return;
+			clearTimeout(timer);
+			rejectRun(error);
+		});
+		child.once("close", (code, signal) => {
+			if (timedOut) return;
 			clearTimeout(timer);
 			resolveRun({ code, signal, stdout, stderr });
 		});
@@ -153,15 +201,62 @@ function readLatestMetadataIfPresent(artifactDir) {
 	return { metadataPath, metadata: JSON.parse(readFileSync(metadataPath, "utf8")) };
 }
 
+function addExactCloudAgentId(ids, value) {
+	if (typeof value === "string" && CLOUD_AGENT_ID_PATTERN.test(value)) ids.add(value);
+}
+
 function cloudAgentIdsFromMetadata(artifactDir) {
 	const ids = new Set();
 	for (const metadataPath of metadataFiles(artifactDir)) {
 		try {
 			const metadata = JSON.parse(readFileSync(metadataPath, "utf8"));
-			const agentId = metadata.run?.agentId ?? metadata.providerMeta?.cloudAgentId;
-			if (agentId?.startsWith?.("bc-")) ids.add(agentId);
+			addExactCloudAgentId(ids, metadata.run?.agentId ?? metadata.providerMeta?.cloudAgentId);
 		} catch {
-			// Cleanup is best-effort per metadata file; one corrupt debug artifact must not block other archived ids.
+			// One corrupt optional debug artifact must not hide IDs available from other evidence.
+		}
+	}
+	return [...ids];
+}
+
+function lifecycleArtifactFiles(dir) {
+	const files = [];
+	const stack = [dir];
+	while (stack.length > 0) {
+		const current = stack.pop();
+		try {
+			for (const entry of readdirSync(current, { withFileTypes: true })) {
+				const path = join(current, entry.name);
+				if (entry.isDirectory()) stack.push(path);
+				else if (entry.name.endsWith(".jsonl") || (entry.name.startsWith(`${CLOUD_LIFECYCLE_JOURNAL_PREFIX}-`) && entry.name.endsWith(".journal"))) files.push(path);
+			}
+		} catch {}
+	}
+	return files.sort();
+}
+
+export function cloudAgentIdsFromLifecycleArtifacts(artifactDir) {
+	const ids = new Set();
+	for (const path of lifecycleArtifactFiles(artifactDir)) {
+		const journal = path.split(/[\\/]/).at(-1)?.startsWith(`${CLOUD_LIFECYCLE_JOURNAL_PREFIX}-`) === true;
+		let lines;
+		try {
+			lines = readFileSync(path, "utf8").split(/\r?\n/);
+		} catch {
+			continue;
+		}
+		for (const line of lines) {
+			if (!line) continue;
+			try {
+				const entry = JSON.parse(line);
+				const data = journal
+					? entry
+					: entry?.type === "custom" && entry.customType === CLOUD_LIFECYCLE_ENTRY_TYPE
+						? entry.data
+						: undefined;
+				addExactCloudAgentId(ids, data?.agentId);
+			} catch {
+				// Journals are newline-framed; one partial line must not hide later IDs.
+			}
 		}
 	}
 	return [...ids];
@@ -187,7 +282,12 @@ function startRpc({ artifactDir, contextHandoff, sessionId }) {
 	const child = spawn(
 		findPiBin(),
 		["--mode", "rpc", "-e", root, "--model", model, "--approve", "--session-dir", sessionDir, "--session-id", sessionId],
-		{ cwd: buildCloudSmokeWorkspace(artifactDir), env: buildCloudSmokeEnv(artifactDir, { contextHandoff }), stdio: ["pipe", "pipe", "pipe"] },
+		{
+			cwd: buildCloudSmokeWorkspace(artifactDir),
+			env: buildCloudSmokeEnv(artifactDir, { contextHandoff }),
+			stdio: ["pipe", "pipe", "pipe"],
+			...CHILD_PROCESS_TREE_SPAWN_OPTIONS,
+		},
 	);
 	let stderr = "";
 	const events = [];
@@ -230,6 +330,8 @@ function startRpc({ artifactDir, contextHandoff, sessionId }) {
 		child.stdin.write(`${JSON.stringify({ id, type, ...extra })}\n`);
 	});
 	const stop = async () => {
+		for (const request of pending.values()) clearTimeout(request.timer);
+		pending.clear();
 		await terminateChild(child);
 	};
 	return { events, send, stop, get stderr() { return stderr; } };
@@ -266,13 +368,13 @@ async function promptAndRead({ rpc, artifactDir, message, timeoutMs, expectedCon
 async function runContextScenario({ artifactRoot, contextHandoff, timeoutMs }) {
 	const artifactDir = join(artifactRoot, `context-${contextHandoff}`);
 	mkdirSync(artifactDir, { recursive: true });
-	const token = `CLOUD_CONTEXT_${contextHandoff}_${Date.now()}`;
+	const marker = `CLOUD_CONTEXT_${contextHandoff}_${Date.now()}`;
 	const rpc = startRpc({ artifactDir, contextHandoff, sessionId: `cloud-context-${contextHandoff}-${Date.now()}` });
 	try {
 		const first = await promptAndRead({
 			rpc,
 			artifactDir,
-			message: `Remember exact token ${token}. Reply exactly FIRST_OK.`,
+			message: `Remember exact marker ${marker}. Reply exactly FIRST_OK.`,
 			timeoutMs,
 			expectedContextHandoff: contextHandoff,
 		});
@@ -280,11 +382,11 @@ async function runContextScenario({ artifactRoot, contextHandoff, timeoutMs }) {
 		const second = await promptAndRead({
 			rpc,
 			artifactDir,
-			message: "What exact CLOUD_CONTEXT token did I ask you to remember earlier in this pi session? Reply exactly TOKEN=<token> if visible, otherwise NO_CONTEXT.",
+			message: "What exact CLOUD_CONTEXT marker did I ask you to remember earlier in this pi session? Reply exactly MARKER=<marker> if visible, otherwise NO_MARKER.",
 			timeoutMs,
 			expectedContextHandoff: contextHandoff,
 		});
-		return { contextHandoff, token, first, second };
+		return { contextHandoff, marker, first, second };
 	} finally {
 		await rpc.stop();
 	}
@@ -304,12 +406,12 @@ function lastNonEmptyLine(text) {
 
 async function runContextMatrix({ artifactRoot, timeoutMs }) {
 	const fresh = await runContextScenario({ artifactRoot, contextHandoff: "fresh", timeoutMs });
-	if (fresh.second.text.includes(fresh.token) || lastNonEmptyLine(fresh.second.text) !== "NO_CONTEXT") {
-		fail("fresh cloud context handoff leaked prior pi context", JSON.stringify({ expected: "NO_CONTEXT", actual: fresh.second.text, token: fresh.token }, null, 2));
+	if (fresh.second.text.includes(fresh.marker) || lastNonEmptyLine(fresh.second.text) !== "NO_MARKER") {
+		fail("fresh cloud context handoff leaked prior pi context", JSON.stringify({ expected: "NO_MARKER", actual: fresh.second.text, marker: fresh.marker }, null, 2));
 	}
 	const bootstrap = await runContextScenario({ artifactRoot, contextHandoff: "bootstrap", timeoutMs });
-	if (lastNonEmptyLine(bootstrap.second.text) !== `TOKEN=${bootstrap.token}`) {
-		fail("bootstrap cloud context handoff did not include prior pi context", JSON.stringify({ expected: `TOKEN=${bootstrap.token}`, actual: bootstrap.second.text }, null, 2));
+	if (lastNonEmptyLine(bootstrap.second.text) !== `MARKER=${bootstrap.marker}`) {
+		fail("bootstrap cloud context handoff did not include prior pi context", JSON.stringify({ expected: `MARKER=${bootstrap.marker}`, actual: bootstrap.second.text }, null, 2));
 	}
 	return [fresh, bootstrap];
 }
@@ -322,7 +424,7 @@ async function archiveCloudAgent(agentId) {
 	if (archived.archived !== true) {
 		fail(`cloud agent ${agentId} did not report archived after cleanup`, JSON.stringify(archived, null, 2));
 	}
-	console.error(`[cloud-smoke] archived agent ${agentId}`);
+	console.error(scrubSmokeText(`[cloud-smoke] archived agent ${agentId}`));
 }
 
 function assertCloudMetadata(metadata, metadataPath, options = {}) {
@@ -350,11 +452,11 @@ async function main() {
 	const artifactRoot = mkdtempSync(join(tmpdir(), "pi-cursor-cloud-smoke-"));
 	let agentId;
 	let failure;
-	console.error(`[cloud-smoke] artifacts: ${artifactRoot}`);
+	console.error(scrubSmokeText(`[cloud-smoke] artifacts: ${artifactRoot}`));
 	try {
 		if (args.has("--context-matrix")) {
 			await runContextMatrix({ artifactRoot, timeoutMs });
-			console.error("[cloud-smoke] context matrix passed");
+			console.error(scrubSmokeText("[cloud-smoke] context matrix passed"));
 		} else {
 			const run = await runPi({ artifactDir: artifactRoot, timeoutMs });
 			const latestMetadata = readLatestMetadataIfPresent(artifactRoot);
@@ -371,16 +473,22 @@ async function main() {
 	} catch (error) {
 		failure = error;
 	}
-	for (const id of new Set([agentId, ...cloudAgentIdsFromMetadata(artifactRoot)].filter(Boolean))) {
+	for (const id of new Set([
+		agentId,
+		...cloudAgentIdsFromMetadata(artifactRoot),
+		...cloudAgentIdsFromLifecycleArtifacts(artifactRoot),
+	].filter((id) => typeof id === "string" && CLOUD_AGENT_ID_PATTERN.test(id)))) {
 		try {
 			await archiveCloudAgent(id);
 		} catch (error) {
-			console.error(`[cloud-smoke] cleanup failed for ${id}: ${error instanceof Error ? error.message : String(error)}`);
+			console.error(scrubSmokeText(`[cloud-smoke] cleanup failed for ${id}: ${error instanceof Error ? error.message : String(error)}`));
 			failure ??= error;
 		}
 	}
-	if (process.env.CURSOR_CLOUD_SMOKE_KEEP_ARTIFACTS !== "1") {
+	if (process.env.CURSOR_CLOUD_SMOKE_KEEP_ARTIFACTS !== "1" && !failure) {
 		rmSync(artifactRoot, { recursive: true, force: true });
+	} else {
+		console.error(scrubSmokeText(`[cloud-smoke] retained artifacts: ${artifactRoot}`));
 	}
 	if (failure) throw failure;
 	console.log("cloud-smoke-ok");

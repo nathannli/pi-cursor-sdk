@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -26,6 +26,7 @@ import {
 	mergeCursorSdkConfig,
 	resolveCursorFastDefault,
 	resolveCursorSdkConfig,
+	saveCursorSdkProjectConfig,
 	saveCursorSdkUserConfig,
 	withCursorFastDefaults,
 } from "../src/cursor-config.js";
@@ -66,6 +67,34 @@ describe("Cursor SDK config resolver", () => {
 		expect(resolveCursorSdkConfig().runtime).toMatchObject({ value: "local", source: "builtin" });
 	});
 
+	it("rejects invalid explicit CLI runtime and cloud-context overrides before lower layers", () => {
+		expect(() => resolveCursorSdkConfig({
+			cli: { runtime: "remote" },
+			env: { [CURSOR_RUNTIME_ENV]: "cloud" },
+		})).toThrow('Invalid --cursor-runtime "remote". Use "local" or "cloud".');
+		expect(() => resolveCursorSdkConfig({
+			cli: { cloud: { contextHandoff: "reuse" } },
+			user: { cloud: { contextHandoff: "bootstrap" } },
+		})).toThrow('Invalid --cursor-cloud-context "reuse". Use "never", "fresh", or "bootstrap".');
+	});
+
+	it("rejects invalid explicit env runtime and cloud-context overrides before lower config", () => {
+		expect(() => resolveCursorSdkConfig({
+			env: { [CURSOR_RUNTIME_ENV]: "remote" },
+			user: { runtime: "cloud" },
+		})).toThrow('Invalid PI_CURSOR_RUNTIME "remote". Use "local" or "cloud".');
+		expect(() => resolveCursorSdkConfig({
+			env: { [CURSOR_CLOUD_CONTEXT_ENV]: "reuse" },
+			user: { runtime: "cloud", cloud: { contextHandoff: "bootstrap" } },
+		})).toThrow('Invalid PI_CURSOR_CLOUD_CONTEXT "reuse". Use "never", "fresh", or "bootstrap".');
+	});
+
+	it("rejects a nonempty cloud env request when every name is malformed or forbidden", () => {
+		expect(() => resolveCursorSdkConfig({
+			env: { [CURSOR_CLOUD_ENV_ENV]: "bad-name,CURSOR_SECRET,9INVALID" },
+		})).toThrow("Invalid PI_CURSOR_CLOUD_ENV: no valid environment variable names were requested.");
+	});
+
 	it("keeps legacy fastDefaults shape compatible and writes user config as 0600", () => {
 		const path = getCursorSdkUserConfigPath(agentDir);
 		mkdirSync(agentDir, { recursive: true });
@@ -78,6 +107,40 @@ describe("Cursor SDK config resolver", () => {
 		saveCursorSdkUserConfig(withCursorFastDefaults(config, new Map([["composer-2", true]])), savedPath);
 		expect(JSON.parse(readFileSync(savedPath, "utf-8"))).toEqual({ fastDefaults: { "composer-2": true } });
 		if (process.platform !== "win32") expect(statSync(savedPath).mode & 0o777).toBe(0o600);
+	});
+
+	it("preserves existing config permissions and atomically replaces user and project JSON", () => {
+		const userPath = getCursorSdkUserConfigPath(agentDir);
+		const projectPath = getCursorSdkProjectConfigPath(cwd);
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(userPath, "{}\n");
+		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(projectPath, "{}\n");
+		if (process.platform !== "win32") {
+			chmodSync(userPath, 0o660);
+			chmodSync(projectPath, 0o640);
+		}
+
+		saveCursorSdkUserConfig({ runtime: "cloud" }, userPath);
+		saveCursorSdkProjectConfig(cwd, { runtime: "local" });
+
+		expect(JSON.parse(readFileSync(userPath, "utf8"))).toEqual({ runtime: "cloud" });
+		expect(JSON.parse(readFileSync(projectPath, "utf8"))).toEqual({ runtime: "local" });
+		if (process.platform !== "win32") {
+			expect(statSync(userPath).mode & 0o777).toBe(0o660);
+			expect(statSync(projectPath).mode & 0o777).toBe(0o640);
+		}
+		expect(readdirSync(agentDir)).toEqual(["cursor-sdk.json"]);
+		expect(readdirSync(join(cwd, ".pi"))).toEqual(["cursor-sdk.json"]);
+	});
+
+	it.skipIf(process.platform === "win32")("uses normal umask permissions for new project config files", () => {
+		const newCwd = join(root, "new-repo");
+		mkdirSync(newCwd);
+
+		saveCursorSdkProjectConfig(newCwd, { runtime: "local" });
+
+		expect(statSync(getCursorSdkProjectConfigPath(newCwd)).mode & 0o777).toBe(0o666 & ~process.umask());
 	});
 
 	it("preserves current fast precedence through the resolver", () => {
@@ -198,7 +261,12 @@ describe("Cursor SDK config resolver", () => {
 		}).cloud.envNames;
 
 		expect(envFiltered).toMatchObject({ value: ["NODE_ENV"], source: "user" });
-		expect(envFiltered.cappedBy).toMatchObject({ source: "user", cappedSource: "environment", cappedValue: ["GH_TOKEN", "NODE_ENV"] });
+		expect(envFiltered.cappedBy).toMatchObject({
+			source: "user",
+			value: ["NODE_ENV"],
+			cappedSource: "environment",
+			cappedValue: ["GH_TOKEN", "NODE_ENV"],
+		});
 		expect(cliOverride).toMatchObject({ value: ["GH_TOKEN"], source: "cli" });
 		expect(cliOverride).not.toHaveProperty("cappedBy");
 	});
@@ -281,6 +349,31 @@ describe("Cursor SDK config resolver", () => {
 			value: "local",
 			source: "cli",
 		});
+	});
+
+	it.each([
+		["disabled", false],
+		["enabled", true],
+		["false", false],
+		["true", true],
+	] as const)("parses PI_CURSOR_LOCAL_RESUME=%s as %s", (raw, expected) => {
+		expect(resolveCursorSdkConfig({ env: { [CURSOR_LOCAL_RESUME_ENV]: raw } }).local.resume).toMatchObject({
+			value: expected,
+			source: "environment",
+		});
+	});
+
+	it("ignores session for local fields but honors it for cloud fields (per-field source order)", () => {
+		const local = resolveCursorSdkConfig({
+			session: { local: { autoReview: true, resume: false } },
+		}).local;
+		expect(local.autoReview).toMatchObject({ value: false, source: "builtin" });
+		expect(local.resume).toMatchObject({ value: true, source: "builtin" });
+
+		const cloud = resolveCursorSdkConfig({
+			session: { cloud: { repo: "session-repo" } },
+		}).cloud;
+		expect(cloud.repo).toMatchObject({ value: "session-repo", source: "session" });
 	});
 
 	it("resolves local safety controls by CLI, env, project, user, built-in order", () => {

@@ -1,3 +1,4 @@
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { delimiter, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { resolveCursorSettingSources as resolveProviderSettingSources } from "../src/cursor-setting-sources.js";
@@ -13,7 +14,12 @@ import {
 	readArgvApiKey,
 	requireApiKey,
 } from "../scripts/lib/cursor-cli-args.mjs";
-import { parseJsonLines, terminateChild, waitForChildClose } from "../scripts/lib/cursor-child-process.mjs";
+import {
+	CHILD_PROCESS_TREE_SPAWN_OPTIONS,
+	parseJsonLines,
+	terminateChild,
+	waitForChildClose,
+} from "../scripts/lib/cursor-child-process.mjs";
 import {
 	buildCursorSmokeEnv,
 	buildCursorSmokeEnvPlan,
@@ -28,6 +34,68 @@ import {
 } from "../shared/cursor-setting-sources.mjs";
 import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
 import { createScriptFail } from "../scripts/lib/cursor-script-fail.mjs";
+
+function processExists(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code !== "ESRCH";
+	}
+}
+
+async function waitUntilGone(pids: number[], timeoutMs = 5_000): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (pids.some(processExists) && Date.now() < deadline) {
+		await new Promise((resolveWait) => setTimeout(resolveWait, 25));
+	}
+	return pids.every((pid) => !processExists(pid));
+}
+
+async function readChildPids(parent: ChildProcess): Promise<{ parentPid: number; grandchildPid: number }> {
+	if (!parent.stdout) throw new Error("expected child stdout pipe");
+	return new Promise((resolvePids, rejectPids) => {
+		let stdout = "";
+		const timer = setTimeout(() => rejectPids(new Error("timed out waiting for descendant pids")), 5_000);
+		parent.stdout!.on("data", (chunk) => {
+			stdout += chunk.toString();
+			const line = stdout.split("\n").find(Boolean);
+			if (!line) return;
+			clearTimeout(timer);
+			resolvePids(JSON.parse(line));
+		});
+		parent.once("error", (error) => {
+			clearTimeout(timer);
+			rejectPids(error);
+		});
+	});
+}
+
+async function waitForChildCloseWithinTest(parent: ChildProcess, timeoutMs = 5_000): Promise<number> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			waitForChildClose(parent),
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => reject(new Error("timed out waiting for child close")), timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
+async function forceCleanupProcess(pid: number | undefined): Promise<void> {
+	if (!pid || !processExists(pid)) return;
+	if (process.platform === "win32") {
+		spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+	} else {
+		try {
+			process.kill(pid, "SIGKILL");
+		} catch {}
+	}
+	if (!(await waitUntilGone([pid], 2_000))) throw new Error(`failed to clean up child process ${pid}`);
+}
 
 describe("maintainer scripts shared lib", () => {
 	it("keeps shared helpers aligned with provider runtime", () => {
@@ -205,9 +273,80 @@ describe("maintainer scripts shared lib", () => {
 
 	it("parses JSONL stdout and exposes child shutdown helpers", async () => {
 		expect(parseJsonLines('{"type":"a"}\n\n{"type":"b"}\n')).toEqual([{ type: "a" }, { type: "b" }]);
+		expect(CHILD_PROCESS_TREE_SPAWN_OPTIONS.detached).toBe(process.platform !== "win32");
 		expect(typeof waitForChildClose).toBe("function");
 		expect(typeof terminateChild).toBe("function");
 	});
+
+	it("allows child EOF cleanup before verified process-tree termination", async () => {
+		const child = spawn(process.execPath, [
+			"--input-type=module",
+			"-e",
+			`process.stdin.resume(); process.stdin.on("end", () => { console.log("graceful-cleanup"); process.exit(0); });`,
+		], { stdio: ["pipe", "pipe", "pipe"], ...CHILD_PROCESS_TREE_SPAWN_OPTIONS });
+		let stdout = "";
+		child.stdout?.setEncoding("utf8");
+		child.stdout?.on("data", (chunk) => { stdout += chunk; });
+		await terminateChild(child, { graceMs: 2_000 });
+		expect(stdout).toContain("graceful-cleanup");
+	});
+
+	it("terminates a spawned parent and its long-lived grandchild", async () => {
+		const parent = spawn(
+			process.execPath,
+			[
+				"--input-type=module",
+				"-e",
+				`import { spawn } from "node:child_process";
+const grandchild = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 60_000)"], { stdio: "ignore" });
+console.log(JSON.stringify({ parentPid: process.pid, grandchildPid: grandchild.pid }));
+setInterval(() => {}, 60_000);`,
+			],
+			{ stdio: ["ignore", "pipe", "pipe"], ...CHILD_PROCESS_TREE_SPAWN_OPTIONS },
+		);
+		let grandchildPid: number | undefined;
+		try {
+			const pids = await readChildPids(parent);
+			grandchildPid = pids.grandchildPid;
+			expect(processExists(pids.parentPid)).toBe(true);
+			expect(processExists(pids.grandchildPid)).toBe(true);
+			await terminateChild(parent, { graceMs: 1_000 });
+			expect(await waitUntilGone([pids.parentPid, pids.grandchildPid])).toBe(true);
+		} finally {
+			await terminateChild(parent, { graceMs: 500 });
+			await forceCleanupProcess(grandchildPid);
+		}
+	}, 15_000);
+
+	it("terminates a live grandchild after its detached parent has exited", async () => {
+		const parent = spawn(
+			process.execPath,
+			[
+				"--input-type=module",
+				"-e",
+				`import { spawn } from "node:child_process";
+const grandchild = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 60_000)"], { stdio: "ignore", detached: process.platform === "win32" });
+grandchild.unref();
+console.log(JSON.stringify({ parentPid: process.pid, grandchildPid: grandchild.pid }));`,
+			],
+			{ stdio: ["ignore", "pipe", "pipe"], ...CHILD_PROCESS_TREE_SPAWN_OPTIONS },
+		);
+		let grandchildPid: number | undefined;
+		try {
+			const pids = await readChildPids(parent);
+			grandchildPid = pids.grandchildPid;
+			expect(await waitForChildCloseWithinTest(parent)).toBe(0);
+			expect(processExists(pids.parentPid)).toBe(false);
+			expect(processExists(pids.grandchildPid)).toBe(true);
+
+			await terminateChild(parent, { graceMs: 2_000 });
+
+			expect(await waitUntilGone([pids.grandchildPid])).toBe(true);
+		} finally {
+			await terminateChild(parent, { graceMs: 500 });
+			await forceCleanupProcess(grandchildPid);
+		}
+	}, 30_000);
 
 	it("createScriptFail scrubs generic secrets before applying explicit secrets", () => {
 		const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as typeof process.exit);

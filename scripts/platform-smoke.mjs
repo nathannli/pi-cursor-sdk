@@ -60,41 +60,45 @@ Environment:
 }
 
 function parseArgs(argv) {
-	const args = { _: [], target: null, suite: null, command: null };
+	const args = { target: null, suite: null, command: null };
 	let i = 2;
 	while (i < argv.length) {
-		const a = argv[i];
-		if (a === "--help" || a === "-h") {
-			args.command = "help";
-			return args;
-		}
-		if (a === "doctor") {
-			args.command = "doctor";
+		const arg = argv[i];
+		if (arg === "--help" || arg === "-h") return { ...args, command: "help" };
+		if (arg === "doctor" || arg === "run") {
+			if (args.command) {
+				throw new Error(`${args.command === arg ? "duplicate" : "conflicting"} command token: ${arg}`);
+			}
+			args.command = arg;
 			i++;
 			continue;
 		}
-		if (a === "run") {
-			args.command = "run";
-			i++;
-			continue;
-		}
-		if (a === "--target" && i + 1 < argv.length) {
-			args.target = argv[i + 1];
+		if (arg === "--target" || arg === "--suite") {
+			const key = arg.slice(2);
+			if (args[key] !== null) throw new Error(`duplicate ${arg}`);
+			const value = argv[i + 1];
+			if (!value?.trim() || value.startsWith("-") || value === "doctor" || value === "run") {
+				throw new Error(`${arg} requires a value`);
+			}
+			args[key] = value;
 			i += 2;
 			continue;
 		}
-		if (a === "--suite" && i + 1 < argv.length) {
-			args.suite = argv[i + 1];
-			i += 2;
-			continue;
-		}
-		args._.push(a);
-		i++;
+		throw new Error(`${arg.startsWith("-") ? "unknown option" : "unknown positional argument"}: ${arg}`);
+	}
+	if (args.command === "doctor" && (args.target !== null || args.suite !== null)) {
+		throw new Error("doctor does not accept --target or --suite");
+	}
+	if (!args.command && (args.target !== null || args.suite !== null)) {
+		throw new Error("--target and --suite require the run command");
 	}
 	return args;
 }
 
 function validateSelections(targets, suites) {
+	if (targets.length === 0 || targets.some((target) => !target)) throw new Error("--target requires nonempty target names");
+	if (new Set(targets).size !== targets.length) throw new Error("--target contains duplicate target names");
+	if (suites.length === 0 || suites.some((suite) => !suite)) throw new Error("--suite requires a suite name");
 	const allowedTargets = new Set(config.requiredTargets ?? []);
 	const allowedSuites = new Set(config.requiredSuites ?? []);
 	const badTargets = targets.filter((target) => !allowedTargets.has(target));
@@ -193,7 +197,13 @@ async function runTarget(targetName, suites) {
 }
 
 async function main() {
-	const args = parseArgs(process.argv);
+	let args;
+	try {
+		args = parseArgs(process.argv);
+	} catch (err) {
+		console.error(`usage error: ${err.message}`);
+		process.exit(2);
+	}
 
 	if (!args.command || args.command === "help") {
 		printHelp();
@@ -212,7 +222,7 @@ async function main() {
 
 	if (args.command === "run") {
 		const targets = args.target
-			? args.target.split(",").map((s) => s.trim()).filter(Boolean)
+			? args.target.split(",").map((s) => s.trim())
 			: config.requiredTargets;
 
 		const suites = args.suite
@@ -222,7 +232,7 @@ async function main() {
 		try {
 			validateSelections(targets, suites);
 		} catch (err) {
-			console.error(err.message);
+			console.error(`usage error: ${err.message}`);
 			process.exit(2);
 		}
 

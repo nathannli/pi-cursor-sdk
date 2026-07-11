@@ -9,6 +9,7 @@ import { __testUtils as nativeToolDisplayTestUtils } from "../../src/cursor-nati
 import { __testUtils as cursorPiToolBridgeTestUtils } from "../../src/cursor-pi-tool-bridge.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../../src/cursor-session-scope.js";
 import { __testUtils as cursorSessionResumeTestUtils } from "../../src/cursor-session-agent-resume.js";
+import { __testUtils as cursorSdkProcessErrorGuardTestUtils } from "../../src/cursor-sdk-process-error-guard.js";
 
 export {
 	nativeToolDisplayTestUtils,
@@ -33,5 +34,6 @@ export async function resetIndexExtensionTestState(): Promise<void> {
 	await cursorPiToolBridgeTestUtils.resetRegisteredBridgeForTests();
 	cursorSessionScopeTestUtils.reset();
 	cursorSessionResumeTestUtils.reset();
+	cursorSdkProcessErrorGuardTestUtils.resetLifecycleSessionGuard();
 	nativeToolDisplayTestUtils.reset();
 }

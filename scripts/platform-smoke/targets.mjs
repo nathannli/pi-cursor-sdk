@@ -6,62 +6,42 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 
-import { createSuiteDir, writeManifest, writeSummary, writeCommand, writeExitCode, scanArtifacts, scanForSecrets, redactSecrets } from "./artifacts.mjs";
-import { runAssertions } from "./assertions.mjs";
+import {
+	createSuiteDir,
+	extractPlatformArtifactBundle,
+	writeCommand,
+	writeExitCode,
+	scanArtifacts,
+	scanForSecrets,
+	redactSecrets,
+} from "./artifacts.mjs";
+
+export { isSafePlatformBundlePath as isSafeBundlePath } from "./artifacts.mjs";
 import { getScenario } from "./scenarios.mjs";
 import { warmupLease, runOnLease, stopLease } from "./crabbox-runner.mjs";
 import { renderAll } from "./render-ansi.mjs";
 import { assertRequiredCards, detectCards, writeCardArtifacts } from "./card-detect.mjs";
 import { collectVisualEvidence } from "./visual-evidence.mjs";
 import { extractContentText, extractFinalTextContent } from "./jsonl-text.mjs";
+import { executeLocalResumeSuite } from "./local-resume-runner.mjs";
 import { LOCAL_RESUME_SUITE_BY_NAME } from "./local-resume-suites.mjs";
+import {
+	failSuite,
+	fetchPlatformArtifactBundle,
+	finalizeSuiteArtifacts,
+	platformFor,
+	runOnLeaseWithTransientRetry,
+	stopLeaseCheck,
+	writeRedactedFile,
+	writeStopLeaseArtifacts,
+} from "./target-runtime.mjs";
 
-export function platformFor(targetName) {
-	return targetName === "windows-native" ? "powershell" : "posix";
-}
+export { finalizeSuiteArtifacts, platformFor };
 
 function makeRunId() {
 	return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-export function finalizeSuiteArtifacts(suiteDir, checks, summaryData, expectedFiles) {
-	const assertions = runAssertions(suiteDir, checks);
-	writeSummary(suiteDir, { ...summaryData, ok: assertions.ok });
-	const expected = assertions.ok ? expectedFiles : [...expectedFiles, "failures.md"];
-	const manifest = writeManifest(suiteDir, expected);
-	if (manifest.missing.length === 0) return { assertions, manifest };
-
-	const finalAssertions = runAssertions(suiteDir, [
-		...checks,
-		{
-			id: "artifact-manifest-complete",
-			fn: () => false,
-			error: `missing required artifact(s): ${manifest.missing.join(", ")}`,
-		},
-	]);
-	writeSummary(suiteDir, { ...summaryData, ok: false });
-	const finalManifest = writeManifest(suiteDir, [...expectedFiles, "failures.md"]);
-	return { assertions: finalAssertions, manifest: finalManifest };
-}
-
-function writeRedactedFile(path, content) {
-	writeFileSync(path, redactSecrets(content ?? ""));
-}
-
-function writeStopLeaseArtifacts(suiteDir, stopResult) {
-	writeRedactedFile(resolve(suiteDir, "crabbox.stop.stdout.txt"), stopResult.stdout ?? "");
-	writeRedactedFile(resolve(suiteDir, "crabbox.stop.stderr.txt"), stopResult.stderr ?? "");
-	writeFileSync(resolve(suiteDir, "crabbox.stop.exit-code.txt"), `code=${stopResult.code}\nsignal=${stopResult.signal ?? "none"}\n`);
-}
-
-function stopLeaseCheck(stopResult) {
-	return {
-		id: "lease-stop",
-		fn: () => stopResult?.code === 0,
-		error: `Crabbox stop failed (exit ${stopResult?.code ?? "unknown"}); check crabbox.stop.stderr.txt`,
-	};
 }
 
 export function createLeaseCleanupResult(config, targetName, leaseId, stopResult, runId = makeRunId()) {
@@ -495,88 +475,6 @@ export function buildPlatformBuildCommand(targetName, packageName = "pi-cursor-s
 	return lines.join("\n");
 }
 
-async function executeLocalResumeSuite(config, targetName, suiteName, suiteDir, slug, leaseSession) {
-	const startedAt = Date.now();
-	let warmup = leaseSession;
-	const ownsLease = !warmup;
-	const variant = LOCAL_RESUME_SUITE_BY_NAME.get(suiteName);
-	const command = buildLocalResumeSuiteCommand(targetName, ownsLease, variant.script);
-	writeCommand(suiteDir, command);
-
-	if (!warmup) {
-		console.log(`  warmup ${targetName}...`);
-		warmup = await warmupLease(targetName, slug, config);
-		if (!warmup.ok) {
-			writeExitCode(suiteDir, warmup.code, warmup.signal);
-			writeRedactedFile(resolve(suiteDir, "crabbox.warmup.stdout.txt"), warmup.stdout);
-			writeRedactedFile(resolve(suiteDir, "crabbox.warmup.stderr.txt"), warmup.stderr);
-			return failSuite(suiteDir, targetName, suiteName, `Crabbox warmup failed (exit ${warmup.code}): ${warmup.stderr.slice(-500)}`);
-		}
-	}
-
-	console.log(`  executing local resume smoke on ${targetName}...`);
-	const result = await runOnLeaseWithTransientRetry(suiteDir, targetName, warmup.leaseId, command, {
-		shell: true,
-		timeout: 900_000,
-		allowEnv: ["CURSOR_API_KEY"],
-		sync: leaseSession?.sync,
-		config,
-	});
-	const elapsed = Date.now() - startedAt;
-	writeRedactedFile(resolve(suiteDir, "crabbox.stdout.txt"), result.stdout);
-	writeRedactedFile(resolve(suiteDir, "crabbox.stderr.txt"), result.stderr);
-	writeFileSync(resolve(suiteDir, "crabbox.timing.json"), JSON.stringify({
-		startedAt: new Date(startedAt).toISOString(),
-		elapsedMs: elapsed,
-		code: result.code,
-		signal: result.signal,
-	}, null, 2));
-	writeExitCode(suiteDir, result.code, result.signal);
-
-	let stopResult;
-	if (ownsLease) {
-		console.log(`  stopping lease ${warmup.leaseId}...`);
-		stopResult = await stopLease(targetName, warmup.leaseId, config);
-		writeStopLeaseArtifacts(suiteDir, stopResult);
-	}
-
-	const violations = [
-		...scanForSecrets(`${result.stdout}\n${result.stderr}`).map((violation) => ({ file: "process-output", violation })),
-		...scanArtifacts(suiteDir),
-	];
-	if (violations.length > 0) writeFileSync(resolve(suiteDir, "redaction-violations.json"), JSON.stringify(violations, null, 2));
-
-	const checks = [
-		{ id: "local-resume-exit-zero", fn: () => result.code === 0 },
-		{ id: "local-resume-marker", fn: () => result.stdout.includes(variant.marker) },
-		{ id: "local-resume-stderr-evidence", fn: () => variant.stderrPattern.test(result.stderr) },
-		{ id: "no-secrets", fn: () => violations.length === 0 },
-	];
-	if (stopResult) checks.push(stopLeaseCheck(stopResult));
-	const expectedFiles = [
-		"summary.json", "target.json", "suite.json", "command.txt", "exit-code.txt",
-		"crabbox.stdout.txt", "crabbox.stderr.txt", "crabbox.timing.json", "assertions.json",
-	];
-	if (stopResult) expectedFiles.push("crabbox.stop.stdout.txt", "crabbox.stop.stderr.txt", "crabbox.stop.exit-code.txt");
-	const { assertions } = finalizeSuiteArtifacts(suiteDir, checks, {
-		target: targetName,
-		suite: suiteName,
-		exitCode: result.code,
-		signal: result.signal,
-		elapsedMs: elapsed,
-	}, expectedFiles);
-	console.log(`  ${assertions.ok ? "PASS" : "FAIL"} ${suiteName} on ${targetName} (${elapsed}ms)`);
-	return { ok: assertions.ok, suiteDir, assertions };
-}
-
-function buildLocalResumeSuiteCommand(targetName, ensureDeps = false, script = "smoke:local-resume") {
-	if (platformFor(targetName) === "powershell") {
-		if (ensureDeps) return `cmd.exe /d /s /c "npm ci && npm run ${script}"`;
-		return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "npm run ${script}"`;
-	}
-	return ensureDeps ? `npm ci && npm run ${script}` : `npm run ${script}`;
-}
-
 async function executeLiveSuite(config, targetName, suiteName, suiteDir, slug, leaseSession) {
 	const scenario = getScenario(suiteName);
 	const startedAt = Date.now();
@@ -601,9 +499,12 @@ async function executeLiveSuite(config, targetName, suiteName, suiteDir, slug, l
 		shell: true,
 		timeout: 900_000,
 		allowEnv: ["CURSOR_API_KEY"],
+		captureStdoutPath: resolve(suiteDir, ".crabbox.remote.stdout.raw"),
 		sync: leaseSession?.sync,
 		config,
 	});
+	const bundleTransport = await fetchPlatformArtifactBundle(targetName, warmup.leaseId, result.stdout, config);
+	if (!bundleTransport.ok) result.stderr = `${result.stderr}\n[platform-smoke] ${bundleTransport.error}`.trim();
 	const elapsed = Date.now() - startedAt;
 	writeRedactedFile(resolve(suiteDir, "crabbox.stdout.txt"), result.stdout);
 	writeRedactedFile(resolve(suiteDir, "crabbox.stderr.txt"), result.stderr);
@@ -622,7 +523,7 @@ async function executeLiveSuite(config, targetName, suiteName, suiteDir, slug, l
 		writeStopLeaseArtifacts(suiteDir, stopResult);
 	}
 
-	const bundle = extractLiveBundle(suiteDir, result.stdout);
+	const bundle = extractPlatformArtifactBundle(suiteDir, bundleTransport.stdout);
 	const liveArtifactDir = resolve(suiteDir, "artifacts");
 	mkdirSync(liveArtifactDir, { recursive: true });
 	const terminalAnsi = resolve(liveArtifactDir, "terminal.ansi");
@@ -759,20 +660,6 @@ async function executeLiveSuite(config, targetName, suiteName, suiteDir, slug, l
 	return { ok: assertions.ok, suiteDir, assertions };
 }
 
-async function runOnLeaseWithTransientRetry(suiteDir, targetName, leaseId, command, options) {
-	const first = await runOnLease(targetName, leaseId, command, options);
-	if (!isTransientCrabboxSshFailure(first)) return first;
-	writeRedactedFile(resolve(suiteDir, "crabbox.retry1.stdout.txt"), first.stdout);
-	writeRedactedFile(resolve(suiteDir, "crabbox.retry1.stderr.txt"), first.stderr);
-	await new Promise((resolveRetry) => setTimeout(resolveRetry, 10_000));
-	return await runOnLease(targetName, leaseId, command, { ...options, sync: false });
-}
-
-function isTransientCrabboxSshFailure(result) {
-	const text = `${result.stdout}\n${result.stderr}`;
-	return result.code === 255 && /ssh: connect to host .*\b(Operation timed out|Connection timed out)\b/i.test(text);
-}
-
 function buildLiveSuiteCommand(config, targetName, suiteName, prepDir) {
 	const model = config.cursorModel ?? "cursor/composer-2-5";
 	const packageName = config.packageName ?? "pi-cursor-sdk";
@@ -781,60 +668,6 @@ function buildLiveSuiteCommand(config, targetName, suiteName, prepDir) {
 		return `powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "node scripts/platform-smoke/live-suite-runner.mjs --suite ${suiteName} --target ${targetName} --model ${model} --package-name ${packageName}${prepArgs}"`;
 	}
 	return `node scripts/platform-smoke/live-suite-runner.mjs --suite ${shellQuote(suiteName)} --target ${shellQuote(targetName)} --model ${shellQuote(model)} --package-name ${shellQuote(packageName)}${prepArgs}`;
-}
-
-function extractLiveBundle(suiteDir, stdout) {
-	const start = stdout.indexOf("PLATFORM_LIVE_BUNDLE_JSON_START");
-	const end = stdout.indexOf("PLATFORM_LIVE_BUNDLE_JSON_END", start);
-	if (start === -1 || end === -1) return { ok: false, violations: [] };
-	const jsonText = stdout.slice(start + "PLATFORM_LIVE_BUNDLE_JSON_START".length, end).trim();
-	let bundle;
-	try { bundle = JSON.parse(jsonText); } catch { return { ok: false, violations: [] }; }
-	if (!Array.isArray(bundle.files)) return { ok: false, violations: [] };
-	const violations = [];
-	for (const file of bundle.files) {
-		if (!file?.path || typeof file.contentBase64 !== "string") continue;
-		if (!isSafeBundlePath(suiteDir, file.path)) return { ok: false, violations };
-		const outPath = resolve(suiteDir, file.path);
-		mkdirSync(dirname(outPath), { recursive: true });
-		const content = Buffer.from(file.contentBase64, "base64");
-		if (isTextArtifactPath(file.path)) {
-			const text = content.toString("utf8");
-			violations.push(...scanForSecrets(text).map((violation) => ({ file: file.path, violation })));
-			if (file.path.endsWith("redaction-violations.json")) {
-				violations.push(...readRedactionViolationList(text, file.path));
-			}
-			writeFileSync(outPath, redactSecrets(text));
-		} else {
-			writeFileSync(outPath, content);
-		}
-	}
-	return { ok: true, violations };
-}
-
-function readRedactionViolationList(text, fallbackFile) {
-	try {
-		const parsed = JSON.parse(text);
-		if (!Array.isArray(parsed)) return [];
-		return parsed
-			.filter((item) => typeof item?.violation === "string")
-			.map((item) => ({ file: typeof item.file === "string" ? item.file : fallbackFile, violation: item.violation }));
-	} catch {
-		return [];
-	}
-}
-
-function isTextArtifactPath(path) {
-	const ext = path.split(".").pop()?.toLowerCase() ?? "";
-	return ["txt", "json", "jsonl", "md", "log", "ansi", "html", "yml", "yaml", "js", "mjs", "ts"].includes(ext);
-}
-
-export function isSafeBundlePath(suiteDir, bundlePath) {
-	if (typeof bundlePath !== "string" || bundlePath.length === 0) return false;
-	if (isAbsolute(bundlePath) || /^[A-Za-z]:[\\/]/.test(bundlePath)) return false;
-	const outPath = resolve(suiteDir, bundlePath);
-	const rel = relative(suiteDir, outPath);
-	return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
 function readJson(path) {
@@ -960,30 +793,4 @@ function matchesJsonlResult(result, requirement) {
 
 function shellQuote(value) {
 	return `'${String(value).replace(/'/g, `'\\''`)}'`;
-}
-
-/**
- * Write a failure suite result. Used for live suite hard failures during
- * warmup/execution and for unknown suites.
- */
-function failSuite(suiteDir, targetName, suiteName, message) {
-	const safeMessage = redactSecrets(message);
-	console.log(`  FAIL ${suiteName} on ${targetName}: ${safeMessage}`);
-
-	writeCommand(suiteDir, `# ${suiteName} — ${safeMessage}`);
-	writeExitCode(suiteDir, 1, null);
-
-	const checks = [{ id: "execution", fn: () => false, error: safeMessage }];
-	const { assertions } = finalizeSuiteArtifacts(
-		suiteDir,
-		checks,
-		{ target: targetName, suite: suiteName, exitCode: 1, error: safeMessage },
-		[
-			"summary.json", "target.json", "suite.json",
-			"command.txt", "exit-code.txt",
-			"assertions.json",
-		],
-	);
-
-	return { ok: false, suiteDir, assertions };
 }

@@ -9,10 +9,11 @@ import { registerCursorSessionScope } from "./cursor-session-scope.js";
 import { registerCursorSessionAgentLifecycle } from "./cursor-session-agent-lifecycle.js";
 import { registerCursorSessionAgentResume } from "./cursor-session-agent-resume.js";
 import { streamCursorLazy } from "./cursor-provider-lazy.js";
-import { CURSOR_API_KEY_CONFIG_VALUE } from "./cursor-api-key.js";
+import { CURSOR_API_KEY_CONFIG_VALUE, resolveCursorApiKey } from "./cursor-api-key.js";
 import { registerCursorFallbackIssueWarning } from "./cursor-fallback-warning.js";
 import { registerCursorAgentsContextDedup } from "./cursor-agents-context-registration.js";
 import { registerCursorOverflowNormalization } from "./cursor-provider-overflow.js";
+import { registerCursorSdkSessionProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
 
 type CursorExtensionApi =
 	& Pick<ExtensionAPI, "registerProvider" | "registerCommand" | "on">
@@ -26,7 +27,8 @@ type CursorExtensionApi =
 	& Parameters<typeof registerCursorPiToolBridge>[0]
 	& Parameters<typeof registerCursorFallbackIssueWarning>[0]
 	& Parameters<typeof registerCursorAgentsContextDedup>[0]
-	& Parameters<typeof registerCursorOverflowNormalization>[0];
+	& Parameters<typeof registerCursorOverflowNormalization>[0]
+	& Parameters<typeof registerCursorSdkSessionProcessErrorGuard>[0];
 
 function createCursorProviderConfig(models: ProviderModelConfig[]): ProviderConfig {
 	return {
@@ -74,7 +76,9 @@ export default async function (pi: CursorExtensionApi) {
 		description: "Refresh the live Cursor model catalog without restarting pi",
 		handler: async (_args, ctx) => {
 			let refreshFallbackIssue: CursorModelFallbackIssue | undefined;
+			const apiKey = resolveCursorApiKey(await ctx.modelRegistry.getApiKeyForProvider("cursor"));
 			const refreshedModels = await discoverModels({
+				apiKey,
 				forceRefresh: true,
 				onFallback: (issue) => {
 					refreshFallbackIssue = issue;
@@ -91,4 +95,6 @@ export default async function (pi: CursorExtensionApi) {
 	});
 
 	registerCursorProvider(pi, models);
+	// Register last so session_shutdown cleanup remains protected until other Cursor handlers finish.
+	registerCursorSdkSessionProcessErrorGuard(pi);
 }

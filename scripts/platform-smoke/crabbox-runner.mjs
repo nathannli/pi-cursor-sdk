@@ -5,11 +5,29 @@
  * Never prints CURSOR_API_KEY.
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 
 const CRABBOX_BIN = process.env.PLATFORM_SMOKE_CRABBOX || "crabbox";
 
 function env(name) { return process.env[name] ?? ""; }
+
+export function ensureUbuntuContainerImage(config = {}) {
+	const override = env("PLATFORM_SMOKE_UBUNTU_IMAGE");
+	if (override) return override;
+	const image = config.ubuntuContainerImage;
+	const baseImage = config.ubuntuContainerBaseImage;
+	if (!image || !baseImage) throw new Error("platform smoke config requires ubuntuContainerImage and ubuntuContainerBaseImage");
+	const childEnv = { ...process.env };
+	delete childEnv.CURSOR_API_KEY;
+	execFileSync("docker", ["build", "--quiet", "--tag", image, "-"], {
+		env: childEnv,
+		input: `FROM ${baseImage}\nUSER root\n`,
+		stdio: ["pipe", "pipe", "pipe"],
+		timeout: 300_000,
+	});
+	return image;
+}
 
 function buildCrabboxEnv(opts = {}) {
 	const env = { ...process.env, CRABBOX_SYNC_GIT_SEED: "false", ...opts.env };
@@ -90,7 +108,8 @@ export function buildTargetBaseArgs(targetName, config = {}) {
 			];
 		}
 		case "ubuntu": {
-			const image = env("PLATFORM_SMOKE_UBUNTU_IMAGE") || config.ubuntuContainerImage || "cimg/node:24.16";
+			const image = env("PLATFORM_SMOKE_UBUNTU_IMAGE") || config.ubuntuContainerImage;
+			if (!image) throw new Error("platform smoke config requires ubuntuContainerImage");
 			return [
 				"--provider", "local-container",
 				"--target", "linux",
@@ -144,6 +163,21 @@ function parseLeaseId(output) {
  * The lease will be kept until explicitly stopped.
  */
 export async function warmupLease(targetName, slug, config = {}) {
+	if (targetName === "ubuntu") {
+		try {
+			const image = ensureUbuntuContainerImage(config);
+			console.log(`  prepared Ubuntu container image ${image}`);
+		} catch (error) {
+			return {
+				ok: false,
+				stdout: "",
+				stderr: `failed to prepare Ubuntu container image: ${error instanceof Error ? error.message : String(error)}`,
+				code: 1,
+				signal: null,
+				leaseId: leaseIdFor(targetName),
+			};
+		}
+	}
 	const fullArgs = ["warmup", ...buildTargetBaseArgs(targetName, config), "--slug", slug, "--keep"];
 	if (targetName === "macos") fullArgs.push("--reclaim");
 	console.log(`  [crabbox] ${fullArgs.join(" ")}`);
@@ -174,17 +208,24 @@ export async function runOnLease(targetName, leaseId, command, opts = {}) {
 	} else if (opts.freshSync !== false) {
 		args.push("--fresh-sync");
 	}
+	if (opts.captureStdoutPath) args.push("--capture-stdout", opts.captureStdoutPath);
 	if (opts.shell) {
 		args.push("--shell", command);
 	} else {
 		args.push("--", ...(Array.isArray(command) ? command : command.split(" ")));
 	}
 	console.log(`  [crabbox] run ${args.slice(1, 6).join(" ")} ...`);
-	return execCrabbox(args, {
+	const result = await execCrabbox(args, {
 		timeout: opts.timeout ?? 600_000,
 		env: opts.env,
 		allowEnv: opts.allowEnv,
 	});
+	if (!opts.captureStdoutPath || !existsSync(opts.captureStdoutPath)) return result;
+	try {
+		return { ...result, stdout: readFileSync(opts.captureStdoutPath, "utf8") };
+	} finally {
+		rmSync(opts.captureStdoutPath, { force: true });
+	}
 }
 
 /**
@@ -201,6 +242,7 @@ export async function stopLease(targetName, leaseId, config = {}) {
  * Crabbox syncs the checkout, executes, and releases the lease.
  */
 export async function runOneShot(targetName, command, opts = {}) {
+	if (targetName === "ubuntu") ensureUbuntuContainerImage(opts.config);
 	const args = ["run", ...buildTargetBaseArgs(targetName, opts.config)];
 	if (opts.shell) {
 		args.push("--shell", command);

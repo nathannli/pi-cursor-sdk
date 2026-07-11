@@ -8,6 +8,7 @@
 
 import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { matchesWrappedLineAt } from "./wrapped-line-match.mjs";
 
 const CARD_PATTERNS = [
 	{
@@ -40,11 +41,7 @@ function cleanLine(line) {
 }
 
 function matchesCardAt(lines, index, card) {
-	card.pattern.lastIndex = 0;
-	if (card.pattern.test(lines[index])) return true;
-	if (!card.wrappedPattern) return false;
-	card.wrappedPattern.lastIndex = 0;
-	return card.wrappedPattern.test(lines.slice(index, index + 3).join(" "));
+	return matchesWrappedLineAt(lines, index, card.pattern, card.wrappedPattern);
 }
 
 /**

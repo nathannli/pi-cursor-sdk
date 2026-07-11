@@ -8,7 +8,12 @@ import { accessSync, chmodSync, constants, mkdirSync, mkdtempSync, rmSync, write
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseJsonLines, terminateChild, waitForChildClose } from "./lib/cursor-child-process.mjs";
+import {
+	CHILD_PROCESS_TREE_SPAWN_OPTIONS,
+	parseJsonLines,
+	terminateChild,
+	waitForChildClose,
+} from "./lib/cursor-child-process.mjs";
 import { apiKeySecretsFromProcess } from "./lib/cursor-cli-args.mjs";
 import { buildCursorSmokeEnv, CURSOR_SDK_EVENT_DEBUG_ENV_NAMES } from "./lib/cursor-smoke-env.mjs";
 import { scrubSensitiveText } from "../shared/cursor-sensitive-text.mjs";
@@ -168,7 +173,12 @@ async function runPiRpcSmoke(sessionDir, piBin) {
 	const args = ["--approve", "-e", root, "--cursor-no-fast", "--model", "cursor/composer-2-5", "--mode", "rpc", "--session-dir", sessionDir];
 	const env = buildPiRpcEnv();
 
-	const child = spawn(piBin, args, { cwd: root, env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });
+	const child = spawn(piBin, args, {
+		cwd: root,
+		env,
+		stdio: ["pipe", "pipe", "pipe"],
+		...CHILD_PROCESS_TREE_SPAWN_OPTIONS,
+	});
 	let closed = false;
 	let stdout = "";
 	let stderr = "";

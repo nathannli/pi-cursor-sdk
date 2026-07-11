@@ -1,6 +1,6 @@
 # Cursor Testing Lessons
 
-> **Platform Smoke:** The required local cross-platform release gate is `npm run smoke:platform:doctor && npm run smoke:platform:all`; cloud-runtime changes additionally require `npm run smoke:cloud`. See [docs/platform-smoke.md](./platform-smoke.md). For portable lessons other pi extension projects can adapt without sharing repo-specific state, see the generic Crabbox platform testing guide at `/Users/mitchfultz/Projects/crabbox/docs/pi-extension-platform-testing.md`. The live smoke checklist remains useful for inner-loop development but is not the release gate.
+> **Platform Smoke:** The required local cross-platform release gate is `npm run smoke:platform:all`; cloud-runtime changes additionally require `npm run smoke:cloud`. See [the platform smoke runbook](./platform-smoke.md). For portable guidance, see the [implementation reference](./platform-smoke-implementation.md#portability-to-other-pi-extensions) and the repo-local `docs/pi-extension-platform-testing.md` from a Crabbox checkout. The live smoke checklist remains useful for inner-loop development but is not the release gate.
 
 ## Purpose
 
@@ -227,7 +227,7 @@ Then use the [Cursor live smoke checklist](./cursor-live-smoke-checklist.md) onl
 ## What belongs in CI vs platform/manual smoke
 
 - **CI / default `npm test`:** mocked provider tests, extension lifecycle tests, JSONL validator tests, script syntax/help checks. No live Cursor calls.
-- **Local platform release gate:** `npm run smoke:platform:doctor && npm run smoke:platform:all`. Requires real Cursor auth and cross-platform Crabbox setup.
+- **Local platform release gate:** `npm run smoke:platform:all` (runs doctor first). Requires real Cursor auth and cross-platform Crabbox setup.
 - **Cloud runtime release gate:** `npm run smoke:cloud` for PRs that touch actual cloud runtime execution.
 - **Focused manual smoke:** `npm run smoke:isolated`, `npm run smoke:live`, and selected live-checklist sections for inner-loop debugging of behavior mocks cannot reproduce.
 
@@ -256,7 +256,7 @@ The script writes timestamped artifacts under `--out` (default `/tmp/pi-cursor-s
 
 Stdout prints artifact paths and summary counts only. Raw payloads stay on disk and may contain local paths, project text, tool args/results, or secrets — do not commit or share them.
 
-Hard repo rule: Cursor SDK behavior claims must come from the installed `@cursor/sdk` package and/or https://cursor.com/docs/sdk/typescript, not from memory or ad-hoc probes alone. Current cutover validation targets exact `@cursor/sdk@1.0.23` and pi 0.80.3 local packages.
+Hard repo rule: Cursor SDK behavior claims must come from the installed `@cursor/sdk` package and/or https://cursor.com/docs/sdk/typescript, not from memory or ad-hoc probes alone. Current cutover validation targets exact `@cursor/sdk@1.0.23` and pi 0.80.5 local packages.
 
 ## Pi provider SDK event capture
 
@@ -412,7 +412,7 @@ npm run debug:sdk-events -- \
 
 Start with whether pi stayed alive:
 
-0. **pi process exited / shell returned with uncaught `ConnectError` (for example `ETIMEDOUT`, `ECONNRESET`, `read ETIMEDOUT`, or `[aborted] read ECONNRESET`)** — hard network crash bypassing provider error surfacing. Current code guards observed Cursor SDK/network-reset shapes during active Cursor turns and should show scrubbed retry guidance instead; treat a fresh process exit as a process-guard regression, capture the stack/session tail, and route to **#43/#107** rather than #40 model text echo. If tools were mid-flight, note whether session JSONL ends abruptly.
+0. **pi process exited / shell returned with an uncaught SDK transport error** — examples include `ConnectError` with `ETIMEDOUT`/`ECONNRESET` and `WriteIterableClosedError: WritableIterable is closed`. Current code keeps Connect/network/abort suppression scoped to active provider turns. The exact SDK-provenance closed-writable shape is guarded for the Pi session lifecycle because `@cursor/sdk` 1.0.23 controlled-exec can reject after the originating provider turn when it attempts to write a `throw` frame after its internal output iterable has already closed; Bun requires an explicit rejection listener because it bypasses the patched `process.emit` path. Unrelated failures remain fatal. This proves the secondary process-killing write, not the earlier condition that first closed the SDK iterable. Treat a fresh process exit as a process-guard regression, capture the stack/session tail, and route it separately from #40 model text echo. If tools were mid-flight, note whether session JSONL ends abruptly and whether the final tool call lacks a result.
 
 Then inspect the failing assistant turn in `$SMOKE_DIR/session/*.jsonl`:
 
@@ -432,7 +432,7 @@ rg '"type": "toolCall"|Tool call \(Cursor|cursor-replay-' "$SMOKE_DIR/session"/*
 
 ### When to file follow-ups
 
-- **#43/#107** — pi exited from uncaught Cursor SDK `ConnectError` / network reset during HTTP traffic (hard crash, not a scrubbed #55 toast). Observed `ETIMEDOUT` and `ECONNRESET` shapes should be guarded during active Cursor turns; new exits need stack/session evidence.
+- **#43/#107** — pi exited from an uncaught Cursor SDK transport failure (hard crash, not a scrubbed #55 toast). Observed Connect/network/abort shapes remain guarded only during active provider turns; the exact SDK-provenance `WriteIterableClosedError` is guarded for the Pi session lifecycle because controlled-exec can reject after a turn. Unrelated failures remain fatal, and new exits need stack/session evidence.
 - **#55** — caught SDK run failure or abort with missing/opaque detail (already addressed on main for surfacing).
 - **#52** — stale/inactive native replay routing after plan-strip or stale `context.tools` snapshot (`Tool * not found` in JSONL, `inactive_trace` in `display-decisions.jsonl`); or maintainer needs an explicit "started X, never completed" debug line when JSONL shows no completion and no model text echo.
 - **New issue** — bridge dispatch failure with `[pi-cursor-sdk:bridge]` evidence, or proven provider bug with JSONL showing missing `toolCall` despite SDK `tool-call-completed` in `on-delta.jsonl` from `debug:provider-events` or `debug:sdk-events` artifacts.

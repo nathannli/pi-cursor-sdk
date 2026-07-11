@@ -9,6 +9,7 @@
 import { execSync, execFileSync } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, writeFileSync, unlinkSync, rmSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { ensureUbuntuContainerImage } from "./crabbox-runner.mjs";
 import { renderAll } from "./render-ansi.mjs";
 
 let failures = 0;
@@ -259,17 +260,25 @@ async function runChecks(config) {
 		} else {
 			fail("crabbox providers failed");
 		}
-		const ubuntuImage = env("PLATFORM_SMOKE_UBUNTU_IMAGE") || config?.ubuntuContainerImage || "cimg/node:24.16";
-		const lcDoc = silent(cbox, ["doctor", "--provider", "local-container", "--target", "linux", "--local-container-image", ubuntuImage, "--json"]);
-		if (lcDoc) {
-			try {
-				const d = JSON.parse(lcDoc);
-				d.ok ? ok("local-container provider OK") : fail(`local-container: ${d.error ?? "not ok"}`);
-			} catch {
-				fail("could not parse crabbox doctor --json for local-container");
+		let ubuntuImage;
+		try {
+			ubuntuImage = ensureUbuntuContainerImage(config);
+			ok(`Ubuntu container image ready: ${ubuntuImage}`);
+		} catch (error) {
+			fail(`could not prepare Ubuntu container image: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		if (ubuntuImage) {
+			const lcDoc = silent(cbox, ["doctor", "--provider", "local-container", "--target", "linux", "--local-container-image", ubuntuImage, "--json"]);
+			if (lcDoc) {
+				try {
+					const d = JSON.parse(lcDoc);
+					d.ok ? ok("local-container provider OK") : fail(`local-container: ${d.error ?? "not ok"}`);
+				} catch {
+					fail("could not parse crabbox doctor --json for local-container");
+				}
+			} else {
+				fail("crabbox doctor --provider local-container --json failed");
 			}
-		} else {
-			fail("crabbox doctor --provider local-container --json failed");
 		}
 		const sshHost = env("PLATFORM_SMOKE_MAC_HOST") || "localhost";
 		const sshUser = env("PLATFORM_SMOKE_MAC_USER") || env("USER");
@@ -414,6 +423,7 @@ async function runChecks(config) {
 		["git", "git --version"],
 		["rsync", "rsync --version"],
 		["tar", "tar --version"],
+		...(process.platform === "win32" ? [] : [["C compiler", "cc --version"]]),
 	]) {
 		const out = shell(command);
 		out ? ok(`${name}: ${out.split("\n")[0]}`) : fail(`${name} not found`);

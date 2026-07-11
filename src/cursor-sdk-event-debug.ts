@@ -36,6 +36,8 @@ export {
 	resolveCursorSdkEventDebugBaseDir,
 } from "./cursor-sdk-event-debug-constants.js";
 
+const MAX_CURSOR_SDK_EVENT_DEBUG_JSONL_BYTES = 2 * 1024 * 1024;
+
 export type CursorSdkDisplayDecisionAction =
 	| "skip-duplicate"
 	| "skip-incomplete-fast-local"
@@ -123,6 +125,22 @@ function snapshotCursorSdkEventDebugRecord(record: unknown): unknown {
 	}
 }
 
+function serializeCursorSdkEventDebugRecord(record: unknown): string {
+	try {
+		const seen = new WeakSet<object>();
+		return JSON.stringify(snapshotCursorSdkEventDebugRecord(record), (_key, value: unknown) => {
+			if (typeof value === "bigint") return value.toString();
+			if (value && typeof value === "object") {
+				if (seen.has(value)) return "[Circular]";
+				seen.add(value);
+			}
+			return value;
+		}) ?? JSON.stringify({ type: "artifact_serialization_error" });
+	} catch {
+		return JSON.stringify({ type: "artifact_serialization_error" });
+	}
+}
+
 export function resolveCursorSdkEventDebugEnabled(env: Record<string, string | undefined> = process.env): boolean {
 	return parseEnvBoolean(env[CURSOR_SDK_EVENT_DEBUG_ENV], false);
 }
@@ -200,7 +218,11 @@ export function attachCursorSdkEventDebugPiStreamTap(
 	if (!resolveCursorSdkEventDebugEnabled()) return;
 	const originalPush = stream.push.bind(stream);
 	stream.push = (event) => {
-		sinkRef.current?.recordPiStreamEvent(event);
+		try {
+			sinkRef.current?.recordPiStreamEvent(event);
+		} catch {
+			// Debug capture must never block the underlying stream.
+		}
 		return originalPush(event);
 	};
 }
@@ -229,7 +251,9 @@ export class CursorSdkEventDebugSink {
 		errors: 0,
 	};
 	private metadata: Record<string, unknown>;
-	private readonly jsonlBuffers = new Map<string, unknown[]>();
+	private readonly jsonlBuffers = new Map<string, string[]>();
+	private readonly jsonlBufferBytes = new Map<string, number>();
+	private readonly truncatedJsonlFiles = new Set<string>();
 	private finalized = false;
 	private finalizationPromise: Promise<void> | undefined;
 	private waitResultRecorded = false;
@@ -511,6 +535,8 @@ export class CursorSdkEventDebugSink {
 			streamCaptureErrors: this.streamCaptureErrors.map((error) =>
 				error instanceof Error ? error.message : String(error),
 			),
+			jsonlByteLimit: MAX_CURSOR_SDK_EVENT_DEBUG_JSONL_BYTES,
+			truncatedJsonlFiles: [...this.truncatedJsonlFiles].sort(),
 		};
 		this.flushJsonlBuffers();
 		writeFileSync(join(this.artifactDir, ARTIFACTS.summary), `${JSON.stringify(summary, null, 2)}\n`);
@@ -582,24 +608,38 @@ export class CursorSdkEventDebugSink {
 	}
 
 	private bufferJsonl(fileName: string, record: unknown): void {
-		if (this.finalized) return;
+		if (this.finalized || this.truncatedJsonlFiles.has(fileName)) return;
+		const line = `${serializeCursorSdkEventDebugRecord(record)}\n`;
+		const marker = `${JSON.stringify({ type: "artifact_truncated", limitBytes: MAX_CURSOR_SDK_EVENT_DEBUG_JSONL_BYTES })}\n`;
+		const usedBytes = this.jsonlBufferBytes.get(fileName) ?? 0;
+		const lineBytes = Buffer.byteLength(line);
+		const markerBytes = Buffer.byteLength(marker);
 		const records = this.jsonlBuffers.get(fileName) ?? [];
-		records.push(snapshotCursorSdkEventDebugRecord(record));
+		if (usedBytes + lineBytes > MAX_CURSOR_SDK_EVENT_DEBUG_JSONL_BYTES - markerBytes) {
+			records.push(marker);
+			this.jsonlBuffers.set(fileName, records);
+			this.jsonlBufferBytes.set(fileName, usedBytes + markerBytes);
+			this.truncatedJsonlFiles.add(fileName);
+			return;
+		}
+		records.push(line);
 		this.jsonlBuffers.set(fileName, records);
+		this.jsonlBufferBytes.set(fileName, usedBytes + lineBytes);
 	}
 
 	private flushJsonlBuffers(): void {
 		for (const [fileName, records] of this.jsonlBuffers) {
-			const lines = records.map((record) => `${JSON.stringify(record)}\n`).join("");
-			writeFileSync(join(this.artifactDir, fileName), lines);
+			writeFileSync(join(this.artifactDir, fileName), records.join(""));
 		}
 		this.jsonlBuffers.clear();
+		this.jsonlBufferBytes.clear();
 	}
 }
 
 export const __testUtils = {
 	ARTIFACTS,
 	SESSION_MANIFEST,
+	MAX_CURSOR_SDK_EVENT_DEBUG_JSONL_BYTES,
 	slugSessionKey,
 	resetSessionDebugState: resetCursorSdkEventDebugSessionStateForTests,
 };

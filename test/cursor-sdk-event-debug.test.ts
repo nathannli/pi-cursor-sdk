@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import {
 	CURSOR_SDK_EVENT_DEBUG_STDERR_ENV,
 	DISCARDED_INCOMPLETE_TOOL_CALL_REASON,
 	CursorSdkEventDebugSink,
+	attachCursorSdkEventDebugPiStreamTap,
 	hashCursorSdkCallId,
 	recordDiscardedIncompleteStartedToolCall,
 	resolveCursorSdkEventDebugBaseDir,
@@ -154,6 +155,84 @@ describe("cursor sdk event debug sink", () => {
 			const piStreamTimelineEvent = timelineEvents.find((event) => event.layer === "pi-stream-events");
 			expect(piStreamTimelineEvent.payload.delta).toBe("before");
 			expect(piStreamTimelineEvent.payload.partial.content[0].text).toBe("before");
+		} finally {
+			rmSync(artifactDir, { recursive: true, force: true });
+		}
+	});
+
+	it("serializes circular and BigInt debug payloads without throwing", async () => {
+		const artifactDir = mkdtempSync(join(tmpdir(), "pi-cursor-sdk-event-debug-nonthrowing-"));
+
+		try {
+			const sink = CursorSdkEventDebugSink.maybeCreate({
+				cwd: "/repo",
+				modelId: "composer-2.5",
+				provider: "cursor",
+				env: {
+					PI_CURSOR_SDK_EVENT_DEBUG: "1",
+					PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR: artifactDir,
+				},
+			});
+			const circular: Record<string, unknown> = { value: 123n };
+			circular.self = circular;
+
+			expect(() => sink?.recordPiStreamEvent({ type: "text_delta", payload: circular } as never)).not.toThrow();
+			await sink?.finalize();
+
+			const artifact = readFileSync(join(artifactDir, sdkEventDebugTestUtils.ARTIFACTS.piStreamEvents), "utf8");
+			expect(artifact).toContain('"value":"123"');
+			expect(artifact).toContain('"self":"[Circular]"');
+		} finally {
+			rmSync(artifactDir, { recursive: true, force: true });
+		}
+	});
+
+	it("never blocks the pi stream when debug recording throws", () => {
+		const originalDebug = process.env.PI_CURSOR_SDK_EVENT_DEBUG;
+		process.env.PI_CURSOR_SDK_EVENT_DEBUG = "1";
+		try {
+			const originalPush = vi.fn();
+			const stream = { push: originalPush };
+			const sink = { recordPiStreamEvent: () => { throw new Error("debug failed"); } };
+			attachCursorSdkEventDebugPiStreamTap(stream as never, { current: sink as never });
+
+			expect(() => stream.push({ type: "text_delta", delta: "still delivered" })).not.toThrow();
+			expect(originalPush).toHaveBeenCalledWith({ type: "text_delta", delta: "still delivered" });
+		} finally {
+			if (originalDebug === undefined) delete process.env.PI_CURSOR_SDK_EVENT_DEBUG;
+			else process.env.PI_CURSOR_SDK_EVENT_DEBUG = originalDebug;
+		}
+	});
+
+	it("bounds cumulative JSONL debug artifacts", async () => {
+		const artifactDir = mkdtempSync(join(tmpdir(), "pi-cursor-sdk-event-debug-bounded-"));
+
+		try {
+			const sink = CursorSdkEventDebugSink.maybeCreate({
+				cwd: "/repo",
+				modelId: "composer-2.5",
+				provider: "cursor",
+				env: {
+					PI_CURSOR_SDK_EVENT_DEBUG: "1",
+					PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR: artifactDir,
+				},
+			});
+			const partial = { role: "assistant", content: [{ type: "text", text: "x".repeat(1024 * 1024) }] };
+			for (let index = 0; index < 3; index += 1) {
+				sink?.recordPiStreamEvent({ type: "text_delta", delta: "x", partial });
+			}
+			await sink?.finalize();
+
+			for (const fileName of [sdkEventDebugTestUtils.ARTIFACTS.piStreamEvents, sdkEventDebugTestUtils.ARTIFACTS.timeline]) {
+				const path = join(artifactDir, fileName);
+				expect(statSync(path).size).toBeLessThanOrEqual(sdkEventDebugTestUtils.MAX_CURSOR_SDK_EVENT_DEBUG_JSONL_BYTES);
+				expect(readFileSync(path, "utf8")).toContain('"type":"artifact_truncated"');
+			}
+			const summary = JSON.parse(readFileSync(join(artifactDir, sdkEventDebugTestUtils.ARTIFACTS.summary), "utf8"));
+			expect(summary.truncatedJsonlFiles).toEqual([
+				sdkEventDebugTestUtils.ARTIFACTS.piStreamEvents,
+				sdkEventDebugTestUtils.ARTIFACTS.timeline,
+			]);
 		} finally {
 			rmSync(artifactDir, { recursive: true, force: true });
 		}

@@ -12,12 +12,9 @@ import { createCursorLiveRunAccountingState } from "../src/cursor-live-run-accou
 import { asMockCursorRun } from "./helpers/cursor-provider-harness.js";
 import { collectAssistantEvents, makeAssistantMessage, makeContext, makeModel } from "./helpers/pi-harness.js";
 
-const { mockAwaitFinalizeCursorRunOutcome, trackedWaitCompletion } = vi.hoisted(() => {
+const { mockAwaitFinalizeCursorRunOutcome } = vi.hoisted(() => {
 	const waitCompletion = new Promise<void>(() => {});
-	return {
-		trackedWaitCompletion: waitCompletion,
-		mockAwaitFinalizeCursorRunOutcome: vi.fn(() => waitCompletion),
-	};
+	return { mockAwaitFinalizeCursorRunOutcome: vi.fn(() => waitCompletion) };
 });
 
 vi.mock("../src/cursor-provider-turn-finalize.js", () => ({
@@ -26,8 +23,9 @@ vi.mock("../src/cursor-provider-turn-finalize.js", () => ({
 }));
 
 describe("CursorRunFinalizer", () => {
-	it("marks the pooled session agent busy when live run completion starts", () => {
+	it("settles live-run ownership before best-effort debug writes after wait failure", async () => {
 		const trackRunCompletion = vi.fn();
+		mockAwaitFinalizeCursorRunOutcome.mockRejectedValueOnce(new Error("run wait failed"));
 		const prepared: LocalCursorProviderTurnPrepareResult & { runtime: LiveCursorProviderTurnRuntime } = {
 			runtimeTarget: "local",
 			agent: { agentId: "agent-1" } as SDKAgent,
@@ -43,8 +41,8 @@ describe("CursorRunFinalizer", () => {
 				nativeReplayId: "replay-1",
 				agentMode: "agent",
 				modelSelection: { id: "composer-2.5" },
-				localForce: false,
 			},
+			localForce: { value: false, source: "builtin", trustLevel: "builtin" },
 			contextWindowAgentId: "agent-1",
 			textDeltas: [],
 			sessionAgentScopeKey: "scope-1",
@@ -59,6 +57,12 @@ describe("CursorRunFinalizer", () => {
 				trackRunCompletion,
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
+			lifecycle: {
+				commitSend: () => {},
+				trackRunCompletion,
+				abandon: async () => {},
+				dispose: async () => {},
+			},
 			runtime: {
 				kind: "live",
 				liveRun: {
@@ -85,6 +89,13 @@ describe("CursorRunFinalizer", () => {
 				}),
 			},
 		};
+		const captureRunArtifacts = vi.fn(() => new Promise<void>(() => {}));
+		const debugSink = {
+			recordWaitResult: () => { throw new Error("debug wait write failed"); },
+			recordError: () => { throw new Error("debug error write failed"); },
+			captureRunArtifacts,
+		} as unknown as CursorSdkEventDebugSink;
+		const sdkProcessErrorGuard = installCursorSdkProcessErrorGuard();
 		const finalizer = new CursorRunFinalizer({
 			runnerParams: {
 				model: makeModel(),
@@ -93,8 +104,8 @@ describe("CursorRunFinalizer", () => {
 				partial: makeAssistantMessage(""),
 				sdkEventDebugRef: {},
 			},
-			sdkEventDebug: () => undefined,
-			sdkProcessErrorGuard: installCursorSdkProcessErrorGuard(),
+			sdkEventDebug: () => debugSink,
+			sdkProcessErrorGuard,
 			resolvedApiKey: () => "test-key",
 		});
 		finalizer.startLiveRunCompletion({
@@ -114,7 +125,11 @@ describe("CursorRunFinalizer", () => {
 		});
 
 		expect(mockAwaitFinalizeCursorRunOutcome).toHaveBeenCalledTimes(1);
-		expect(trackRunCompletion).toHaveBeenCalledWith(trackedWaitCompletion);
+		expect(trackRunCompletion).toHaveBeenCalledTimes(1);
+		await expect(trackRunCompletion.mock.calls[0]?.[0]).resolves.toBeUndefined();
+		expect(prepared.runtime.liveRun).toMatchObject({ done: true, errorMessage: "run wait failed" });
+		expect(captureRunArtifacts).not.toHaveBeenCalled();
+		sdkProcessErrorGuard.dispose();
 	});
 
 	it("allows the error terminal path after direct terminal handling throws before emitting", async () => {
@@ -146,8 +161,8 @@ describe("CursorRunFinalizer", () => {
 				nativeReplayId: "replay-1",
 				agentMode: "agent",
 				modelSelection: { id: "composer-2.5" },
-				localForce: false,
 			},
+			localForce: { value: false, source: "builtin", trustLevel: "builtin" },
 			contextWindowAgentId: "agent-1",
 			textDeltas: [],
 			sessionAgentScopeKey: "scope-1",
@@ -164,8 +179,19 @@ describe("CursorRunFinalizer", () => {
 				trackRunCompletion: () => {},
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
+			lifecycle: {
+				commitSend: () => {
+					throw new Error("commit failed before terminal event");
+				},
+				trackRunCompletion: () => {},
+				abandon: async () => {},
+				dispose: async () => {},
+			},
 			runtime: { kind: "direct", turnCoordinator },
 		};
+		const debugSink = {
+			recordError: () => { throw new Error("debug provider error write failed"); },
+		} as unknown as CursorSdkEventDebugSink;
 		const finalizer = new CursorRunFinalizer({
 			runnerParams: {
 				model,
@@ -174,7 +200,7 @@ describe("CursorRunFinalizer", () => {
 				partial,
 				sdkEventDebugRef: {},
 			},
-			sdkEventDebug: () => undefined,
+			sdkEventDebug: () => debugSink,
 			sdkProcessErrorGuard,
 			resolvedApiKey: () => undefined,
 		});
@@ -240,8 +266,8 @@ describe("CursorRunFinalizer", () => {
 				nativeReplayId: "replay-1",
 				agentMode: "agent",
 				modelSelection: { id: "composer-2.5" },
-				localForce: false,
 			},
+			localForce: { value: false, source: "builtin", trustLevel: "builtin" },
 			contextWindowAgentId: "agent-1",
 			textDeltas: [],
 			sessionAgentScopeKey: "scope-1",
@@ -256,6 +282,12 @@ describe("CursorRunFinalizer", () => {
 				trackRunCompletion: () => {},
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
+			lifecycle: {
+				commitSend: () => {},
+				trackRunCompletion: () => {},
+				abandon: async () => {},
+				dispose: async () => {},
+			},
 			runtime: { kind: "direct", turnCoordinator },
 		};
 		const debugSink = {

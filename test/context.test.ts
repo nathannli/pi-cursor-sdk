@@ -529,6 +529,7 @@ describe("buildCursorPrompt", () => {
 		expect(compactPrompt.text).not.toContain("Bridged pi tools:");
 		expect(compactPrompt.text).not.toContain("Use pi__cursor_ask_question");
 		expect(compactPrompt.text).not.toContain("Exposed pi__* bridge tools");
+		expect(compactPrompt.text).not.toContain("prefer pi__mcp");
 		expect(defaultPrompt.text.length - compactPrompt.text.length).toBeGreaterThan(100);
 
 		const planPrompt = buildCursorPrompt(ctx, { agentMode: "plan", includePiBridgeGuidance: false });
@@ -537,6 +538,7 @@ describe("buildCursorPrompt", () => {
 		const incrementalPlanPrompt = buildCursorIncrementalPrompt(ctx, { agentMode: "plan", includePiBridgeGuidance: false });
 		expect(incrementalPlanPrompt.text).toContain("Cursor SDK mode is plan for this run");
 		expect(incrementalPlanPrompt.text).not.toContain("Exposed pi__* bridge tools");
+		expect(incrementalPlanPrompt.text).not.toContain("prefer pi__mcp");
 	});
 
 	it("keeps pi-bridge framing when context tools are present or unknown", () => {
@@ -569,6 +571,7 @@ describe("buildCursorPrompt", () => {
 		expect(result.text).toContain("not pi card/history names");
 		expect(result.text).toContain("Do not claim pi-side or WebSearch/WebFetch tools");
 		expect(result.text).toContain("Use pi__cursor_ask_question for material choices if exposed");
+		expect(result.text).toContain("prefer pi__mcp for MCP work and pi__subagent for delegation");
 		expect(result.text).not.toContain("Pi bridge contract:");
 		expect(result.text).not.toContain("do not use SwitchMode");
 	});
@@ -597,6 +600,7 @@ describe("buildCursorPrompt", () => {
 		const incremental = buildCursorIncrementalPrompt({ messages: [{ role: "user", content: "test", timestamp: 1 }] });
 		expect(bootstrap.text).toContain("explicit `cd`");
 		expect(incremental.text).toContain("explicit `cd`");
+		expect(incremental.text).toContain("prefer pi__mcp for MCP work and pi__subagent for delegation");
 	});
 
 	it("adds plan-mode guidance without disabling inspection tools", () => {

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { matchesWrappedLineAt } from "./wrapped-line-match.mjs";
 
 function pngSize(path) {
 	try {
@@ -25,20 +26,12 @@ function makeRegex(spec, key = "pattern") {
 	}
 }
 
-function matchesVisualSpecAt(lines, index, regex, wrappedRegex) {
-	regex.lastIndex = 0;
-	if (regex.test(lines[index])) return true;
-	if (!wrappedRegex) return false;
-	wrappedRegex.lastIndex = 0;
-	return wrappedRegex.test(lines.slice(index, index + 3).join(" "));
-}
-
 export function findVisualEvidenceItems(lines, specs = []) {
 	return specs.map((spec) => {
 		const regex = makeRegex(spec);
 		const wrappedRegex = makeRegex(spec, "wrappedPattern");
 		if (!regex) return { id: spec.id, ok: false, error: `invalid regex: ${spec.pattern}` };
-		const lineIndex = lines.findIndex((_line, index) => matchesVisualSpecAt(lines, index, regex, wrappedRegex));
+		const lineIndex = lines.findIndex((_line, index) => matchesWrappedLineAt(lines, index, regex, wrappedRegex));
 		if (lineIndex === -1) return { id: spec.id, ok: false, pattern: spec.pattern };
 		return { id: spec.id, ok: true, pattern: spec.pattern, lineIndex, line: lines[lineIndex] };
 	});

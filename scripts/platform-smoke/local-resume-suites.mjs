@@ -1,5 +1,6 @@
 export const LOCAL_RESUME_SUITES = [
 	{
+		key: "restart",
 		suite: "cursor-local-resume-restart",
 		script: "smoke:local-resume",
 		marker: "local-resume-smoke-ok",
@@ -8,14 +9,18 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 2,
 	},
 	{
+		key: "safety",
+		flag: "--safety",
 		suite: "cursor-local-resume-safety",
 		script: "smoke:local-resume:safety",
 		marker: "local-resume-safety-smoke-ok",
 		stderrPattern: /rejected for clone and fork-before-future/i,
-		description: "Prove local resume fork/clone safety for copied handles and future-token branches.",
-		cursorCalls: 4,
+		description: "Prove local resume fork/clone safety for copied handles and future-marker branches.",
+		cursorCalls: 5,
 	},
 	{
+		key: "toolSurface",
+		flag: "--tool-surface",
 		suite: "cursor-local-resume-tool-surface",
 		script: "smoke:local-resume:tool-surface",
 		marker: "local-resume-tool-surface-smoke-ok",
@@ -24,6 +29,8 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 3,
 	},
 	{
+		key: "abort",
+		flag: "--abort",
 		suite: "cursor-local-resume-abort",
 		script: "smoke:local-resume:abort",
 		marker: "local-resume-abort-smoke-ok",
@@ -32,6 +39,8 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 3,
 	},
 	{
+		key: "tree",
+		flag: "--tree",
 		suite: "cursor-local-resume-tree",
 		script: "smoke:local-resume:tree",
 		marker: "local-resume-tree-smoke-ok",
@@ -40,6 +49,8 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 4,
 	},
 	{
+		key: "copySwitch",
+		flag: "--copy-switch",
 		suite: "cursor-local-resume-copy-switch",
 		script: "smoke:local-resume:copy-switch",
 		marker: "local-resume-copy-switch-smoke-ok",
@@ -48,6 +59,8 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 2,
 	},
 	{
+		key: "fallback",
+		flag: "--fallback",
 		suite: "cursor-local-resume-fallback",
 		script: "smoke:local-resume:fallback",
 		marker: "local-resume-fallback-smoke-ok",
@@ -56,6 +69,8 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 2,
 	},
 	{
+		key: "compaction",
+		flag: "--compaction",
 		suite: "cursor-local-resume-compaction",
 		script: "smoke:local-resume:compaction",
 		marker: "local-resume-compaction-smoke-ok",
@@ -64,6 +79,8 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 5,
 	},
 	{
+		key: "defaultDryRun",
+		flag: "--default-dry-run",
 		suite: "cursor-local-resume-default-dry-run",
 		script: "smoke:local-resume:default-dry-run",
 		marker: "local-resume-default-dry-run-smoke-ok",
@@ -72,6 +89,8 @@ export const LOCAL_RESUME_SUITES = [
 		cursorCalls: 3,
 	},
 	{
+		key: "cleanup",
+		flag: "--cleanup",
 		suite: "cursor-local-resume-cleanup",
 		script: "smoke:local-resume:cleanup",
 		marker: "local-resume-cleanup-smoke-ok",

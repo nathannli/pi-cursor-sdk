@@ -1,22 +1,36 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyCursorConnectError, isCursorSdkAbortConnectError } from "./cursor-provider-errors.js";
 
 interface CursorSdkProcessErrorGuardToken {
 	suppressAbortErrors: boolean;
 }
 
+interface CursorSdkSessionProcessErrorGuardToken {}
+
 export interface CursorSdkProcessErrorGuard {
 	suppressAbortErrors(): void;
 	dispose(): void;
 }
 
+export interface CursorSdkSessionProcessErrorGuard {
+	dispose(): void;
+}
+
 type GenericProcessEmit = (event: string | symbol, ...args: unknown[]) => boolean;
 
-// The local Cursor SDK can surface some ConnectRPC failures as process-level
-// uncaught exceptions/unhandled rejections even when run.wait()/run.cancel() is awaited.
-// Keep suppression scoped to active Cursor provider turns and tightly matched ConnectRPC shapes.
+// Cursor SDK controlled-exec tasks can reject after their originating provider turn
+// has ended. The exact closed-writable failure is therefore session-scoped; existing
+// ConnectRPC suppression remains scoped to active provider turns.
 const activeProviderTurns = new Set<CursorSdkProcessErrorGuardToken>();
+const activeSessions = new Set<CursorSdkSessionProcessErrorGuardToken>();
+let activeLifecycleSessionGuard: CursorSdkSessionProcessErrorGuard | undefined;
 let originalProcessEmit: GenericProcessEmit | undefined;
-let captureCallbackInstalled = false;
+let cursorProcessEmit: GenericProcessEmit | undefined;
+let bunUnhandledRejectionListenerInstalled = false;
+
+function hasActiveGuard(): boolean {
+	return activeProviderTurns.size > 0 || activeSessions.size > 0;
+}
 
 function hasActiveAbortSuppression(): boolean {
 	for (const turn of activeProviderTurns) {
@@ -29,63 +43,94 @@ function isCursorProvenance(source: string): boolean {
 	return source === "cursor-sdk-stack" || source === "cursor-extension-connect-stack" || source === "cursor-backend-details";
 }
 
+function isCursorSdkWriteIterableClosedError(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		error.name === "WriteIterableClosedError" &&
+		error.message === "WritableIterable is closed" &&
+		/(?:^|[\\/])node_modules[\\/]@cursor[\\/]sdk[\\/]dist[\\/]/.test(error.stack ?? "")
+	);
+}
+
 function shouldSuppressProcessError(event: string | symbol, args: readonly unknown[]): boolean {
 	if (event !== "uncaughtException" && event !== "unhandledRejection") return false;
 	const error = args[0];
+	if (isCursorSdkWriteIterableClosedError(error)) return activeSessions.size > 0;
 	const classification = classifyCursorConnectError(error);
 	if (!classification) return false;
 	if (classification.kind === "abort") return hasActiveAbortSuppression();
 	if (activeProviderTurns.size === 0) return false;
-	// pi's supported Cursor SDK runtime is Node, where the SDK uses connect-node.
 	if (classification.kind === "network") return isCursorProvenance(classification.source) || classification.source === "connect-node-stack";
 	return isCursorProvenance(classification.source);
 }
 
 function installProcessEmitPatch(): void {
-	if (originalProcessEmit) return;
-	originalProcessEmit = process.emit.bind(process) as GenericProcessEmit;
-	process.emit = function patchedCursorSdkProcessErrorEmit(this: NodeJS.Process, event: string | symbol, ...args: unknown[]): boolean {
+	if (cursorProcessEmit) {
+		if (process.emit === cursorProcessEmit) return;
+		if (process.emit !== originalProcessEmit) return;
+		cursorProcessEmit = undefined;
+		originalProcessEmit = undefined;
+	}
+	const forwardEmit = process.emit as GenericProcessEmit;
+	originalProcessEmit = forwardEmit;
+	cursorProcessEmit = function patchedCursorSdkProcessErrorEmit(this: NodeJS.Process, event: string | symbol, ...args: unknown[]): boolean {
 		if (shouldSuppressProcessError(event, args)) return true;
-		return originalProcessEmit!(event, ...args);
-	} as typeof process.emit;
+		return forwardEmit.call(this, event, ...args);
+	};
+	process.emit = cursorProcessEmit as typeof process.emit;
 }
 
-function installCaptureCallbackIfAvailable(): void {
-	if (captureCallbackInstalled || process.hasUncaughtExceptionCaptureCallback()) return;
-	process.setUncaughtExceptionCaptureCallback((error: Error) => {
-		if (shouldSuppressProcessError("uncaughtException", [error])) return;
-		uninstallCaptureCallbackIfIdle(true);
-		if (originalProcessEmit?.("uncaughtException", error)) return;
-		throw error;
-	});
-	captureCallbackInstalled = true;
+function isBunRuntime(): boolean {
+	return typeof (process.versions as { bun?: string }).bun === "string";
 }
 
-function uninstallCaptureCallbackIfIdle(force = false): void {
-	if (!captureCallbackInstalled) return;
-	if (!force && activeProviderTurns.size > 0) return;
-	process.setUncaughtExceptionCaptureCallback(null);
-	captureCallbackInstalled = false;
+function handleBunUnhandledRejection(error: unknown): void {
+	if (shouldSuppressProcessError("unhandledRejection", [error])) return;
+	// Without another rejection listener, retain Bun's default fatal behavior.
+	if (process.listenerCount("unhandledRejection") === 1) throw error;
 }
 
-function uninstallProcessEmitPatchIfIdle(): void {
-	if (activeProviderTurns.size > 0 || !originalProcessEmit) return;
-	uninstallCaptureCallbackIfIdle();
+function installBunUnhandledRejectionListener(): void {
+	if (!isBunRuntime() || bunUnhandledRejectionListenerInstalled) return;
+	process.prependListener("unhandledRejection", handleBunUnhandledRejection);
+	bunUnhandledRejectionListenerInstalled = true;
+}
+
+function uninstallBunUnhandledRejectionListenerIfIdle(): void {
+	if (hasActiveGuard() || !bunUnhandledRejectionListenerInstalled) return;
+	process.off("unhandledRejection", handleBunUnhandledRejection);
+	bunUnhandledRejectionListenerInstalled = false;
+}
+
+function uninstallProcessHooksIfIdle(): void {
+	if (hasActiveGuard()) return;
+	uninstallBunUnhandledRejectionListenerIfIdle();
+	if (!originalProcessEmit || !cursorProcessEmit || process.emit !== cursorProcessEmit) return;
 	process.emit = originalProcessEmit as typeof process.emit;
 	originalProcessEmit = undefined;
+	cursorProcessEmit = undefined;
+}
+
+function installProcessHooks(): void {
+	installProcessEmitPatch();
+	installBunUnhandledRejectionListener();
 }
 
 export const __testUtils = {
 	activeProviderTurnCount: (): number => activeProviderTurns.size,
+	activeSessionCount: (): number => activeSessions.size,
+	resetLifecycleSessionGuard(): void {
+		activeLifecycleSessionGuard?.dispose();
+		activeLifecycleSessionGuard = undefined;
+	},
 };
 
 export { isCursorSdkAbortConnectError };
 
 export function installCursorSdkProcessErrorGuard(): CursorSdkProcessErrorGuard {
-	installProcessEmitPatch();
-	installCaptureCallbackIfAvailable();
 	const token: CursorSdkProcessErrorGuardToken = { suppressAbortErrors: false };
 	activeProviderTurns.add(token);
+	installProcessHooks();
 	let disposed = false;
 	return {
 		suppressAbortErrors(): void {
@@ -96,7 +141,33 @@ export function installCursorSdkProcessErrorGuard(): CursorSdkProcessErrorGuard 
 			if (disposed) return;
 			disposed = true;
 			activeProviderTurns.delete(token);
-			uninstallProcessEmitPatchIfIdle();
+			uninstallProcessHooksIfIdle();
 		},
 	};
+}
+
+export function installCursorSdkSessionProcessErrorGuard(): CursorSdkSessionProcessErrorGuard {
+	const token: CursorSdkSessionProcessErrorGuardToken = {};
+	activeSessions.add(token);
+	installProcessHooks();
+	let disposed = false;
+	return {
+		dispose(): void {
+			if (disposed) return;
+			disposed = true;
+			activeSessions.delete(token);
+			uninstallProcessHooksIfIdle();
+		},
+	};
+}
+
+export function registerCursorSdkSessionProcessErrorGuard(pi: Pick<ExtensionAPI, "on">): void {
+	pi.on("session_start", () => {
+		activeLifecycleSessionGuard?.dispose();
+		activeLifecycleSessionGuard = installCursorSdkSessionProcessErrorGuard();
+	});
+	pi.on("session_shutdown", () => {
+		activeLifecycleSessionGuard?.dispose();
+		activeLifecycleSessionGuard = undefined;
+	});
 }

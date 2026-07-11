@@ -1,8 +1,10 @@
 # Cursor local resume decision evidence — 2026-07-08
 
-Purpose: collect the proof needed to choose the next route for local Cursor SDK resume.
+> **Historical snapshot — superseded 2026-07-09.** This document records the evidence and decision at capture time. The tree-safety and recorded-ID cleanup blockers were later fixed and proved, and local resume is now default-on with opt-out. See [cleanup proof and current decision](cursor-local-resume-cleanup-proof-2026-07-09.md) and [the current UX spec](../cursor-model-ux-spec.md).
 
-Bottom line: **do not flip local resume default-on yet**. Several opt-in slices are proven, but opt-in local resume still has a known-risk tree/custom-entry path: a same-file tree navigation probe resumed a future-seeing SDK agent and leaked a future token. Default-on should wait for a tree-safety fix plus reruns.
+Purpose: collect the proof that was used to choose the next route for local Cursor SDK resume.
+
+Bottom line at capture time: **do not flip local resume default-on yet**. Several opt-in slices were proven, but opt-in local resume still had a known-risk tree/custom-entry path: a same-file tree navigation probe resumed a future-seeing SDK agent and leaked a future token. Default-on was to wait for a tree-safety fix plus reruns.
 
 Scope:
 

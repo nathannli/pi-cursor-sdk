@@ -409,7 +409,6 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 			return taken.sdkTurnUsage;
 		},
 
-
 		getPendingFromContext(context, getReplayId): CursorLiveRun | undefined {
 			let index = context.messages.length - 1;
 			while (index >= 0 && context.messages[index]?.role === "user") {

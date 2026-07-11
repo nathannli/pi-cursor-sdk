@@ -215,7 +215,7 @@ describe("Cursor MCP timeout override", () => {
 			planCursorSessionSend: vi.fn(),
 			resetSessionCursorAgent: vi.fn(),
 		}));
-		const { prepareCursorProviderTurn } = await import("../src/cursor-provider-turn-prepare.js");
+		const { prepareCursorProviderTurn, resolveCursorProviderTurnConfig } = await import("../src/cursor-provider-turn-prepare.js");
 
 		await expect(
 			prepareCursorProviderTurn({
@@ -230,6 +230,7 @@ describe("Cursor MCP timeout override", () => {
 				resolvedApiKey: "key",
 				sdkEventDebug: undefined,
 				throwIfAborted: vi.fn(),
+				resolvedConfig: resolveCursorProviderTurnConfig(process.cwd()),
 			}),
 		).rejects.toThrow("stop before Cursor agent creation");
 

@@ -18,7 +18,9 @@ export interface CursorCloudPreflightIssue {
 		| "env_forwarding_not_implemented"
 		| "cloud_environment_type_invalid"
 		| "cloud_environment_type_required"
-		| "cloud_environment_repo_conflict";
+		| "cloud_environment_repo_conflict"
+		| "cloud_branch_repo_required"
+		| "cloud_repo_invalid";
 	message: string;
 }
 
@@ -28,6 +30,27 @@ export interface CursorCloudPreflightResult {
 }
 
 type GitRunner = (cwd: string, args: string[]) => string | undefined;
+
+const CLOUD_REPO_URL_MESSAGE = "Cursor cloud repository must be an HTTPS repository URL without embedded credentials, query parameters, or fragments.";
+
+export function parseCursorCloudRepositoryUrl(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	if (!trimmed) return undefined;
+	try {
+		const url = new URL(trimmed);
+		if (
+			url.protocol !== "https:" ||
+			url.username !== "" ||
+			url.password !== "" ||
+			url.search !== "" ||
+			url.hash !== "" ||
+			url.pathname === "/"
+		) return undefined;
+		return trimmed;
+	} catch {
+		return undefined;
+	}
+}
 
 function git(cwd: string, args: string[]): string | undefined {
 	try {
@@ -75,6 +98,9 @@ export function buildCursorCloudAgentOptions(options: {
 	const environment = resolvedConfig.cloud.environment.value;
 	const environmentType = environment?.type;
 	const environmentName = environment?.name;
+	const configuredRepo = resolvedConfig.cloud.repo.value;
+	const repo = parseCursorCloudRepositoryUrl(configuredRepo);
+	if (configuredRepo && !repo) throw new Error(CLOUD_REPO_URL_MESSAGE);
 	const cloud = {
 		...(isCursorCloudEnvironmentType(environmentType)
 			? {
@@ -84,11 +110,11 @@ export function buildCursorCloudAgentOptions(options: {
 					},
 				}
 			: {}),
-		...(resolvedConfig.cloud.repo.value
+		...(repo
 			? {
 					repos: [
 						{
-							url: resolvedConfig.cloud.repo.value,
+							url: repo,
 							...(resolvedConfig.cloud.branch.value ? { startingRef: resolvedConfig.cloud.branch.value } : {}),
 						},
 					],
@@ -138,6 +164,18 @@ export function preflightCursorCloudRuntime(options: {
 		issues.push({
 			code: "env_forwarding_not_implemented",
 			message: "Cursor cloud env forwarding is not implemented; use Cursor-native environment setup such as .cursor/environment.json or dashboard-managed secrets.",
+		});
+	}
+	if (resolvedConfig.cloud.repo.value && !parseCursorCloudRepositoryUrl(resolvedConfig.cloud.repo.value)) {
+		issues.push({
+			code: "cloud_repo_invalid",
+			message: CLOUD_REPO_URL_MESSAGE,
+		});
+	}
+	if (resolvedConfig.cloud.branch.value && !resolvedConfig.cloud.repo.value) {
+		issues.push({
+			code: "cloud_branch_repo_required",
+			message: "Cursor cloud branch/ref requires --cursor-cloud-repo because the installed Cursor SDK supports startingRef only on cloud.repos entries.",
 		});
 	}
 	const environment = resolvedConfig.cloud.environment.value;

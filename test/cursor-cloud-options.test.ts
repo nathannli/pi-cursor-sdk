@@ -63,6 +63,64 @@ describe("Cursor cloud options", () => {
 		expect(result).not.toHaveProperty("agentId");
 	});
 
+	it.each([
+		{ directPush: false, label: "branch-only" },
+		{ directPush: true, label: "branch plus direct push" },
+	])("fails closed for $label config without a repo", ({ directPush }) => {
+		const result = preflightCursorCloudRuntime({
+			resolvedConfig: resolveCursorSdkConfig({
+				cli: {
+					runtime: "cloud",
+					cloud: { acknowledged: true, branch: "feature/demo", directPush },
+				},
+			}),
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toEqual(["cloud_branch_repo_required"]);
+		expect(formatCursorCloudPreflightError(result)).toContain("startingRef only on cloud.repos entries");
+	});
+
+	it("accepts a branch when its repo is configured", () => {
+		const result = preflightCursorCloudRuntime({
+			resolvedConfig: resolveCursorSdkConfig({
+				cli: {
+					runtime: "cloud",
+					cloud: {
+						acknowledged: true,
+						repo: "https://github.com/example/repo.git",
+						branch: "feature/demo",
+					},
+				},
+			}),
+		});
+
+		expect(result).toEqual({ ok: true, issues: [] });
+	});
+
+	it.each([
+		"https://user:secret@example.com/org/repo.git",
+		"http://example.com/org/repo.git",
+		"https://example.com/org/repo.git?token=secret",
+		"git@example.com:org/repo.git",
+	])("rejects unsafe cloud repository URL %s without echoing it", (repo) => {
+		const resolvedConfig = resolveCursorSdkConfig({
+			cli: { runtime: "cloud", cloud: { acknowledged: true, repo } },
+		});
+		const result = preflightCursorCloudRuntime({ resolvedConfig });
+		const message = formatCursorCloudPreflightError(result);
+
+		expect(result.issues.map((issue) => issue.code)).toEqual(["cloud_repo_invalid"]);
+		expect(message).toContain("HTTPS repository URL without embedded credentials");
+		expect(message).not.toContain(repo);
+		expect(() => buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig,
+		})).toThrow("HTTPS repository URL without embedded credentials");
+	});
+
 	it("fails closed with exact remediation for missing safety choices and disabled env forwarding", () => {
 		const result = preflightCursorCloudRuntime({
 			resolvedConfig: resolveCursorSdkConfig({

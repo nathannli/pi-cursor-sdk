@@ -49,6 +49,7 @@ import {
 	sealedNodePath,
 } from "../scripts/lib/cursor-smoke-env.mjs";
 import {
+	CHILD_PROCESS_TREE_SPAWN_OPTIONS,
 	DEFAULT_CHILD_SHUTDOWN_GRACE_MS,
 	parseJsonLines,
 	signalChild,
@@ -206,6 +207,7 @@ const _backfillPiSessionSnapshot: (
 const _sdkArgsHelp: boolean = parseDebugSdkEventsArgs(["--prompt", "hello"], { CURSOR_API_KEY: "key" }).help;
 const _providerArgsHelp: boolean = parseDebugProviderEventsArgs(["--prompt", "hello"], { CURSOR_API_KEY: "key" }).help;
 const _childShutdownGraceMs: number = DEFAULT_CHILD_SHUTDOWN_GRACE_MS;
+const _childProcessTreeSpawnOptions: Readonly<{ detached: boolean }> = CHILD_PROCESS_TREE_SPAWN_OPTIONS;
 const _startupNoisePatternValue: readonly string[] = CURSOR_SDK_STARTUP_NOISE_PATTERNS;
 const _timingSnapshot = createTimingTracker().snapshot();
 const _eventJsonlSinkFactory: (artifactDir: string, startedAt: number) => CursorSdkEventJsonlSink = createEventJsonlSink;
@@ -337,6 +339,7 @@ void [
 	_sdkArgsHelp,
 	_providerArgsHelp,
 	_childShutdownGraceMs,
+	_childProcessTreeSpawnOptions,
 	_startupNoisePatternValue,
 	_timingSnapshot,
 	_eventJsonlSinkFactory,

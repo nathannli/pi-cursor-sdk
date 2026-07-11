@@ -35,6 +35,7 @@ function createMinimalSessionManager(cwd: string, overrides: Partial<ExtensionCo
 		getEntry: vi.fn(() => undefined),
 		getLabel: vi.fn(() => undefined),
 		getBranch: vi.fn(() => []),
+		buildContextEntries: vi.fn(() => []),
 		getHeader: vi.fn(() => null),
 		getEntries: vi.fn(() => []),
 		getTree: vi.fn(() => []),

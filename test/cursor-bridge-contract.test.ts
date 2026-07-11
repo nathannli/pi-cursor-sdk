@@ -9,6 +9,8 @@ describe("cursor bridge contract", () => {
 		const text = getCursorPiBridgeContractText();
 		expect(text).toContain("Pi bridge contract:");
 		expect(text).toContain("pi__* names are live Cursor MCP bridge tool names");
+		expect(text).toContain("prefer pi__mcp for MCP work and pi__subagent for delegation");
+		expect(text).toContain("only when the matching pi__ tool is not exposed or unavailable");
 	});
 
 	it("uses a one-line MCP description pointer instead of repeating the full contract", () => {

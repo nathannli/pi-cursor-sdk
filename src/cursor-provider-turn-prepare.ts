@@ -1,5 +1,5 @@
 import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
-import type { SDKAgent } from "@cursor/sdk";
+import type { AgentModeOption, ModelSelection, SDKAgent } from "@cursor/sdk";
 import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./cursor-sdk-output-filter.js";
 import {
@@ -22,12 +22,11 @@ import {
 	getPendingCursorLiveRun,
 } from "./cursor-provider-live-run-drain.js";
 import {
-	consumeCursorLocalForceOverride,
-	getCursorCliConfig,
 	getCursorProviderAgentModeOrThrow,
-	getCursorSessionConfig,
 	getEffectiveFastForModelId,
 } from "./cursor-state.js";
+import { resolveEffectiveCursorConfig } from "./cursor-runtime-state.js";
+import type { CursorResolvedSdkConfig } from "./cursor-config.js";
 import { buildCursorModelSelection } from "./model-discovery.js";
 import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
 import {
@@ -36,7 +35,6 @@ import {
 	inspectCursorCloudLocalState,
 	preflightCursorCloudRuntime,
 } from "./cursor-cloud-options.js";
-import { loadCursorSdkConfig, resolveCursorSdkConfig } from "./cursor-config.js";
 import { getCursorSessionName, getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-env.js";
 import {
@@ -44,15 +42,23 @@ import {
 	resolveCursorToolManifestEnabled,
 } from "./cursor-tool-manifest.js";
 import { isCursorNativeToolDisplayRuntimeEnabled } from "./cursor-native-tool-display-state.js";
+import {
+	createCursorCloudLifecyclePersistenceError,
+	recordCursorCloudLifecycleSafely,
+} from "./cursor-cloud-lifecycle.js";
 import { MISSING_CURSOR_API_KEY_MESSAGE } from "./cursor-provider-errors.js";
 import { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
 import { resolveCursorApiKey } from "./cursor-api-key.js";
 import { loadCursorSdk } from "./cursor-sdk-runtime.js";
 import type {
+	CloudCursorProviderTurnPrepareResult,
+	CursorProviderTurnLifecycle,
 	CursorProviderTurnPrepareResult,
 	CursorProviderTurnRunnerParams,
+	LocalCursorProviderTurnPrepareResult,
 } from "./cursor-provider-turn-types.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
+import type { SessionCursorAgentLease } from "./cursor-session-agent.js";
 
 export interface PrepareCursorProviderTurnParams {
 	params: CursorProviderTurnRunnerParams;
@@ -60,6 +66,14 @@ export interface PrepareCursorProviderTurnParams {
 	resolvedApiKey: string;
 	sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	throwIfAborted: () => void;
+	/** Snapshot resolved once by the runner before draining; reused unchanged through prepare. */
+	resolvedConfig: CursorResolvedSdkConfig;
+}
+
+interface PrepareCursorProviderTurnContext extends PrepareCursorProviderTurnParams {
+	agentMode: AgentModeOption;
+	selection: ModelSelection;
+	fastEnabled: boolean | undefined;
 }
 
 function buildCursorCloudPromptContext(context: Context, handoff: "fresh" | "bootstrap" | "never"): Context {
@@ -74,141 +88,168 @@ function buildCursorCloudPromptContext(context: Context, handoff: "fresh" | "boo
 const CLOUD_SEND_PLAN: CursorSessionSendPlan = { mode: "bootstrap", resetAgent: false, reason: "initial" };
 
 export function resolveCursorProviderTurnConfig(cwd: string) {
-	const loadedConfig = loadCursorSdkConfig({ cwd, projectTrusted: getCursorSessionProjectTrusted() });
-	return resolveCursorSdkConfig({
-		cli: getCursorCliConfig(),
-		session: getCursorSessionConfig(),
-		user: loadedConfig.user,
-		project: loadedConfig.project,
-	});
+	return resolveEffectiveCursorConfig({ cwd, projectTrusted: getCursorSessionProjectTrusted() });
 }
 
-export function getCursorProviderRuntimeTarget(cwd: string) {
-	return resolveCursorProviderTurnConfig(cwd).runtime.value;
+function buildCloudCursorProviderTurnLifecycle(agent: SDKAgent): CursorProviderTurnLifecycle {
+	return {
+		trackRunCompletion: () => {},
+		commitSend: () => {},
+		abandon: async () => {},
+		dispose: async () => {
+			await agent[Symbol.asyncDispose]?.();
+		},
+	};
 }
 
-export async function prepareCursorProviderTurn(
-	prepareParams: PrepareCursorProviderTurnParams,
-): Promise<CursorProviderTurnPrepareResult> {
-	const { params, cwd, resolvedApiKey, sdkEventDebug, throwIfAborted } = prepareParams;
+function buildLocalCursorProviderTurnLifecycle(
+	lease: SessionCursorAgentLease,
+	scopeKey: string,
+): CursorProviderTurnLifecycle {
+	return {
+		trackRunCompletion: (completion) => lease.trackRunCompletion(completion),
+		commitSend: (context, bootstrapped) => lease.commitSend(context, bootstrapped),
+		abandon: () => abandonSessionCursorAgent(scopeKey),
+		dispose: async () => {},
+	};
+}
+
+async function prepareCursorCloudProviderTurn(
+	prepareParams: PrepareCursorProviderTurnContext,
+): Promise<CloudCursorProviderTurnPrepareResult> {
+	const { params, cwd, resolvedApiKey, sdkEventDebug, throwIfAborted, resolvedConfig, agentMode, selection, fastEnabled } = prepareParams;
+	const { model, context, options } = params;
+
+	let restoreCursorSdkOutputFilter: (() => void) | undefined;
+	let cloudAgentForCleanup: SDKAgent | undefined;
+	let completed = false;
+
+	try {
+		const preflight = preflightCursorCloudRuntime({
+			resolvedConfig,
+			localState: inspectCursorCloudLocalState(cwd),
+			hasPriorContext: context.messages.length > 1,
+		});
+		if (!preflight.ok) throw new Error(formatCursorCloudPreflightError(preflight));
+		if (getPendingCursorLiveRun(context) || getActiveCursorLiveRunForCurrentScope()) {
+			throw new Error("Cursor cloud runtime cannot start while a local Cursor live run is pending; finish or abort the local run, then retry.");
+		}
+
+		const { Agent } = await loadCursorSdk();
+		restoreCursorSdkOutputFilter = installCursorSdkOutputFilter();
+		const promptOptions = {
+			...getCursorPromptOptions(model),
+			agentMode,
+			includePiBridgeGuidance: false,
+			includePiAskQuestionGuidance: false,
+		};
+		const prompt = buildCursorPrompt(
+			buildCursorCloudPromptContext(context, resolvedConfig.cloud.contextHandoff.value),
+			promptOptions,
+		);
+		const promptInputTokens = estimateCursorPromptTokens(prompt, promptOptions);
+		const agent = await suppressCursorSdkOutput(() =>
+			Agent.create(buildCursorCloudAgentOptions({
+				apiKey: resolvedApiKey,
+				modelSelection: selection,
+				agentMode,
+				resolvedConfig,
+				name: getCursorSessionName(),
+			})),
+		);
+		cloudAgentForCleanup = agent;
+		if (!recordCursorCloudLifecycleSafely({ agentId: agent.agentId }, resolvedApiKey)) {
+			throw createCursorCloudLifecyclePersistenceError(agent.agentId, "intent", undefined, resolvedApiKey);
+		}
+		sdkEventDebug?.recordProviderMeta({ runtime: "cloud", cloudAgentId: agent.agentId, phase: "agent_created" });
+		throwIfAborted();
+
+		const textDeltas: string[] = [];
+		const nativeReplayId = createCursorNativeReplayId();
+		const turnCoordinator = new CursorSdkTurnCoordinator({
+			stream: params.stream,
+			partial: params.partial,
+			cwd,
+			resolvedApiKey,
+			useNativeToolReplay: false,
+			nativeReplayId,
+			textDeltas,
+			debugRecorder: sdkEventDebug,
+		});
+		sdkEventDebug?.recordProviderMeta({
+			runtime: "cloud",
+			cloudAgentId: agent.agentId,
+			model: {
+				id: model.id,
+				provider: model.provider,
+				api: model.api,
+				reasoning: options?.reasoning ?? "off",
+				fastEnabled,
+				selection,
+			},
+			contextHandoff: resolvedConfig.cloud.contextHandoff.value,
+			sendPlan: CLOUD_SEND_PLAN,
+			promptOptions,
+			agentMode,
+			localForce: false,
+		});
+
+		completed = true;
+		cloudAgentForCleanup = undefined;
+		return {
+			runtimeTarget: "cloud",
+			agent,
+			cwd,
+			payload: {
+				text: prompt.text,
+				images: prompt.images.length > 0 ? prompt.images : undefined,
+			},
+			meta: {
+				sendPlan: CLOUD_SEND_PLAN,
+				prompt,
+				bootstrap: true,
+				promptInputTokens,
+				useNativeToolReplay: false,
+				bridgeEnabled: false,
+				nativeReplayId,
+				agentMode,
+				modelSelection: selection,
+			},
+			contextWindowAgentId: agent.agentId,
+			textDeltas,
+			restoreCursorSdkOutputFilter,
+			lifecycle: buildCloudCursorProviderTurnLifecycle(agent),
+			runtime: { kind: "direct", turnCoordinator },
+		};
+	} finally {
+		if (!completed) {
+			await cloudAgentForCleanup?.[Symbol.asyncDispose]?.().catch(() => {});
+			restoreCursorSdkOutputFilter?.();
+		}
+	}
+}
+
+async function prepareCursorLocalProviderTurn(
+	prepareParams: PrepareCursorProviderTurnContext,
+): Promise<LocalCursorProviderTurnPrepareResult> {
+	const { params, cwd, resolvedApiKey, sdkEventDebug, throwIfAborted, resolvedConfig, agentMode, selection, fastEnabled } = prepareParams;
 	const { model, context, options } = params;
 
 	let restoreCursorSdkOutputFilter: (() => void) | undefined;
 	let sessionAgentScopeKey: string | undefined;
 	let liveRun: CursorLiveRun | undefined;
-	let cloudAgentForCleanup: SDKAgent | undefined;
 	let completed = false;
 
 	try {
-		const fastEnabled = getEffectiveFastForModelId(model.id);
-		const agentMode = getCursorProviderAgentModeOrThrow();
-		const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
-		const settingSources = getEffectiveCursorSettingSources();
-		const resolvedConfig = resolveCursorProviderTurnConfig(cwd);
-		if (resolvedConfig.runtime.value === "cloud") {
-			const preflight = preflightCursorCloudRuntime({
-				resolvedConfig,
-				localState: inspectCursorCloudLocalState(cwd),
-				hasPriorContext: context.messages.length > 1,
-			});
-			if (!preflight.ok) throw new Error(formatCursorCloudPreflightError(preflight));
-			if (getPendingCursorLiveRun(context) || getActiveCursorLiveRunForCurrentScope()) {
-				throw new Error("Cursor cloud runtime cannot start while a local Cursor live run is pending; finish or abort the local run, then retry.");
-			}
-
-			const { Agent } = await loadCursorSdk();
-			restoreCursorSdkOutputFilter = installCursorSdkOutputFilter();
-			const promptOptions = {
-				...getCursorPromptOptions(model),
-				agentMode,
-				includePiBridgeGuidance: false,
-				includePiAskQuestionGuidance: false,
-			};
-			const prompt = buildCursorPrompt(
-				buildCursorCloudPromptContext(context, resolvedConfig.cloud.contextHandoff.value),
-				promptOptions,
-			);
-			const promptInputTokens = estimateCursorPromptTokens(prompt, promptOptions);
-			const agent = await suppressCursorSdkOutput(() =>
-				Agent.create(buildCursorCloudAgentOptions({
-					apiKey: resolvedApiKey,
-					modelSelection: selection,
-					agentMode,
-					resolvedConfig,
-					name: getCursorSessionName(),
-				})),
-			);
-			cloudAgentForCleanup = agent;
-			sdkEventDebug?.recordProviderMeta({ runtime: "cloud", cloudAgentId: agent.agentId, phase: "agent_created" });
-			throwIfAborted();
-
-			const textDeltas: string[] = [];
-			const nativeReplayId = createCursorNativeReplayId();
-			const turnCoordinator = new CursorSdkTurnCoordinator({
-				stream: params.stream,
-				partial: params.partial,
-				cwd,
-				resolvedApiKey,
-				useNativeToolReplay: false,
-				nativeReplayId,
-				textDeltas,
-				debugRecorder: sdkEventDebug,
-			});
-			sdkEventDebug?.recordProviderMeta({
-				runtime: "cloud",
-				cloudAgentId: agent.agentId,
-				model: {
-					id: model.id,
-					provider: model.provider,
-					api: model.api,
-					reasoning: options?.reasoning ?? "off",
-					fastEnabled,
-					selection,
-				},
-				contextHandoff: resolvedConfig.cloud.contextHandoff.value,
-				sendPlan: CLOUD_SEND_PLAN,
-				promptOptions,
-				agentMode,
-				localForce: false,
-			});
-
-			completed = true;
-			cloudAgentForCleanup = undefined;
-			return {
-				runtimeTarget: "cloud",
-				agent,
-				cwd,
-				payload: {
-					text: prompt.text,
-					images: prompt.images.length > 0 ? prompt.images : undefined,
-				},
-				meta: {
-					sendPlan: CLOUD_SEND_PLAN,
-					prompt,
-					bootstrap: true,
-					promptInputTokens,
-					useNativeToolReplay: false,
-					bridgeEnabled: false,
-					nativeReplayId,
-					agentMode,
-					modelSelection: selection,
-					localForce: false,
-				},
-				contextWindowAgentId: agent.agentId,
-				textDeltas,
-				restoreCursorSdkOutputFilter,
-				runtime: { kind: "direct", turnCoordinator },
-			};
-		}
 		const localSafety = {
 			autoReview: resolvedConfig.local.autoReview.value,
 			sandboxEnabled: resolvedConfig.local.sandboxEnabled.value,
 		};
-		const localForce = consumeCursorLocalForceOverride(resolvedConfig.local.force);
 		const { Agent } = await loadCursorSdk();
 
 		installCursorMcpToolTimeoutOverride();
 		restoreCursorSdkOutputFilter = installCursorSdkOutputFilter();
+		const settingSources = getEffectiveCursorSettingSources();
 		const queuedBridgeRequestsBeforeLiveRun: CursorPiBridgeToolRequest[] = [];
 		let liveRunForBridgeQueue: CursorLiveRun | undefined;
 
@@ -257,11 +298,14 @@ export async function prepareCursorProviderTurn(
 			};
 		};
 		let sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
+		if (sessionAgentLease.created && sessionAgentLease.resumed && sendPlan.mode === "incremental") {
+			sendPlan = { mode: "bootstrap", resetAgent: false, reason: "process_resume" };
+		}
 		let promptOptions = buildPromptOptions(sendPlan);
 		let prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 		if (sendPlan.resetAgent) {
 			await resetSessionCursorAgent(sessionAgentScopeKey);
-			sessionAgentLease = await acquireSessionCursorAgent(sessionAgentAcquireParams);
+			sessionAgentLease = await acquireSessionCursorAgent({ ...sessionAgentAcquireParams, forceCreate: true });
 			sessionAgentScopeKey = sessionAgentLease.scopeKey;
 			bridgeToolNames = new Set(sessionAgentLease.bridgeRun?.snapshot.tools.map((tool) => tool.mcpToolName) ?? []);
 			includePiBridgeGuidance = bridgeToolNames.size > 0;
@@ -295,7 +339,7 @@ export async function prepareCursorProviderTurn(
 			promptOptions,
 			toolManifestEnabled: resolveCursorToolManifestEnabled(),
 			agentMode,
-			localForce,
+			localForce: resolvedConfig.local.force.value,
 			localResume: resolvedConfig.local.resume.value,
 			resumedAgent: sessionAgentLease.resumed,
 			activeToolNames: activeToolNames ? [...activeToolNames] : [],
@@ -352,14 +396,15 @@ export async function prepareCursorProviderTurn(
 				nativeReplayId,
 				agentMode,
 				modelSelection: selection,
-				localForce,
 				...(sessionAgentLease.resumeNotice ? { resumeNotice: sessionAgentLease.resumeNotice } : {}),
 			},
 			contextWindowAgentId: agent.agentId,
 			textDeltas,
 			sessionAgentScopeKey,
 			sessionAgentLease,
+			localForce: resolvedConfig.local.force,
 			restoreCursorSdkOutputFilter,
+			lifecycle: buildLocalCursorProviderTurnLifecycle(sessionAgentLease, sessionAgentScopeKey),
 			runtime: liveRun
 				? { kind: "live", liveRun, turnCoordinator }
 				: { kind: "direct", turnCoordinator },
@@ -373,10 +418,26 @@ export async function prepareCursorProviderTurn(
 			} else {
 				await abandonSessionCursorAgent(sessionAgentScopeKey).catch(() => {});
 			}
-			await cloudAgentForCleanup?.[Symbol.asyncDispose]?.().catch(() => {});
 			restoreCursorSdkOutputFilter?.();
 		}
 	}
+}
+
+/** Resolves the runtime target from the caller-supplied snapshot and dispatches to the owning branch. */
+export async function prepareCursorProviderTurn(
+	prepareParams: PrepareCursorProviderTurnParams,
+): Promise<CursorProviderTurnPrepareResult> {
+	const { params, resolvedConfig } = prepareParams;
+	const { model, options } = params;
+
+	const agentMode = getCursorProviderAgentModeOrThrow();
+	const fastEnabled = resolvedConfig.runtime.value === "cloud" ? undefined : getEffectiveFastForModelId(model.id);
+	const selection = buildCursorModelSelection(model.id, options?.reasoning ?? "off", fastEnabled);
+	const context: PrepareCursorProviderTurnContext = { ...prepareParams, agentMode, selection, fastEnabled };
+
+	return resolvedConfig.runtime.value === "cloud"
+		? prepareCursorCloudProviderTurn(context)
+		: prepareCursorLocalProviderTurn(context);
 }
 
 export function requireCursorApiKey(options: SimpleStreamOptions | undefined): string {

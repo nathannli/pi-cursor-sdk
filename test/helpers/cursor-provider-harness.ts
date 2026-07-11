@@ -35,6 +35,10 @@ vi.mock("@cursor/sdk", () => {
 });
 
 import { Agent, createAgentPlatform } from "@cursor/sdk";
+import {
+	__testUtils as cloudLifecycleTestUtils,
+	registerCursorCloudLifecycleLedger,
+} from "../../src/cursor-cloud-lifecycle.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../../src/cursor-session-scope.js";
 import { __testUtils as cursorSessionResumeTestUtils } from "../../src/cursor-session-agent-resume.js";
 import { __testUtils as cursorStateTestUtils } from "../../src/cursor-state.js";
@@ -345,6 +349,9 @@ export const cursorModelItems: ModelListItem[] = [
 
 export async function resetCursorProviderTestState(): Promise<void> {
 	vi.useRealTimers();
+	cloudLifecycleTestUtils.reset();
+	cloudLifecycleTestUtils.setDurableWriter(() => true);
+	registerCursorCloudLifecycleLedger(createPiHarness());
 	await cursorPiToolBridgeTestUtils.resetRegisteredBridgeForTests();
 	vi.clearAllMocks();
 	delete process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY;
@@ -354,7 +361,6 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	delete process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS;
 	delete process.env.PI_CURSOR_TASK_PRESENTATION;
 	delete process.env.PI_CURSOR_RUNTIME;
-	delete process.env.PI_CURSOR_TOOL_TRANSPORT;
 	delete process.env.PI_CURSOR_CLOUD_REPO;
 	delete process.env.PI_CURSOR_CLOUD_BRANCH;
 	delete process.env.PI_CURSOR_CLOUD_CONTEXT;

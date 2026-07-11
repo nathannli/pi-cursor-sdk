@@ -9,6 +9,12 @@ const BRIDGE_ENDPOINT_TOKEN_PATTERN = "[^/\\s\"'<>]+";
 const BRIDGE_LOOPBACK_HOST_PATTERN = "127\\.0\\.0\\.1(?::\\d+)?";
 const BRIDGE_ENDPOINT_PATH_PATTERN = `${escapeRegExp(BRIDGE_ENDPOINT_ROOT)}/${BRIDGE_ENDPOINT_TOKEN_PATTERN}/mcp`;
 
+function scrubUrlUserInfo(text) {
+	return text
+		.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@(?=[^\s/?#]+)/gi, "$1[redacted]@")
+		.replace(/\b[^\s/:@]+:[^\s/]+@(?=[A-Za-z0-9.-]+(?::|\/|\s|$))/g, "[redacted]@");
+}
+
 function scrubBridgeEndpointMaterial(text) {
 	return text
 		.replace(
@@ -29,7 +35,7 @@ export function scrubSensitiveText(text, apiKey) {
 		scrubbed = scrubbed.replace(new RegExp(escapeRegExp(trimmedKey), "g"), "[redacted]");
 	}
 	return scrubBridgeEndpointMaterial(
-		scrubbed
+		scrubUrlUserInfo(scrubbed)
 			.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
 			.replace(/((?:^|[\s,{])cookie["']?\s*[:=]\s*["']?)[^\n]+/gi, "$1[redacted]")
 			.replace(

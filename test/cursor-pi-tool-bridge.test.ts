@@ -828,6 +828,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		}
 	});
 
+
 	it("rejects pending MCP waits on registered session shutdown cleanup", async () => {
 		const pi = createBridgePiHarness({ active: ["read"], tools: [createToolInfo("read")] });
 		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";

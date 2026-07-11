@@ -1,8 +1,10 @@
 # Cursor local resume proof execution — 2026-07-08
 
-Purpose: execute the outstanding real proof for local Cursor SDK resume without flipping the built-in default on.
+> **Historical snapshot — superseded 2026-07-09.** This document records the proof status before recorded-ID cleanup landed. Cleanup was later implemented and proved across macOS, Ubuntu, and Windows, and local resume is now default-on with opt-out. See [cleanup proof and current decision](cursor-local-resume-cleanup-proof-2026-07-09.md) and [the current UX spec](../cursor-model-ux-spec.md).
 
-Result: most default-on proof is now green, including tree safety after a code fix and full macOS/Ubuntu/Windows platform promotion. **Recommendation remains: do not flip default-on yet** because recorded-ID-only local SDK cleanup/GC is still not implemented or proven.
+Purpose: execute the outstanding real proof for local Cursor SDK resume without flipping the built-in default on at capture time.
+
+Result at capture time: most default-on proof was green, including tree safety after a code fix and full macOS/Ubuntu/Windows platform promotion. **The recommendation then remained: do not flip default-on yet** because recorded-ID-only local SDK cleanup/GC was not implemented or proven.
 
 ## What changed for proof
 

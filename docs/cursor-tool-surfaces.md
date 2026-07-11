@@ -25,7 +25,8 @@ Pi CLI tool toggles apply at the pi tool-registry boundary. `--no-tools`, `--too
 
 Default behavior:
 
-- Cursor host tools handle files, shell, grep, edits, tasks, and Cursor-native MCP/plugins.
+- Cursor host tools handle files, shell, grep, and edits.
+- When exposed, `pi__mcp` is preferred for MCP work and `pi__subagent` is preferred for delegation. Cursor-configured MCP and Cursor-native subagents are fallbacks when the matching pi tool is not exposed or is unavailable.
 - The pi bridge exposes **active pi tools** as `pi__*` MCP names when `PI_CURSOR_PI_TOOL_BRIDGE` is enabled (default on).
 - Overlapping pi builtins (`read`, `bash`, `write`, `edit`, `grep`, `find`, `ls`) are **hidden** from the bridge unless `PI_CURSOR_EXPOSE_BUILTIN_TOOLS=1`.
 
@@ -47,8 +48,8 @@ PI_CURSOR_TOOL_MANIFEST=0 pi --model cursor/composer-2-5
 Current defaults:
 
 - Local runtime is the default.
-- The pi bridge uses loopback MCP and remains the canonical Pi-tool transport for local Cursor agents.
-- `local.customTools` is a future opt-in spike path, not a replacement default, because cancellation/process cleanup parity is not proven.
+- The pi bridge uses loopback MCP and is the sole implemented Pi-tool transport for local Cursor agents.
+- SDK `local.customTools` remains deferred and needs SDK cancellation/deadline support before it can replace the loopback MCP bridge; no transport config is exposed.
 - Explicit cloud runtime selection requires first-use acknowledgement (`/cursor-runtime cloud`, `/cursor-runtime cloud --save-user`, `--cursor-cloud-ack`, or `PI_CURSOR_CLOUD_ACK=1`) plus preflight. Project config may save a cloud runtime default but not the acknowledgement. Cloud runs use fresh context by default and do **not** get local pi tools through loopback MCP or `local.customTools`; cloud Pi-tool access would require a separate secure remote bridge and a new product decision.
 - Inline cloud MCP is not exposed in the initial cloud runtime because live probes showed first-run/replacement/resume behavior was not deterministic enough.
 

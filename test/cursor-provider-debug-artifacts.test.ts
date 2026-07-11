@@ -15,7 +15,7 @@ import {
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
 import { registerCursorRuntimeControls } from "../src/cursor-state.js";
-import { __testUtils as sdkEventDebugTestUtils } from "../src/cursor-sdk-event-debug.js";
+import { CursorSdkEventDebugSink, __testUtils as sdkEventDebugTestUtils } from "../src/cursor-sdk-event-debug.js";
 import type { SDKMessage } from "@cursor/sdk";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -306,6 +306,49 @@ describe("streamCursor debug artifacts", () => {
 				if (previousNativeDisplay === undefined) delete process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY;
 				else process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = previousNativeDisplay;
 				rmSync(baseDir, { recursive: true, force: true });
+			}
+		});
+
+		it("keeps a returned cloud run owned when post-send debug writes throw", async () => {
+			const artifactDir = mkdtempSync(join(tmpdir(), "pi-cursor-provider-debug-throw-"));
+			const previousDebug = process.env.PI_CURSOR_SDK_EVENT_DEBUG;
+			const previousRunDir = process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR;
+			process.env.PI_CURSOR_SDK_EVENT_DEBUG = "1";
+			process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR = artifactDir;
+			process.env.PI_CURSOR_RUNTIME = "cloud";
+			process.env.PI_CURSOR_CLOUD_ACK = "1";
+			process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+			const wait = vi.fn().mockResolvedValue({ id: "run-cloud-debug", status: "finished", result: "done" });
+			const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 404 }));
+			const recordRunMetaSpy = vi.spyOn(CursorSdkEventDebugSink.prototype, "recordRunMeta").mockImplementation(() => {
+				throw new Error("debug disk full");
+			});
+			try {
+				mockCreatedAgent({
+					agentId: "bc-00000000-0000-0000-0000-000000000001",
+					send: vi.fn().mockResolvedValue(asMockCursorRun({
+						id: "run-cloud-debug",
+						agentId: "bc-00000000-0000-0000-0000-000000000001",
+						status: "finished",
+						wait,
+					})),
+				});
+
+				const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+
+				expect(getDoneEvent(events).message.stopReason).toBe("stop");
+				expect(wait).toHaveBeenCalledTimes(1);
+			} finally {
+				recordRunMetaSpy.mockRestore();
+				fetchSpy.mockRestore();
+				if (previousDebug === undefined) delete process.env.PI_CURSOR_SDK_EVENT_DEBUG;
+				else process.env.PI_CURSOR_SDK_EVENT_DEBUG = previousDebug;
+				if (previousRunDir === undefined) delete process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR;
+				else process.env.PI_CURSOR_SDK_EVENT_DEBUG_RUN_DIR = previousRunDir;
+				delete process.env.PI_CURSOR_RUNTIME;
+				delete process.env.PI_CURSOR_CLOUD_ACK;
+				delete process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE;
+				rmSync(artifactDir, { recursive: true, force: true });
 			}
 		});
 });

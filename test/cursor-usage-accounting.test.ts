@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { InteractionUpdateSchema, TurnEndedUpdateSchema } from "@cursor/sdk";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai/compat";
+import { calculateContextTokens } from "@earendil-works/pi-coding-agent";
 import {
 	applyCursorApproximateUsage,
 	applyCursorUsage,
@@ -66,10 +68,10 @@ describe("cursor usage accounting", () => {
 		expect(partial.usage.output).toBe(612);
 		expect(partial.usage.cacheRead).toBe(24_000);
 		expect(partial.usage.cacheWrite).toBe(123);
-		expect(partial.usage.totalTokens).toBe(25_432 + 612);
+		expect(partial.usage.totalTokens).toBe(25_432 + 612 + 24_000 + 123);
 	});
 
-	it("rejects SDK usage whose pi total would exceed the selected model window", () => {
+	it("rejects SDK usage whose full SDK total would exceed the selected model window", () => {
 		const model = makeModel();
 		const context: Context = {
 			systemPrompt: "Be helpful.",
@@ -77,13 +79,15 @@ describe("cursor usage accounting", () => {
 		};
 		const partial = makeAssistantMessage([{ type: "text", text: "Hello back." }]);
 		const overWindowUsage = {
-			inputTokens: model.contextWindow,
+			inputTokens: model.contextWindow - 10,
 			outputTokens: 1,
-			cacheReadTokens: 0,
-			cacheWriteTokens: 0,
+			cacheReadTokens: 9,
+			cacheWriteTokens: 1,
 		};
 
 		expect(isCursorSdkUsageSafeForPiMessage(overWindowUsage, model)).toBe(false);
+		expect(isCursorSdkUsageSafeForPiMessage({ ...overWindowUsage, inputTokens: -1 }, model)).toBe(false);
+		expect(isCursorSdkUsageSafeForPiMessage({ ...overWindowUsage, inputTokens: Number.NaN }, model)).toBe(false);
 
 		applyCursorUsage(partial, model, context, 7, { turn: overWindowUsage });
 
@@ -132,6 +136,18 @@ describe("cursor usage accounting", () => {
 		expect(TurnEndedUpdateSchema.safeParse(update).success).toBe(true);
 		expect(InteractionUpdateSchema.safeParse(update).success).toBe(true);
 		expect(readCursorSdkTurnUsageFromUpdate(update)).toEqual({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 });
+		const sdkBundle = readFileSync(createRequire(import.meta.url).resolve("@cursor/sdk"), "utf8");
+		expect(sdkBundle).toMatch(/totalTokens:\w\+\w\+\w\+\w/);
+		expect(calculateContextTokens({
+			input: 1,
+			output: 2,
+			cacheRead: 3,
+			cacheWrite: 4,
+			totalTokens: 10,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		})).toBe(10);
+		expect(readCursorSdkTurnUsage({ inputTokens: -1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4 })).toBeUndefined();
+		expect(readCursorSdkTurnUsage({ inputTokens: 1, outputTokens: Number.POSITIVE_INFINITY, cacheReadTokens: 3, cacheWriteTokens: 4 })).toBeUndefined();
 		expect(InteractionUpdateSchema.safeParse({
 			type: "usage",
 			usage: { inputTokens: 5, outputTokens: 6, cacheReadTokens: 7, cacheWriteTokens: 8, totalTokens: 11 },
@@ -167,7 +183,7 @@ describe("cursor usage accounting", () => {
 			turn: { inputTokens: 25, outputTokens: 6, cacheReadTokens: 24, cacheWriteTokens: 1 },
 		});
 
-		expect(partial.usage).toMatchObject({ input: 25, output: 6, cacheRead: 24, cacheWrite: 1, totalTokens: 31 });
+		expect(partial.usage).toMatchObject({ input: 25, output: 6, cacheRead: 24, cacheWrite: 1, totalTokens: 56 });
 	});
 
 	it("keeps the prompt/output estimate fallback when SDK usage is absent", () => {

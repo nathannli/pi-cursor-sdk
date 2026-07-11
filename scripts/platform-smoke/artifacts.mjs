@@ -2,13 +2,48 @@
  * Artifact management — directory layout, manifest, redaction scanning, packaging.
  */
 
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, renameSync } from "node:fs";
-import { resolve, relative, basename, dirname } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { resolve, relative, dirname, isAbsolute } from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
+import {
+	MAX_BUNDLE_AGGREGATE_BYTES, MAX_BUNDLE_FILE_BYTES, MAX_BUNDLE_FILE_COUNT,
+	MAX_BUNDLE_PATH_BYTES, MAX_BUNDLE_PATH_COMPONENTS,
+	MAX_COMPRESSED_BUNDLE_BYTES, MAX_INFLATED_BUNDLE_JSON_BYTES,
+	PLATFORM_ARTIFACT_BUNDLE_END, PLATFORM_ARTIFACT_BUNDLE_FILE_MARKER,
+	PLATFORM_ARTIFACT_BUNDLE_PATH, PLATFORM_ARTIFACT_BUNDLE_START,
+	decodeCanonicalBase64, isCanonicalPlatformBundlePath,
+} from "./artifact-bundle-contract.mjs";
+import {
+	boundedFileSnapshot, openRegularFileNoFollow, walkArtifactTree,
+	writeBundleSpillFile, writeExtractedFiles,
+} from "./artifact-fs-safety.mjs";
+import { isBinaryArtifactContent, redactSecrets, scanForSecrets } from "./artifact-secrets.mjs";
+
+export {
+	MAX_BUNDLE_AGGREGATE_BYTES, MAX_BUNDLE_FILE_BYTES, MAX_BUNDLE_FILE_COUNT,
+	MAX_BUNDLE_PATH_BYTES, MAX_BUNDLE_PATH_COMPONENTS,
+	MAX_COMPRESSED_BUNDLE_BYTES, MAX_INFLATED_BUNDLE_JSON_BYTES,
+	PLATFORM_ARTIFACT_BUNDLE_END, PLATFORM_ARTIFACT_BUNDLE_FILE_MARKER,
+	PLATFORM_ARTIFACT_BUNDLE_PATH, PLATFORM_ARTIFACT_BUNDLE_START,
+	isCanonicalPlatformBundlePath,
+};
+export { openRegularFileNoFollow };
+export { isBinaryArtifactContent, redactSecrets, scanForSecrets };
 
 const PLATFORM_SMOKE_RUN_DIR_PATTERN = /^run-(\d+)-[a-z0-9]+$/i;
 const HOURS_TO_MS = 60 * 60 * 1000;
 const DAYS_TO_MS = 24 * HOURS_TO_MS;
 const LATEST_INDEX_NAME = "latest.json";
+const INLINE_BUNDLE_MAX_BYTES = 48 * 1024;
+const PLATFORM_ARTIFACT_TEXT_EXTENSIONS = new Set([
+	"ansi", "html", "js", "json", "jsonl", "log", "md", "mjs", "ts", "txt", "yaml", "yml",
+]);
+
+function isTransportableTextPath(path) {
+	const extension = path.toLowerCase().match(/\.([^.\/]+)$/)?.[1];
+	return extension !== undefined && PLATFORM_ARTIFACT_TEXT_EXTENSIONS.has(extension);
+}
 
 function finiteNonNegativeNumber(value) {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -113,62 +148,44 @@ export function writeManifest(dir, expectedFiles) {
 	return manifest;
 }
 
-const SECRET_PATTERNS = [
-	[/Authorization:\s*Bearer\s+[A-Za-z0-9\-._~+/]{20,}=*/gi, "Authorization header", "Authorization: Bearer [REDACTED_BEARER_TOKEN]"],
-	[/(bearer\s+)[A-Za-z0-9\-._~+/]{20,}=*/gi, "bearer token", "$1[REDACTED_BEARER_TOKEN]"],
-	[/connect\.sid=[A-Za-z0-9%]+/gi, "session cookie", "connect.sid=[REDACTED_SESSION_COOKIE]"],
-	[/https?:\/\/[^/\s]*\/cursor-pi-tool-bridge\/[A-Za-z0-9_.:-]+\/mcp/gi, "bridge endpoint URL", "[REDACTED_BRIDGE_ENDPOINT_URL]"],
-	[/"(apiKey|accessToken|refreshToken|session|cookie)"\s*:\s*"[^"\s]{12,}"/gi, "auth/token JSON field", '"$1":"[REDACTED_SECRET]"'],
-];
-
-/** Redact known secret material before writing logs/artifacts. */
-export function redactSecrets(text) {
-	let redacted = String(text ?? "");
-	const cursorKey = process.env.CURSOR_API_KEY;
-	if (cursorKey && cursorKey.length > 10) {
-		redacted = redacted.split(cursorKey).join("[REDACTED_CURSOR_API_KEY]");
-	}
-	for (const [pattern, , replacement] of SECRET_PATTERNS) {
-		redacted = redacted.replace(pattern, replacement);
-	}
-	return redacted;
+function artifactRelativePath(root, path) {
+	return relative(root, path).replace(/\\/g, "/");
 }
 
-/** Scan text content for secrets. Returns array of violation descriptions. */
-export function scanForSecrets(text) {
-	const violations = [];
-	const cursorKey = process.env.CURSOR_API_KEY;
-	if (cursorKey && cursorKey.length > 10 && String(text ?? "").includes(cursorKey)) {
-		violations.push("CURSOR_API_KEY literal found");
-	}
-	for (const [pattern, label] of SECRET_PATTERNS) {
-		pattern.lastIndex = 0;
-		if (pattern.test(String(text ?? ""))) violations.push(`potential ${label}`);
-	}
-	return violations;
+function safeArtifactPath(path) {
+	return redactSecrets(path || ".");
 }
 
-/** Scan all text files in a directory for secrets. */
+function isSensitiveTransportPath(root, path) {
+	return artifactRelativePath(root, path).split("/").some((name) =>
+		/^\.env/i.test(name) || /^auth\.json$/i.test(name) || /^(?:id_rsa|id_ed25519|.*\.pem|.*\.key)$/i.test(name));
+}
+
+/** Binary-safe scan of every bounded artifact file except non-artifact infrastructure. */
 export function scanArtifacts(dir) {
 	const findings = [];
-	function walk(d) {
-		for (const entry of readdirSync(d, { withFileTypes: true })) {
-			const fp = resolve(d, entry.name);
-			if (entry.isDirectory()) { walk(fp); continue; }
-			if (!entry.isFile()) continue;
-			const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
-			if (!["txt", "json", "jsonl", "md", "log", "ansi", "html", "yml", "yaml", "js", "mjs", "ts"].includes(ext)) continue;
-			try {
-				const content = readFileSync(fp, "utf-8");
-				const violations = scanForSecrets(content);
-				for (const v of violations) {
-					findings.push({ file: relative(dir, fp), violation: v });
-				}
-			} catch { /* binary or unreadable */ }
-		}
+	const failures = [];
+	function relativeDetails(root, path) {
+		const relativePath = artifactRelativePath(root, path) || ".";
+		const file = safeArtifactPath(relativePath);
+		for (const violation of scanForSecrets(relativePath)) findings.push({ file, violation });
+		return { relativePath, file };
 	}
-	walk(dir);
-	return findings;
+	walkArtifactTree(dir, {
+		directoryRead: (path, _parents, root) => failures.push({ file: relativeDetails(root, path).file, violation: "artifact scan directory-read" }),
+		fileRead: (path, _parents, root) => failures.push({ file: relativeDetails(root, path).file, violation: "artifact scan file-read" }),
+		nonRegular: (path, _parents, root) => failures.push({ file: relativeDetails(root, path).file, violation: "artifact scan non-regular-entry" }),
+		file: (path, parents, root) => {
+			const { file } = relativeDetails(root, path);
+			const snapshot = boundedFileSnapshot(path, MAX_BUNDLE_FILE_BYTES, parents);
+			if (!snapshot.ok) {
+				failures.push({ file, violation: `artifact scan ${snapshot.reason}` });
+				return;
+			}
+			for (const violation of scanForSecrets(snapshot.content)) findings.push({ file, violation });
+		},
+	});
+	return failures.length > 0 ? failures : findings;
 }
 
 /** Write summary.json for a suite. */
@@ -180,11 +197,231 @@ export function writeSummary(dir, data) {
 }
 
 function readJsonFile(path) {
+	const snapshot = boundedFileSnapshot(path);
+	if (!snapshot.ok) return undefined;
 	try {
-		return JSON.parse(readFileSync(path, "utf8"));
+		return JSON.parse(snapshot.content.toString("utf8"));
 	} catch {
 		return undefined;
 	}
+}
+
+function shouldTransportBundleFile(root, path, pathPrefix) {
+	if (isSensitiveTransportPath(root, path) || !isTransportableTextPath(path)) return false;
+	if (pathPrefix) return true;
+	const rel = relative(root, path).replace(/\\/g, "/");
+	return /^(?:artifacts\/(?:terminal\.(?:ansi|txt)|session\.jsonl|live-status\.json|pi-command\.json|bridge-diagnostics\.jsonl|abort-started\.txt)|logs\/(?:process-|leftover-process-check)[^/]*|cursor-sdk-events\/.*\/(?:session|metadata)\.json)$/i.test(rel);
+}
+
+function singleFilePlatformArtifactBundle(pathPrefix, name, value) {
+	const content = `${JSON.stringify(value, null, 2)}\n`;
+	return {
+		files: [{
+			path: [pathPrefix || "artifacts", name].join("/"),
+			contentBase64: Buffer.from(content).toString("base64"),
+			size: Buffer.byteLength(content),
+		}],
+	};
+}
+
+function bundleLimitArtifact(pathPrefix, reasons) {
+	return singleFilePlatformArtifactBundle(pathPrefix, "bundle-limit-exceeded.json", {
+		status: "failed",
+		reasons: [...new Set(reasons)],
+		limits: {
+			maxFileBytes: MAX_BUNDLE_FILE_BYTES,
+			maxFileCount: MAX_BUNDLE_FILE_COUNT,
+			maxAggregateBytes: MAX_BUNDLE_AGGREGATE_BYTES,
+			maxPathBytes: MAX_BUNDLE_PATH_BYTES,
+			maxPathComponents: MAX_BUNDLE_PATH_COMPONENTS,
+			maxInflatedJsonBytes: MAX_INFLATED_BUNDLE_JSON_BYTES,
+			maxCompressedBytes: MAX_COMPRESSED_BUNDLE_BYTES,
+		},
+	});
+}
+
+export function buildPlatformArtifactBundle(root, pathPrefix = "") {
+	const prefixViolations = scanForSecrets(pathPrefix);
+	if (prefixViolations.length > 0) {
+		return singleFilePlatformArtifactBundle("artifacts", "bundle-redaction-violations.json",
+			prefixViolations.map((violation) => ({ file: "[artifact-path-prefix]", violation })));
+	}
+	const files = [];
+	const findings = [];
+	const limitReasons = [];
+	let aggregateBytes = 0;
+	walkArtifactTree(root, {
+		directoryRead: () => limitReasons.push("directory-read"),
+		fileRead: () => limitReasons.push("file-read"),
+		nonRegular: () => limitReasons.push("non-regular-entry"),
+		file: (path, parents, canonicalRoot) => {
+			const rel = artifactRelativePath(canonicalRoot, path);
+			const file = safeArtifactPath(rel);
+			const pathViolations = scanForSecrets(rel);
+			for (const violation of pathViolations) findings.push({ file, violation });
+			const snapshot = boundedFileSnapshot(path, MAX_BUNDLE_FILE_BYTES, parents);
+			if (!snapshot.ok) {
+				limitReasons.push(snapshot.reason);
+				return;
+			}
+			const { content } = snapshot;
+			for (const violation of scanForSecrets(content)) findings.push({ file, violation });
+			if (pathViolations.length > 0 || !shouldTransportBundleFile(canonicalRoot, path, pathPrefix)) return;
+			if (isBinaryArtifactContent(content)) {
+				limitReasons.push("binary-content");
+			} else if (files.length >= MAX_BUNDLE_FILE_COUNT) {
+				limitReasons.push("file-count");
+			} else if (aggregateBytes + content.length > MAX_BUNDLE_AGGREGATE_BYTES) {
+				limitReasons.push("aggregate-bytes");
+			} else {
+				files.push({ path: [pathPrefix, rel].filter(Boolean).join("/"), contentBase64: content.toString("base64"), size: content.length });
+				aggregateBytes += content.length;
+			}
+		},
+	});
+	if (limitReasons.length > 0) return bundleLimitArtifact(pathPrefix, limitReasons);
+	if (findings.length > 0) {
+		return singleFilePlatformArtifactBundle(pathPrefix, "bundle-redaction-violations.json", findings);
+	}
+	return { files };
+}
+
+function validatePlatformArtifactBundle(bundle) {
+	if (!bundle || typeof bundle !== "object" || Array.isArray(bundle) ||
+		Object.keys(bundle).length !== 1 || !Object.hasOwn(bundle, "files") ||
+		!Array.isArray(bundle.files) || bundle.files.length > MAX_BUNDLE_FILE_COUNT) return undefined;
+	const files = [];
+	const paths = new Set();
+	let aggregateBytes = 0;
+	let pathComponents = 0;
+	for (const file of bundle.files) {
+		if (!file || typeof file !== "object" || Array.isArray(file) ||
+			Object.keys(file).length !== 3 || !Object.hasOwn(file, "path") ||
+			!Object.hasOwn(file, "contentBase64") || !Object.hasOwn(file, "size") ||
+			!isCanonicalPlatformBundlePath(file.path) || scanForSecrets(file.path).length > 0 ||
+			!isTransportableTextPath(file.path) || !Number.isSafeInteger(file.size) || file.size < 0 || file.size > MAX_BUNDLE_FILE_BYTES) return undefined;
+		const comparisonPath = process.platform === "win32" ? file.path.toLowerCase() : file.path;
+		if (paths.has(comparisonPath)) return undefined;
+		paths.add(comparisonPath);
+		pathComponents += file.path.split("/").length;
+		if (pathComponents > MAX_BUNDLE_PATH_COMPONENTS) return undefined;
+		aggregateBytes += file.size;
+		if (aggregateBytes > MAX_BUNDLE_AGGREGATE_BYTES) return undefined;
+		const content = decodeCanonicalBase64(file.contentBase64, file.size);
+		if (!content || content.length !== file.size || isBinaryArtifactContent(content) || scanForSecrets(content).length > 0) return undefined;
+		files.push({ path: file.path, content });
+	}
+	for (const path of paths) {
+		const segments = path.split("/");
+		for (let index = 1; index < segments.length; index++) {
+			if (paths.has(segments.slice(0, index).join("/"))) return undefined;
+		}
+	}
+	return files;
+}
+
+function compressPlatformArtifactBundle(bundle) {
+	if (!validatePlatformArtifactBundle(bundle)) throw new Error("platform artifact bundle exceeds decoded limits");
+	const serialized = Buffer.from(JSON.stringify(bundle));
+	if (serialized.length > MAX_INFLATED_BUNDLE_JSON_BYTES) throw new Error("platform artifact bundle exceeds inflated JSON limit");
+	const compressed = gzipSync(serialized, { level: 9 });
+	if (compressed.length > MAX_COMPRESSED_BUNDLE_BYTES) throw new Error("platform artifact bundle exceeds compressed limit");
+	return compressed;
+}
+
+function platformArtifactBundleEnvelope(compressed) {
+	return {
+		encoding: "gzip-base64",
+		size: compressed.length,
+		sha256: createHash("sha256").update(compressed).digest("hex"),
+		contentBase64: compressed.toString("base64"),
+	};
+}
+
+function formatCompressedPlatformArtifactBundle(compressed) {
+	return `${PLATFORM_ARTIFACT_BUNDLE_START}\n${JSON.stringify(platformArtifactBundleEnvelope(compressed))}\n${PLATFORM_ARTIFACT_BUNDLE_END}\n`;
+}
+
+export function formatPlatformArtifactBundle(bundle) {
+	return formatCompressedPlatformArtifactBundle(compressPlatformArtifactBundle(bundle));
+}
+
+export function writePlatformArtifactBundle(root, pathPrefix = "") {
+	rmSync(PLATFORM_ARTIFACT_BUNDLE_PATH, { force: true });
+	const validPrefix = pathPrefix === "" || (isCanonicalPlatformBundlePath(pathPrefix) && scanForSecrets(pathPrefix).length === 0);
+	let bundle = validPrefix ? buildPlatformArtifactBundle(root, pathPrefix) : undefined;
+	let compressed;
+	if (!bundle || !validatePlatformArtifactBundle(bundle)) {
+		bundle = bundleLimitArtifact("artifacts", [validPrefix ? "invalid-bundle" : "invalid-path-prefix"]);
+		compressed = compressPlatformArtifactBundle(bundle);
+	} else {
+		try {
+			compressed = compressPlatformArtifactBundle(bundle);
+		} catch (error) {
+			bundle = bundleLimitArtifact(pathPrefix, [error instanceof Error ? error.message : "bundle-encoding"]);
+			compressed = compressPlatformArtifactBundle(bundle);
+		}
+	}
+	const inline = formatCompressedPlatformArtifactBundle(compressed);
+	if (Buffer.byteLength(inline) <= INLINE_BUNDLE_MAX_BYTES) {
+		process.stdout.write(inline);
+		return bundle;
+	}
+	writeBundleSpillFile(PLATFORM_ARTIFACT_BUNDLE_PATH, compressed);
+	process.stdout.write(`${PLATFORM_ARTIFACT_BUNDLE_FILE_MARKER}${JSON.stringify({
+		path: PLATFORM_ARTIFACT_BUNDLE_PATH,
+		...platformArtifactBundleEnvelope(compressed),
+		encoding: "gzip",
+		contentBase64: undefined,
+	})}\n`);
+	return bundle;
+}
+
+export function isSafePlatformBundlePath(outputDir, bundlePath) {
+	if (!isCanonicalPlatformBundlePath(bundlePath)) return false;
+	const outPath = resolve(outputDir, bundlePath);
+	const rel = relative(outputDir, outPath).replace(/\\/g, "/");
+	return rel === bundlePath && !isAbsolute(rel);
+}
+
+export function extractPlatformArtifactBundle(outputDir, stdout) {
+	const failed = { ok: false, violations: [] };
+	const start = stdout.indexOf(PLATFORM_ARTIFACT_BUNDLE_START);
+	const end = stdout.indexOf(PLATFORM_ARTIFACT_BUNDLE_END, start);
+	if (start === -1 || end === -1) return failed;
+	let bundle;
+	const payload = stdout.slice(start + PLATFORM_ARTIFACT_BUNDLE_START.length, end).trim();
+	if (Buffer.byteLength(payload) > MAX_INFLATED_BUNDLE_JSON_BYTES) return failed;
+	try {
+		const parsed = JSON.parse(payload);
+		if (parsed?.encoding !== "gzip-base64" || typeof parsed.contentBase64 !== "string" ||
+			!Number.isSafeInteger(parsed.size) || parsed.size < 1 || parsed.size > MAX_COMPRESSED_BUNDLE_BYTES ||
+			typeof parsed.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(parsed.sha256)) return failed;
+		const compressed = decodeCanonicalBase64(parsed.contentBase64, parsed.size);
+		if (!compressed || compressed.length !== parsed.size || createHash("sha256").update(compressed).digest("hex") !== parsed.sha256) return failed;
+		bundle = JSON.parse(gunzipSync(compressed, { maxOutputLength: MAX_INFLATED_BUNDLE_JSON_BYTES }).toString("utf8"));
+	} catch { return failed; }
+	const decodedFiles = validatePlatformArtifactBundle(bundle);
+	if (!decodedFiles || decodedFiles.some((file) => !isSafePlatformBundlePath(outputDir, file.path))) return failed;
+
+	const files = [];
+	const violations = [];
+	for (const file of decodedFiles) {
+		const text = file.content.toString("utf8");
+		violations.push(...scanForSecrets(file.content).map((violation) => ({ file: file.path, violation })));
+		if (file.path.endsWith("redaction-violations.json")) {
+			try {
+				const parsed = JSON.parse(text);
+				if (Array.isArray(parsed)) violations.push(...parsed.filter((item) => typeof item?.violation === "string").map((item) => ({
+					file: typeof item.file === "string" ? item.file : file.path, violation: item.violation,
+				})));
+			} catch {}
+		}
+		files.push({ path: file.path, content: Buffer.from(redactSecrets(text)) });
+	}
+
+	const succeeded = writeExtractedFiles(outputDir, files);
+	return succeeded ? { ok: true, violations } : failed;
 }
 
 function collectFiles(root) {
@@ -227,6 +464,7 @@ function providerDebugPathFields(debugRoot) {
 function pathFields(suiteDir) {
 	const artifactsDir = resolve(suiteDir, "artifacts");
 	const debugRoot = resolve(suiteDir, "cursor-sdk-events");
+	const localResumeEvidenceRoot = resolve(suiteDir, "local-resume-evidence");
 	const paths = {
 		artifactManifest: existingPath(resolve(suiteDir, "artifact-manifest.json")),
 		summary: existingPath(resolve(suiteDir, "summary.json")),
@@ -238,6 +476,9 @@ function pathFields(suiteDir) {
 		visualEvidence: existingPath(resolve(artifactsDir, "visual-evidence.json")),
 		sessionJsonl: existingPath(resolve(artifactsDir, "session.jsonl")),
 		jsonlToolResults: existingPath(resolve(artifactsDir, "jsonl-tool-results.json")),
+		localResumeEvidence: existingPath(resolve(suiteDir, "local-resume-evidence.json")),
+		localResumeEvidenceRoot: existingPath(localResumeEvidenceRoot),
+		localResumeRuntimeLaunches: existingPath(resolve(localResumeEvidenceRoot, "runtime-launches.jsonl")),
 		...providerDebugPathFields(debugRoot),
 	};
 	for (const [key, value] of Object.entries(paths)) {
@@ -331,17 +572,4 @@ export function writeCommand(dir, cmd) {
 /** Write exit-code.txt. */
 export function writeExitCode(dir, code, signal) {
 	writeFileSync(resolve(dir, "exit-code.txt"), `code=${code}\nsignal=${signal ?? "none"}\n`);
-}
-
-/** Package a directory as tar.gz (posix) or zip (powershell). */
-export async function packageArtifacts(dir, archivePath) {
-	const { execSync } = await import("node:child_process");
-	const dirName = basename(dir);
-	const parentDir = resolve(dir, "..");
-	if (archivePath.endsWith(".tar.gz")) {
-		execSync(`tar -czf "${archivePath}" -C "${parentDir}" "${dirName}"`, { stdio: "pipe" });
-	} else if (archivePath.endsWith(".zip")) {
-		execSync(`cd "${parentDir}" && zip -r "${archivePath}" "${dirName}"`, { stdio: "pipe" });
-	}
-	return archivePath;
 }

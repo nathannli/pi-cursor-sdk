@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { parseOptionalEnvBoolean } from "./cursor-env-boolean.js";
+import { asRecord } from "./cursor-record-utils.js";
 
 export const CURSOR_SDK_CONFIG_FILE = "cursor-sdk.json";
 
 export const CURSOR_RUNTIME_ENV = "PI_CURSOR_RUNTIME";
-export const CURSOR_TOOL_TRANSPORT_ENV = "PI_CURSOR_TOOL_TRANSPORT";
 export const CURSOR_CLOUD_REPO_ENV = "PI_CURSOR_CLOUD_REPO";
 export const CURSOR_CLOUD_BRANCH_ENV = "PI_CURSOR_CLOUD_BRANCH";
 export const CURSOR_CLOUD_CONTEXT_ENV = "PI_CURSOR_CLOUD_CONTEXT";
@@ -24,7 +26,6 @@ export const CURSOR_LOCAL_RESUME_ENV = "PI_CURSOR_LOCAL_RESUME";
 export type CursorConfigSource = "cli" | "environment" | "project" | "user" | "session" | "model-alias" | "builtin";
 export type CursorConfigTrustLevel = "one-shot" | "environment" | "trusted-project" | "user" | "session" | "model-catalog" | "builtin";
 export type CursorRuntime = "local" | "cloud";
-export type CursorToolTransport = "mcp" | "customTools";
 export type CursorCloudContextHandoff = "never" | "fresh" | "bootstrap";
 export type CursorCloudEnvironmentType = "cloud" | "pool" | "machine";
 
@@ -36,7 +37,6 @@ export interface CursorCloudEnvironmentConfig {
 export interface CursorSdkConfig {
 	fastDefaults?: Record<string, boolean>;
 	runtime?: CursorRuntime;
-	toolTransport?: CursorToolTransport;
 	cloud?: {
 		repo?: string;
 		branch?: string;
@@ -77,7 +77,6 @@ export interface CursorResolvedSetting<T> {
 
 export interface CursorResolvedSdkConfig {
 	runtime: CursorResolvedSetting<CursorRuntime>;
-	toolTransport: CursorResolvedSetting<CursorToolTransport>;
 	cloud: {
 		repo: CursorResolvedSetting<string | undefined>;
 		branch: CursorResolvedSetting<string | undefined>;
@@ -97,8 +96,21 @@ export interface CursorResolvedSdkConfig {
 	};
 }
 
+// Widens string-literal-union fields (e.g. runtime, contextHandoff) to raw `string` so CLI callers can
+// pass unvalidated input through to validateExplicitValue, while keeping every other field's shape linked
+// to CursorSdkConfig so new fields don't need a manually maintained parallel type.
+type WidenLiterals<T> = T extends string
+	? string
+	: T extends readonly (infer U)[]
+		? WidenLiterals<U>[]
+		: T extends object
+			? { [K in keyof T]: WidenLiterals<T[K]> }
+			: T;
+
+export type CursorExplicitSdkConfig = WidenLiterals<CursorSdkConfig>;
+
 export interface ResolveCursorSdkConfigOptions {
-	cli?: CursorSdkConfig;
+	cli?: CursorExplicitSdkConfig;
 	env?: Record<string, string | undefined>;
 	session?: CursorSdkConfig;
 	project?: CursorSdkConfig;
@@ -122,11 +134,10 @@ const TRUST_LEVELS: Record<CursorConfigSource, CursorConfigTrustLevel> = {
 	builtin: "builtin",
 };
 
-const BUILT_IN_CURSOR_CONFIG: Required<Pick<CursorSdkConfig, "runtime" | "toolTransport">> & {
+const BUILT_IN_CURSOR_CONFIG: Required<Pick<CursorSdkConfig, "runtime">> & {
 	cloud: Required<NonNullable<CursorSdkConfig["cloud"]>>;
 } = {
 	runtime: "local",
-	toolTransport: "mcp",
 	cloud: {
 		repo: "",
 		branch: "",
@@ -140,32 +151,28 @@ const BUILT_IN_CURSOR_CONFIG: Required<Pick<CursorSdkConfig, "runtime" | "toolTr
 	},
 };
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
-
-function isCursorRuntime(value: unknown): value is CursorRuntime {
+export function isCursorRuntime(value: unknown): value is CursorRuntime {
 	return value === "local" || value === "cloud";
 }
 
-function isCursorToolTransport(value: unknown): value is CursorToolTransport {
-	return value === "mcp" || value === "customTools";
+export function isCursorCloudContextHandoff(value: unknown): value is CursorCloudContextHandoff {
+	return value === "never" || value === "fresh" || value === "bootstrap";
 }
 
-function isCursorCloudContextHandoff(value: unknown): value is CursorCloudContextHandoff {
-	return value === "never" || value === "fresh" || value === "bootstrap";
+function validateExplicitValue<T extends string>(
+	raw: string | undefined,
+	name: string,
+	isValid: (value: unknown) => value is T,
+	validValues: string,
+): T | undefined {
+	const value = raw?.trim();
+	if (!value) return undefined;
+	if (!isValid(value)) throw new Error(`Invalid ${name} "${value}". Use ${validValues}.`);
+	return value;
 }
 
 export function isCursorCloudEnvironmentType(value: unknown): value is CursorCloudEnvironmentType {
 	return value === "cloud" || value === "pool" || value === "machine";
-}
-
-function parseEnvBoolean(value: string | undefined): boolean | undefined {
-	if (value === undefined) return undefined;
-	const normalized = value.trim().toLowerCase();
-	if (["1", "true", "yes", "on"].includes(normalized)) return true;
-	if (["0", "false", "no", "off"].includes(normalized)) return false;
-	return undefined;
 }
 
 function parseNonEmptyString(value: unknown): string | undefined {
@@ -189,6 +196,14 @@ function parseEnvNames(value: unknown): string[] | undefined {
 	return parsed.length > 0 || (Array.isArray(value) && value.length === 0) ? parsed : undefined;
 }
 
+export function parseExplicitCursorCloudEnvNames(value: string | undefined, name: string): string[] | undefined {
+	const request = parseNonEmptyString(value);
+	if (!request) return undefined;
+	const parsed = parseEnvNames(request);
+	if (!parsed?.length) throw new Error(`Invalid ${name}: no valid environment variable names were requested.`);
+	return parsed;
+}
+
 function parseCloudEnvironment(value: unknown): CursorCloudEnvironmentConfig | undefined {
 	const environment = asRecord(value);
 	if (!environment) return undefined;
@@ -206,7 +221,6 @@ export function parseCursorSdkConfig(value: unknown): CursorSdkConfig | undefine
 	const config: CursorSdkConfig = {};
 
 	if (isCursorRuntime(record.runtime)) config.runtime = record.runtime;
-	if (isCursorToolTransport(record.toolTransport)) config.toolTransport = record.toolTransport;
 
 	const fastDefaults = asRecord(record.fastDefaults);
 	if (fastDefaults) {
@@ -282,15 +296,39 @@ export function loadCursorSdkConfig(options: LoadCursorSdkConfigOptions = {}): {
 	return project ? { user, project } : { user };
 }
 
-export function saveCursorSdkUserConfig(config: CursorSdkConfig, path = getCursorSdkUserConfigPath()): void {
+function replaceJsonFile(path: string, config: CursorSdkConfig, mode?: number): void {
 	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+	const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+	let replaced = false;
+	try {
+		writeFileSync(tempPath, `${JSON.stringify(config, null, 2)}\n`, {
+			encoding: "utf8",
+			flag: "wx",
+			...(mode === undefined ? {} : { mode }),
+		});
+		if (mode !== undefined) chmodSync(tempPath, mode);
+		renameSync(tempPath, path);
+		replaced = true;
+	} finally {
+		if (!replaced) {
+			try {
+				rmSync(tempPath, { force: true });
+			} catch {
+				// Keep the replacement failure; cleanup is best effort.
+			}
+		}
+	}
+}
+
+export function saveCursorSdkUserConfig(config: CursorSdkConfig, path = getCursorSdkUserConfigPath()): void {
+	const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600;
+	replaceJsonFile(path, config, mode);
 }
 
 export function saveCursorSdkProjectConfig(cwd: string, config: CursorSdkConfig, configDirName = CONFIG_DIR_NAME): void {
 	const path = getCursorSdkProjectConfigPath(cwd, configDirName);
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+	const mode = existsSync(path) ? statSync(path).mode & 0o777 : undefined;
+	replaceJsonFile(path, config, mode);
 }
 
 export function mergeCursorSdkConfig(base: CursorSdkConfig, patch: CursorSdkConfig): CursorSdkConfig {
@@ -339,67 +377,90 @@ function resolveOrdinary<T>(layers: Array<CursorResolvedSetting<T> | undefined>)
 	return match;
 }
 
-function resolveSafety<T>(
+// One cap engine for every safety-capped field. `cap` receives the candidate cap layer's raw value and the
+// resolved base setting; it returns the value to use once capped, or undefined to mean "don't cap". CLI is
+// always uncapped (one-shot, explicit operator intent).
+function resolveWithCap<T>(
 	baseLayers: Array<CursorResolvedSetting<T> | undefined>,
-	capLayers: Array<CursorResolvedSetting<T> | undefined>,
-	risk: (value: T) => number,
+	capLayer: CursorResolvedSetting<T> | undefined,
+	cap: (candidate: T, base: CursorResolvedSetting<T>) => T | undefined,
 ): CursorResolvedSetting<T> {
 	const cli = baseLayers[0];
 	if (cli) return cli;
 	const base = resolveOrdinary(baseLayers.slice(1));
-	const cap = capLayers
-		.filter((layer): layer is CursorResolvedSetting<T> => layer !== undefined && risk(layer.value) < risk(base.value))
-		.sort((a, b) => risk(a.value) - risk(b.value))[0];
-	if (!cap) return base;
-	return resolved(cap.source, cap.value, {
-		source: cap.source,
-		trustLevel: cap.trustLevel,
-		value: cap.value,
+	if (!capLayer) return base;
+	const cappedValue = cap(capLayer.value, base);
+	if (cappedValue === undefined) return base;
+	return resolved(capLayer.source, cappedValue, {
+		source: capLayer.source,
+		trustLevel: capLayer.trustLevel,
+		value: cappedValue,
 		cappedSource: base.source,
 		cappedValue: base.value,
 		reason: "safer-source",
 	});
 }
 
-function resolveEnvNamesSafety(
-	baseLayers: Array<CursorResolvedSetting<string[]> | undefined>,
-	userCap: CursorResolvedSetting<string[]> | undefined,
-): CursorResolvedSetting<string[]> {
-	const cli = baseLayers[0];
-	if (cli) return cli;
-	const base = resolveOrdinary(baseLayers.slice(1));
-	if (!userCap || base.source === "user") return base;
-	const allowed = new Set(userCap.value);
+function scalarRiskCap<T>(risk: (value: T) => number): (candidate: T, base: CursorResolvedSetting<T>) => T | undefined {
+	return (candidate, base) => (risk(candidate) < risk(base.value) ? candidate : undefined);
+}
+
+function envNamesCap(candidate: string[], base: CursorResolvedSetting<string[]>): string[] | undefined {
+	if (base.source === "user") return undefined;
+	const allowed = new Set(candidate);
 	const filtered = base.value.filter((name) => allowed.has(name));
-	if (filtered.length === base.value.length) return base;
-	return resolved(userCap.source, filtered, {
-		source: userCap.source,
-		trustLevel: userCap.trustLevel,
-		value: filtered,
-		cappedSource: base.source,
-		cappedValue: base.value,
-		reason: "safer-source",
-	});
+	return filtered.length === base.value.length ? undefined : filtered;
+}
+
+// Field/layer resolver table: each field declares the ordered list of sources it participates in (its
+// precedence), plus its per-layer values. Sources omitted from a field's order (e.g. cloud fields skip
+// "project", local fields skip "session", force skips both) are the field-specific omissions the review
+// asked to keep explicit; test/cursor-config.test.ts asserts each one.
+type CursorFieldSource = Exclude<CursorConfigSource, "model-alias">;
+type CursorFieldValues<T> = Partial<Record<CursorFieldSource, T>>;
+
+const RUNTIME_ORDER: CursorFieldSource[] = ["cli", "environment", "session", "project", "user", "builtin"];
+const CLOUD_ORDER: CursorFieldSource[] = ["cli", "environment", "session", "user", "builtin"];
+const LOCAL_ORDER: CursorFieldSource[] = ["cli", "environment", "project", "user", "builtin"];
+const LOCAL_FORCE_ORDER: CursorFieldSource[] = ["cli", "environment", "builtin"];
+
+function buildFieldLayers<T>(order: CursorFieldSource[], values: CursorFieldValues<T>): Array<CursorResolvedSetting<T> | undefined> {
+	return order.map((source) => (source === "builtin" ? resolved("builtin", values.builtin as T) : valueFrom(source, values[source])));
+}
+
+function resolveOrdinaryField<T>(order: CursorFieldSource[], values: CursorFieldValues<T>): CursorResolvedSetting<T> {
+	return resolveOrdinary(buildFieldLayers(order, values));
+}
+
+function resolveSafetyField<T>(order: CursorFieldSource[], values: CursorFieldValues<T>, risk: (value: T) => number): CursorResolvedSetting<T> {
+	return resolveWithCap(buildFieldLayers(order, values), valueFrom("user", values.user), scalarRiskCap(risk));
+}
+
+function resolveEnvNamesSafetyField(order: CursorFieldSource[], values: CursorFieldValues<string[]>): CursorResolvedSetting<string[]> {
+	return resolveWithCap(buildFieldLayers(order, values), valueFrom("user", values.user), envNamesCap);
 }
 
 export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> = process.env): CursorSdkConfig {
 	const config: CursorSdkConfig = {};
-	const runtime = env[CURSOR_RUNTIME_ENV]?.trim();
-	if (isCursorRuntime(runtime)) config.runtime = runtime;
-	const toolTransport = env[CURSOR_TOOL_TRANSPORT_ENV]?.trim();
-	if (isCursorToolTransport(toolTransport)) config.toolTransport = toolTransport;
+	const runtime = validateExplicitValue(env[CURSOR_RUNTIME_ENV], CURSOR_RUNTIME_ENV, isCursorRuntime, '"local" or "cloud"');
+	if (runtime) config.runtime = runtime;
 	const repo = parseNonEmptyString(env[CURSOR_CLOUD_REPO_ENV]);
 	const branch = parseNonEmptyString(env[CURSOR_CLOUD_BRANCH_ENV]);
-	const contextHandoff = env[CURSOR_CLOUD_CONTEXT_ENV]?.trim();
-	const directPush = parseEnvBoolean(env[CURSOR_CLOUD_DIRECT_PUSH_ENV]);
-	const allowLocalState = parseEnvBoolean(env[CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV]);
-	const envNames = parseEnvNames(env[CURSOR_CLOUD_ENV_ENV]);
-	const envFromFiles = parseEnvBoolean(env[CURSOR_CLOUD_ENV_FROM_FILES_ENV]);
+	const contextHandoff = validateExplicitValue(
+		env[CURSOR_CLOUD_CONTEXT_ENV],
+		CURSOR_CLOUD_CONTEXT_ENV,
+		isCursorCloudContextHandoff,
+		'"never", "fresh", or "bootstrap"',
+	);
+	const directPush = parseOptionalEnvBoolean(env[CURSOR_CLOUD_DIRECT_PUSH_ENV]);
+	const allowLocalState = parseOptionalEnvBoolean(env[CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV]);
+	const envNames = parseExplicitCursorCloudEnvNames(env[CURSOR_CLOUD_ENV_ENV], CURSOR_CLOUD_ENV_ENV);
+	const envFromFiles = parseOptionalEnvBoolean(env[CURSOR_CLOUD_ENV_FROM_FILES_ENV]);
 	const environment = parseCloudEnvironment({
 		type: env[CURSOR_CLOUD_ENV_TYPE_ENV],
 		name: env[CURSOR_CLOUD_ENV_NAME_ENV],
 	});
-	const acknowledged = parseEnvBoolean(env[CURSOR_CLOUD_ACK_ENV]);
+	const acknowledged = parseOptionalEnvBoolean(env[CURSOR_CLOUD_ACK_ENV]);
 	if (
 		repo !== undefined ||
 		branch !== undefined ||
@@ -423,10 +484,10 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 			...(acknowledged !== undefined ? { acknowledged } : {}),
 		};
 	}
-	const autoReview = parseEnvBoolean(env[CURSOR_AUTO_REVIEW_ENV]);
-	const sandbox = parseEnvBoolean(env[CURSOR_SANDBOX_ENV]);
-	const force = parseEnvBoolean(env[CURSOR_LOCAL_FORCE_ENV]);
-	const resume = parseEnvBoolean(env[CURSOR_LOCAL_RESUME_ENV]);
+	const autoReview = parseOptionalEnvBoolean(env[CURSOR_AUTO_REVIEW_ENV]);
+	const sandbox = parseOptionalEnvBoolean(env[CURSOR_SANDBOX_ENV]);
+	const force = parseOptionalEnvBoolean(env[CURSOR_LOCAL_FORCE_ENV]);
+	const resume = parseOptionalEnvBoolean(env[CURSOR_LOCAL_RESUME_ENV]);
 	if (autoReview !== undefined || sandbox !== undefined || force !== undefined || resume !== undefined) {
 		config.local = {
 			...(autoReview !== undefined ? { autoReview } : {}),
@@ -439,6 +500,13 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 }
 
 export function resolveCursorSdkConfig(options: ResolveCursorSdkConfigOptions = {}): CursorResolvedSdkConfig {
+	const cliRuntime = validateExplicitValue(options.cli?.runtime, "--cursor-runtime", isCursorRuntime, '"local" or "cloud"');
+	const cliContextHandoff = validateExplicitValue(
+		options.cli?.cloud?.contextHandoff,
+		"--cursor-cloud-context",
+		isCursorCloudContextHandoff,
+		'"never", "fresh", or "bootstrap"',
+	);
 	const env = cursorSdkConfigFromEnv(options.env);
 	const builtIn = {
 		...BUILT_IN_CURSOR_CONFIG,
@@ -450,137 +518,126 @@ export function resolveCursorSdkConfig(options: ResolveCursorSdkConfigOptions = 
 	const project = options.project;
 	const user = options.user;
 	return {
-		runtime: resolveSafety(
-			[
-				valueFrom("cli", cli?.runtime),
-				valueFrom("environment", env.runtime),
-				valueFrom("session", session?.runtime),
-				valueFrom("project", project?.runtime),
-				valueFrom("user", user?.runtime),
-				valueFrom("builtin", builtIn.runtime),
-			],
-			[valueFrom("user", user?.runtime)],
+		runtime: resolveSafetyField(
+			RUNTIME_ORDER,
+			{
+				cli: cliRuntime,
+				environment: env.runtime,
+				session: session?.runtime,
+				project: project?.runtime,
+				user: user?.runtime,
+				builtin: builtIn.runtime,
+			},
 			(value) => (value === "cloud" ? 1 : 0),
 		),
-		toolTransport: resolveOrdinary([
-			valueFrom("cli", cli?.toolTransport),
-			valueFrom("environment", env.toolTransport),
-			valueFrom("session", session?.toolTransport),
-			valueFrom("project", project?.toolTransport),
-			valueFrom("user", user?.toolTransport),
-			valueFrom("builtin", builtIn.toolTransport),
-		]),
 		cloud: {
-			repo: resolveOrdinary([
-				valueFrom("cli", cli?.cloud?.repo),
-				valueFrom("environment", env.cloud?.repo),
-				valueFrom("session", session?.cloud?.repo),
-				valueFrom("user", user?.cloud?.repo),
-				resolved("builtin", undefined),
-			]),
-			branch: resolveOrdinary([
-				valueFrom("cli", cli?.cloud?.branch),
-				valueFrom("environment", env.cloud?.branch),
-				valueFrom("session", session?.cloud?.branch),
-				valueFrom("user", user?.cloud?.branch),
-				resolved("builtin", undefined),
-			]),
-			contextHandoff: resolveSafety(
-				[
-					valueFrom("cli", cli?.cloud?.contextHandoff),
-					valueFrom("environment", env.cloud?.contextHandoff),
-					valueFrom("session", session?.cloud?.contextHandoff),
-					valueFrom("user", user?.cloud?.contextHandoff),
-					valueFrom("builtin", builtIn.cloud.contextHandoff),
-				],
-				[valueFrom("user", user?.cloud?.contextHandoff)],
+			repo: resolveOrdinaryField(CLOUD_ORDER, {
+				cli: cli?.cloud?.repo,
+				environment: env.cloud?.repo,
+				session: session?.cloud?.repo,
+				user: user?.cloud?.repo,
+				builtin: undefined,
+			}),
+			branch: resolveOrdinaryField(CLOUD_ORDER, {
+				cli: cli?.cloud?.branch,
+				environment: env.cloud?.branch,
+				session: session?.cloud?.branch,
+				user: user?.cloud?.branch,
+				builtin: undefined,
+			}),
+			contextHandoff: resolveSafetyField(
+				CLOUD_ORDER,
+				{
+					cli: cliContextHandoff,
+					environment: env.cloud?.contextHandoff,
+					session: session?.cloud?.contextHandoff,
+					user: user?.cloud?.contextHandoff,
+					builtin: builtIn.cloud.contextHandoff,
+				},
 				(value) => ({ never: 0, fresh: 1, bootstrap: 2 })[value],
 			),
-			directPush: resolveSafety(
-				[
-					valueFrom("cli", cli?.cloud?.directPush),
-					valueFrom("environment", env.cloud?.directPush),
-					valueFrom("session", session?.cloud?.directPush),
-					valueFrom("user", user?.cloud?.directPush),
-					valueFrom("builtin", builtIn.cloud.directPush),
-				],
-				[valueFrom("user", user?.cloud?.directPush)],
+			directPush: resolveSafetyField(
+				CLOUD_ORDER,
+				{
+					cli: cli?.cloud?.directPush,
+					environment: env.cloud?.directPush,
+					session: session?.cloud?.directPush,
+					user: user?.cloud?.directPush,
+					builtin: builtIn.cloud.directPush,
+				},
 				(value) => (value ? 1 : 0),
 			),
-			allowLocalState: resolveSafety(
-				[
-					valueFrom("cli", cli?.cloud?.allowLocalState),
-					valueFrom("environment", env.cloud?.allowLocalState),
-					valueFrom("session", session?.cloud?.allowLocalState),
-					valueFrom("user", user?.cloud?.allowLocalState),
-					valueFrom("builtin", builtIn.cloud.allowLocalState),
-				],
-				[valueFrom("user", user?.cloud?.allowLocalState)],
+			allowLocalState: resolveSafetyField(
+				CLOUD_ORDER,
+				{
+					cli: cli?.cloud?.allowLocalState,
+					environment: env.cloud?.allowLocalState,
+					session: session?.cloud?.allowLocalState,
+					user: user?.cloud?.allowLocalState,
+					builtin: builtIn.cloud.allowLocalState,
+				},
 				(value) => (value ? 1 : 0),
 			),
-			envNames: resolveEnvNamesSafety(
-				[
-					valueFrom("cli", cli?.cloud?.envNames),
-					valueFrom("environment", env.cloud?.envNames),
-					valueFrom("session", session?.cloud?.envNames),
-					valueFrom("user", user?.cloud?.envNames),
-					valueFrom("builtin", builtIn.cloud.envNames),
-				],
-				valueFrom("user", user?.cloud?.envNames),
-			),
-			envFromFiles: resolveSafety(
-				[
-					valueFrom("cli", cli?.cloud?.envFromFiles),
-					valueFrom("environment", env.cloud?.envFromFiles),
-					valueFrom("session", session?.cloud?.envFromFiles),
-					valueFrom("user", user?.cloud?.envFromFiles),
-					valueFrom("builtin", builtIn.cloud.envFromFiles),
-				],
-				[valueFrom("user", user?.cloud?.envFromFiles)],
+			envNames: resolveEnvNamesSafetyField(CLOUD_ORDER, {
+				cli: cli?.cloud?.envNames,
+				environment: env.cloud?.envNames,
+				session: session?.cloud?.envNames,
+				user: user?.cloud?.envNames,
+				builtin: builtIn.cloud.envNames,
+			}),
+			envFromFiles: resolveSafetyField(
+				CLOUD_ORDER,
+				{
+					cli: cli?.cloud?.envFromFiles,
+					environment: env.cloud?.envFromFiles,
+					session: session?.cloud?.envFromFiles,
+					user: user?.cloud?.envFromFiles,
+					builtin: builtIn.cloud.envFromFiles,
+				},
 				(value) => (value ? 1 : 0),
 			),
-			environment: resolveOrdinary([
-				valueFrom("cli", cli?.cloud?.environment),
-				valueFrom("environment", env.cloud?.environment),
-				valueFrom("session", session?.cloud?.environment),
-				valueFrom("user", user?.cloud?.environment),
-				resolved("builtin", undefined),
-			]),
-			acknowledged: resolveOrdinary([
-				valueFrom("cli", cli?.cloud?.acknowledged),
-				valueFrom("environment", env.cloud?.acknowledged),
-				valueFrom("session", session?.cloud?.acknowledged),
-				valueFrom("user", user?.cloud?.acknowledged),
-				valueFrom("builtin", builtIn.cloud.acknowledged),
-			]),
+			environment: resolveOrdinaryField(CLOUD_ORDER, {
+				cli: cli?.cloud?.environment,
+				environment: env.cloud?.environment,
+				session: session?.cloud?.environment,
+				user: user?.cloud?.environment,
+				builtin: undefined,
+			}),
+			acknowledged: resolveOrdinaryField(CLOUD_ORDER, {
+				cli: cli?.cloud?.acknowledged,
+				environment: env.cloud?.acknowledged,
+				session: session?.cloud?.acknowledged,
+				user: user?.cloud?.acknowledged,
+				builtin: builtIn.cloud.acknowledged,
+			}),
 		},
 		local: {
-			autoReview: resolveOrdinary([
-				valueFrom("cli", cli?.local?.autoReview),
-				valueFrom("environment", env.local?.autoReview),
-				valueFrom("project", project?.local?.autoReview),
-				valueFrom("user", user?.local?.autoReview),
-				valueFrom("builtin", false),
-			]),
-			sandboxEnabled: resolveOrdinary([
-				valueFrom("cli", cli?.local?.sandboxOptions?.enabled ?? cli?.local?.sandbox),
-				valueFrom("environment", env.local?.sandboxOptions?.enabled ?? env.local?.sandbox),
-				valueFrom("project", project?.local?.sandboxOptions?.enabled ?? project?.local?.sandbox),
-				valueFrom("user", user?.local?.sandboxOptions?.enabled ?? user?.local?.sandbox),
-				valueFrom("builtin", false),
-			]),
-			force: resolveOrdinary([
-				valueFrom("cli", cli?.local?.force),
-				valueFrom("environment", env.local?.force),
-				valueFrom("builtin", false),
-			]),
-			resume: resolveOrdinary([
-				valueFrom("cli", cli?.local?.resume),
-				valueFrom("environment", env.local?.resume),
-				valueFrom("project", project?.local?.resume),
-				valueFrom("user", user?.local?.resume),
-				valueFrom("builtin", true),
-			]),
+			autoReview: resolveOrdinaryField(LOCAL_ORDER, {
+				cli: cli?.local?.autoReview,
+				environment: env.local?.autoReview,
+				project: project?.local?.autoReview,
+				user: user?.local?.autoReview,
+				builtin: false,
+			}),
+			sandboxEnabled: resolveOrdinaryField(LOCAL_ORDER, {
+				cli: cli?.local?.sandboxOptions?.enabled ?? cli?.local?.sandbox,
+				environment: env.local?.sandboxOptions?.enabled ?? env.local?.sandbox,
+				project: project?.local?.sandboxOptions?.enabled ?? project?.local?.sandbox,
+				user: user?.local?.sandboxOptions?.enabled ?? user?.local?.sandbox,
+				builtin: false,
+			}),
+			force: resolveOrdinaryField(LOCAL_FORCE_ORDER, {
+				cli: cli?.local?.force,
+				environment: env.local?.force,
+				builtin: false,
+			}),
+			resume: resolveOrdinaryField(LOCAL_ORDER, {
+				cli: cli?.local?.resume,
+				environment: env.local?.resume,
+				project: project?.local?.resume,
+				user: user?.local?.resume,
+				builtin: true,
+			}),
 		},
 	};
 }

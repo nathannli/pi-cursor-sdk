@@ -84,7 +84,7 @@ describe("discoverModels", () => {
 			}),
 		]);
 		expect(issues[0].message).toContain("/login");
-		expect(issues[0].message).toContain("--api-key");
+		expect(issues[0].message).toContain("startup discovery does not parse Pi CLI arguments");
 		expect(issues[0].message).toContain("fallback models can run once auth exists");
 		expect(issues[0].message).toContain("/cursor-refresh-models");
 		expect(issues[0].message).not.toContain("will fail until pi is restarted");
@@ -100,20 +100,29 @@ describe("discoverModels", () => {
 		expect(mockedList).not.toHaveBeenCalled();
 	});
 
-	it("uses pi --api-key for model discovery when CURSOR_API_KEY is unset", async () => {
-		delete process.env.CURSOR_API_KEY;
-		process.argv = ["node", "pi", "--api-key", "cli-key-123"];
-		mockedList.mockResolvedValueOnce([
-			{
-				id: "composer-2",
-				displayName: "Composer 2",
-				variants: [{ params: [], displayName: "Composer 2", isDefault: true }],
-			},
-		]);
+	it("ignores adversarial Pi argv forms during startup discovery", async () => {
+		process.argv = [
+			"node", "pi", "--model", "anthropic/first", "--api-key", "first-key",
+			"--MODEL", "cursor/case", "--API-KEY", "case-key",
+			"--model=cursor/unsupported", "--api-key=equals-key",
+			"--models", "cursor/list-like", "--provider", "cursor",
+			"--model", "cursor/final", "--api-key", "last-key",
+		];
 
 		const models = await discoverModels();
 
-		expect(mockedList).toHaveBeenCalledWith({ apiKey: "cli-key-123" });
+		expect(models.some((model) => model.id === "composer-2.5")).toBe(true);
+		expect(mockedList).not.toHaveBeenCalled();
+	});
+
+	it("uses an explicitly supplied provider-scoped refresh key", async () => {
+		mockedList.mockResolvedValueOnce([
+			{ id: "composer-2", displayName: "Composer 2", variants: [{ params: [], displayName: "Composer 2", isDefault: true }] },
+		]);
+
+		const models = await discoverModels({ apiKey: " explicit-key " });
+
+		expect(mockedList).toHaveBeenCalledWith({ apiKey: "explicit-key" });
 		expect(models.map((model) => model.id)).toEqual(["composer-2"]);
 	});
 
@@ -131,22 +140,6 @@ describe("discoverModels", () => {
 
 		expect(mockedList).toHaveBeenCalledWith({ apiKey: "stored-key-123" });
 		expect(models.map((model) => model.id)).toEqual(["composer-2"]);
-	});
-
-	it("prefers CLI --api-key over stored pi auth for model discovery", async () => {
-		writeStoredCursorApiKey("stored-key-123");
-		process.argv = ["node", "pi", "--api-key", "cli-key-123"];
-		mockedList.mockResolvedValueOnce([
-			{
-				id: "composer-2",
-				displayName: "Composer 2",
-				variants: [{ params: [], displayName: "Composer 2", isDefault: true }],
-			},
-		]);
-
-		await discoverModels();
-
-		expect(mockedList).toHaveBeenCalledWith({ apiKey: "cli-key-123" });
 	});
 
 	it("prefers stored pi auth over CURSOR_API_KEY for model discovery", async () => {
@@ -198,11 +191,6 @@ describe("discoverModels", () => {
 			expect(mockedList).toHaveBeenCalledWith({ apiKey: "env-key-123" });
 		},
 	);
-
-	it("parses pi --api-key=value for model discovery", () => {
-		expect(__testUtils.getCliApiKeyFromArgv(["node", "pi", "--api-key=cli-key-123"])).toBe("cli-key-123");
-		expect(__testUtils.getCliApiKeyFromArgv(["node", "pi", "--api-key", "--list-models"])).toBeUndefined();
-	});
 
 	it("calls Cursor.models.list with API key and sorts by base id", async () => {
 		process.env.CURSOR_API_KEY = "test-key-123";
@@ -889,7 +877,7 @@ describe("discoverModels", () => {
 		const issues: CursorModelFallbackIssue[] = [];
 		mockedList.mockRejectedValueOnce(
 			new Error(
-				'Unauthorized Bearer test-key-123 {"apiKey":"test-key-123","token":"token-value","session_id":"session-value"} cookie: foo=bar; baz=qux',
+				'Unauthorized Bearer test-key-123 {"apiKey":"test-key-123","token":"token-value","session_id":"session-value"} https://repo-user:repo-p@ss@example.com/org/repo.git cookie: foo=bar; baz=qux',
 			),
 		);
 
@@ -905,6 +893,9 @@ describe("discoverModels", () => {
 		expect(issues[0].message).not.toContain("test-key-123");
 		expect(issues[0].message).not.toContain("token-value");
 		expect(issues[0].message).not.toContain("session-value");
+		expect(issues[0].message).not.toContain("repo-user");
+		expect(issues[0].message).not.toContain("repo-p");
+		expect(issues[0].message).not.toContain("@ss@");
 		expect(issues[0].message).not.toContain("foo=bar");
 		expect(issues[0].message).not.toContain("baz=qux");
 	});
@@ -955,135 +946,4 @@ describe("discoverModels", () => {
 		});
 	});
 
-	it("preserves variant-only default params without exposing them as known controls", async () => {
-		process.env.CURSOR_API_KEY = "test-key-123";
-		mockedList.mockResolvedValueOnce([
-			{
-				id: "claude-opus-4-8",
-				displayName: "Opus 4.8",
-				parameters: [
-					{ id: "thinking", displayName: "Thinking", values: [{ value: "false" }, { value: "true" }] },
-					{ id: "effort", displayName: "Effort", values: [{ value: "low" }, { value: "high" }] },
-				],
-				variants: [
-					{
-						params: [
-							{ id: "cyber", value: "false" },
-							{ id: "thinking", value: "true" },
-							{ id: "effort", value: "high" },
-						],
-						displayName: "Opus 4.8",
-						isDefault: true,
-					},
-				],
-			},
-		]);
-		await discoverModels();
-		expect(getCursorModelMetadata("claude-opus-4-8")?.parameterIds).toEqual({
-			context: false,
-			reasoning: false,
-			effort: true,
-			thinking: true,
-			fast: false,
-		});
-		expect(buildCursorModelSelection("claude-opus-4-8", "low")).toEqual({
-			id: "claude-opus-4-8",
-			params: [
-				{ id: "cyber", value: "false" },
-				{ id: "thinking", value: "true" },
-				{ id: "effort", value: "low" },
-			],
-		});
-	});
-});
-
-describe("discoverModels model-list cache", () => {
-	const originalEnv = process.env;
-	const originalArgv = process.argv;
-	let tmpAgentDir: string;
-
-	const MODEL: ModelListItem = {
-		id: "composer-2",
-		displayName: "Composer 2",
-		variants: [{ params: [], displayName: "Composer 2", isDefault: true }],
-	};
-
-	beforeEach(() => {
-		process.env = { ...originalEnv };
-		delete process.env.CURSOR_API_KEY;
-		delete process.env.PI_CURSOR_SDK_DISABLE_MODEL_CACHE;
-		delete process.env.PI_CURSOR_SDK_MODEL_CACHE_TTL_MS;
-		tmpAgentDir = mkdtempSync(join(tmpdir(), "pi-cursor-discovery-cache-"));
-		process.env.PI_CODING_AGENT_DIR = tmpAgentDir;
-		process.argv = ["node", "vitest"];
-	});
-
-	afterEach(() => {
-		rmSync(tmpAgentDir, { recursive: true, force: true });
-		process.env = originalEnv;
-		process.argv = originalArgv;
-		vi.clearAllMocks();
-	});
-
-	it("serves a warm catalog from cache without a second network call", async () => {
-		writeStoredCursorApiKey("cache-key");
-		mockedList.mockResolvedValueOnce([MODEL]);
-
-		const first = await discoverModels();
-		const second = await discoverModels();
-
-		expect(mockedList).toHaveBeenCalledTimes(1);
-		expect(second.map((model) => model.id)).toEqual(first.map((model) => model.id));
-	});
-
-	it("bypasses the cache when forceRefresh is set", async () => {
-		writeStoredCursorApiKey("cache-key");
-		mockedList.mockResolvedValue([MODEL]);
-
-		await discoverModels();
-		await discoverModels({ forceRefresh: true });
-
-		expect(mockedList).toHaveBeenCalledTimes(2);
-	});
-
-	it("does not read the cache when disabled via env", async () => {
-		process.env.PI_CURSOR_SDK_DISABLE_MODEL_CACHE = "1";
-		writeStoredCursorApiKey("cache-key");
-		mockedList.mockResolvedValue([MODEL]);
-
-		await discoverModels();
-		await discoverModels();
-
-		expect(mockedList).toHaveBeenCalledTimes(2);
-	});
-
-	it("keeps successful live discovery when cache persistence fails", async () => {
-		const badAgentDir = join(tmpAgentDir, "not-a-directory");
-		writeFileSync(badAgentDir, "file");
-		process.env.PI_CODING_AGENT_DIR = badAgentDir;
-		process.env.CURSOR_API_KEY = "cache-key";
-		mockedList.mockResolvedValueOnce([MODEL]);
-		const issues: CursorModelFallbackIssue[] = [];
-
-		const models = await discoverModels({ onFallback: (issue) => issues.push(issue) });
-
-		expect(models.map((model) => model.id)).toEqual(["composer-2"]);
-		expect(issues).toEqual([]);
-	});
-
-	it("falls back to the cached catalog with a warning when a forced refresh fails", async () => {
-		writeStoredCursorApiKey("cache-key");
-		mockedList.mockResolvedValueOnce([MODEL]);
-		await discoverModels();
-
-		mockedList.mockRejectedValueOnce(new Error("network down"));
-		const issues: CursorModelFallbackIssue[] = [];
-		const refreshed = await discoverModels({ forceRefresh: true, onFallback: (issue) => issues.push(issue) });
-
-		expect(refreshed.map((model) => model.id)).toEqual(["composer-2"]);
-		expect(issues).toHaveLength(1);
-		expect(issues[0].reason).toBe("cached-after-error");
-		expect(issues[0].message).toContain("using cached Cursor model catalog");
-		expect(issues[0].errorMessage).toContain("network down");
-	});
 });

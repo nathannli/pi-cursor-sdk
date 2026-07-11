@@ -8,7 +8,21 @@ import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 export const CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE = "cursor-sdk-agent-resume";
 
 const RESUME_ENTRY_VERSION = 1;
+const MAX_LOCAL_AGENT_ID_LENGTH = 256;
 const EMPTY_BRANCH_HASH = hashParts(["cursor-sdk-agent-resume-branch", "v1"]);
+
+// @cursor/sdk AgentOptions.agentId is a public custom string, so local resume narrows it without assuming UUIDs.
+export function isCursorLocalAgentId(value: unknown): value is string {
+	return typeof value === "string" && value.length <= MAX_LOCAL_AGENT_ID_LENGTH && /^agent-[A-Za-z0-9_-]+$/.test(value);
+}
+
+export interface CursorSessionAgentResumeScope {
+	scopeKey: string;
+	sessionFile?: string;
+	sessionId?: string;
+	cwd: string;
+	repoRoot?: string;
+}
 
 export interface CursorSessionAgentResumeEntryData {
 	version: 1;
@@ -46,6 +60,7 @@ interface CursorSessionResumeState {
 	activeHandle?: CursorSessionAgentResumeEntryData;
 	lastBranchHandle?: CursorSessionAgentResumeEntryData;
 	pendingHandle?: PendingCursorSessionAgentResumeHandle;
+	unownedUserEntryIds: Set<string>;
 }
 
 const state: CursorSessionResumeState = {
@@ -53,6 +68,7 @@ const state: CursorSessionResumeState = {
 	cwd: process.cwd(),
 	branchPathHash: EMPTY_BRANCH_HASH,
 	compactionGeneration: 0,
+	unownedUserEntryIds: new Set(),
 };
 
 function hashParts(parts: readonly string[]): string {
@@ -74,7 +90,7 @@ function hashBranchStep(previous: string, entry: SessionEntry): string {
 	]);
 }
 
-function getGitRepoRoot(cwd: string): string | undefined {
+export function resolveCursorSessionRepoRoot(cwd: string): string | undefined {
 	try {
 		return execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
 			encoding: "utf8",
@@ -98,7 +114,7 @@ export function parseCursorSessionAgentResumeEntryData(value: unknown): CursorSe
 	if (!record) return undefined;
 	if (record.version !== RESUME_ENTRY_VERSION || record.runtime !== "local") return undefined;
 	if (
-		typeof record.agentId !== "string" ||
+		!isCursorLocalAgentId(record.agentId) ||
 		typeof record.scopeKey !== "string" ||
 		typeof record.cwd !== "string" ||
 		typeof record.poolKey !== "string" ||
@@ -111,7 +127,7 @@ export function parseCursorSessionAgentResumeEntryData(value: unknown): CursorSe
 	if (record.sessionId !== undefined && typeof record.sessionId !== "string") return undefined;
 	if (record.repoRoot !== undefined && typeof record.repoRoot !== "string") return undefined;
 	const cleanupCandidateAgentIds = Array.isArray(record.cleanupCandidateAgentIds)
-		? record.cleanupCandidateAgentIds.filter((id): id is string => typeof id === "string")
+		? record.cleanupCandidateAgentIds.filter(isCursorLocalAgentId)
 		: undefined;
 	return {
 		version: RESUME_ENTRY_VERSION,
@@ -135,18 +151,22 @@ export function parseCursorSessionAgentResumeEntryData(value: unknown): CursorSe
 	};
 }
 
+function matchesResumeScope(data: CursorSessionAgentResumeEntryData, scope: CursorSessionAgentResumeScope): boolean {
+	return data.scopeKey === scope.scopeKey &&
+		data.sessionFile === scope.sessionFile &&
+		data.sessionId === scope.sessionId &&
+		data.cwd === scope.cwd &&
+		data.repoRoot === scope.repoRoot;
+}
+
 function matchesCurrentSession(
 	data: CursorSessionAgentResumeEntryData,
 	branchPathHash: string,
 	compactionGeneration = state.compactionGeneration,
 ): boolean {
-	if (data.scopeKey !== state.scopeKey) return false;
-	if (data.sessionFile !== state.sessionFile) return false;
-	if (data.sessionId !== state.sessionId) return false;
-	if (data.cwd !== state.cwd) return false;
-	if (data.repoRoot !== state.repoRoot) return false;
-	if (data.compactionGeneration !== compactionGeneration) return false;
-	return data.branchPathHash === branchPathHash;
+	return matchesResumeScope(data, state) &&
+		data.compactionGeneration === compactionGeneration &&
+		data.branchPathHash === branchPathHash;
 }
 
 function canResumeHandleSpanEntry(entry: SessionEntry): boolean {
@@ -154,57 +174,142 @@ function canResumeHandleSpanEntry(entry: SessionEntry): boolean {
 	return entry.type === "message" && entry.message.role === "user";
 }
 
-function isSameResumeAgentLineage(a: CursorSessionAgentResumeEntryData, b: CursorSessionAgentResumeEntryData): boolean {
-	return a.agentId === b.agentId &&
-		a.scopeKey === b.scopeKey &&
-		a.sessionFile === b.sessionFile &&
-		a.sessionId === b.sessionId &&
-		a.cwd === b.cwd &&
-		a.repoRoot === b.repoRoot &&
-		a.poolKey === b.poolKey;
+function resumeAgentLineageKey(data: CursorSessionAgentResumeEntryData): string {
+	return JSON.stringify([
+		data.agentId,
+		data.scopeKey,
+		data.sessionFile,
+		data.sessionId,
+		data.cwd,
+		data.repoRoot,
+		data.poolKey,
+	]);
 }
 
-function isResumeHandleSuperseded(data: CursorSessionAgentResumeEntryData, entries: readonly SessionEntry[]): boolean {
-	for (const entry of entries) {
+function indexLatestResumeEntries(entries: readonly SessionEntry[]): {
+	entryIds: Set<string>;
+	latestEntryIdByLineage: Map<string, string>;
+} {
+	const entryIds = new Set<string>();
+	const latestEntryIdByLineage = new Map<string, string>();
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index];
+		entryIds.add(entry.id);
 		if (entry.type !== "custom" || entry.customType !== CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) continue;
-		const candidate = parseCursorSessionAgentResumeEntryData(entry.data);
-		if (!candidate || !isSameResumeAgentLineage(data, candidate)) continue;
-		if (candidate.createdAt > data.createdAt) return true;
+		const data = parseCursorSessionAgentResumeEntryData(entry.data);
+		if (!data) continue;
+		const lineage = resumeAgentLineageKey(data);
+		if (!latestEntryIdByLineage.has(lineage)) latestEntryIdByLineage.set(lineage, entry.id);
 	}
-	return false;
+	return { entryIds, latestEntryIdByLineage };
+}
+
+interface ResumeBranchFoldState {
+	branchPathHash: string;
+	compactionGeneration: number;
+	activeHandle?: CursorSessionAgentResumeEntryData;
+}
+
+interface ResumeBranchFoldParams {
+	matchesEntry: (data: CursorSessionAgentResumeEntryData, branchPathHash: string, compactionGeneration: number) => boolean;
+	canSpanEntry: (entry: SessionEntry) => boolean;
+}
+
+/** One fold step shared by the tree-wide and single-branch resume-handle walks: advances
+ * branchPathHash/compactionGeneration and adopts a matching, non-superseded resume handle. */
+function advanceResumeBranchState(
+	entry: SessionEntry,
+	previous: ResumeBranchFoldState,
+	resumeIndex: { entryIds: Set<string>; latestEntryIdByLineage: Map<string, string> },
+	params: ResumeBranchFoldParams,
+): ResumeBranchFoldState {
+	if (entry.type === "custom" && entry.customType === CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) {
+		const data = parseCursorSessionAgentResumeEntryData(entry.data);
+		const latestEntryId = data ? resumeIndex.latestEntryIdByLineage.get(resumeAgentLineageKey(data)) : undefined;
+		const superseded = resumeIndex.entryIds.has(entry.id) && latestEntryId !== entry.id;
+		if (data && params.matchesEntry(data, previous.branchPathHash, previous.compactionGeneration) && !superseded) {
+			return { ...previous, activeHandle: data };
+		}
+		return previous;
+	}
+	return {
+		branchPathHash: hashBranchStep(previous.branchPathHash, entry),
+		compactionGeneration: entry.type === "compaction" ? previous.compactionGeneration + 1 : previous.compactionGeneration,
+		activeHandle: previous.activeHandle && !params.canSpanEntry(entry) ? undefined : previous.activeHandle,
+	};
+}
+
+export function readResumableCursorSessionAgentIds(
+	entries: readonly SessionEntry[],
+	scope: CursorSessionAgentResumeScope,
+): string[] {
+	const resumeIndex = indexLatestResumeEntries(entries);
+	const states = new Map<string, ResumeBranchFoldState>();
+	const parentIds = new Set<string>();
+	let rootCount = 0;
+	let completeTree = true;
+	for (const entry of entries) {
+		if (states.has(entry.id)) completeTree = false;
+		if (entry.parentId === null) rootCount += 1;
+		const parent = entry.parentId ? states.get(entry.parentId) : undefined;
+		if (entry.parentId) {
+			parentIds.add(entry.parentId);
+			if (!parent) completeTree = false;
+		}
+		const previous: ResumeBranchFoldState = {
+			branchPathHash: parent?.branchPathHash ?? EMPTY_BRANCH_HASH,
+			compactionGeneration: parent?.compactionGeneration ?? 0,
+			activeHandle: parent?.activeHandle,
+		};
+		states.set(entry.id, advanceResumeBranchState(entry, previous, resumeIndex, {
+			matchesEntry: (data, branchPathHash, compactionGeneration) =>
+				matchesResumeScope(data, scope) &&
+				data.compactionGeneration === compactionGeneration &&
+				data.branchPathHash === branchPathHash,
+			canSpanEntry: canResumeHandleSpanEntry,
+		}));
+	}
+	if (entries.length > 0 && rootCount !== 1) completeTree = false;
+	if (!completeTree) {
+		return [...new Set(entries.flatMap((entry) => {
+			if (entry.type !== "custom" || entry.customType !== CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) return [];
+			const data = parseCursorSessionAgentResumeEntryData(entry.data);
+			return data && matchesResumeScope(data, scope) ? [data.agentId] : [];
+		}))].sort((a, b) => a.localeCompare(b));
+	}
+	const agentIds = new Set<string>();
+	for (const [entryId, branchState] of states) {
+		if (!parentIds.has(entryId) && branchState.activeHandle) agentIds.add(branchState.activeHandle.agentId);
+	}
+	return [...agentIds].sort((a, b) => a.localeCompare(b));
+}
+
+function canRestoreHandleSpanEntry(entry: SessionEntry): boolean {
+	if (entry.type === "message" && entry.message.role === "user") return !state.unownedUserEntryIds.has(entry.id);
+	return canResumeHandleSpanEntry(entry);
 }
 
 function restoreFromBranch(branch: readonly SessionEntry[], allEntries: readonly SessionEntry[] = branch): void {
-	let branchPathHash = EMPTY_BRANCH_HASH;
-	let compactionGeneration = 0;
-	let activeHandle: CursorSessionAgentResumeEntryData | undefined;
+	const resumeIndex = indexLatestResumeEntries(allEntries);
+	let fold: ResumeBranchFoldState = { branchPathHash: EMPTY_BRANCH_HASH, compactionGeneration: 0 };
 	let lastBranchHandle: CursorSessionAgentResumeEntryData | undefined;
 	for (const entry of branch) {
-		if (entry.type === "custom" && entry.customType === CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE) {
-			const data = parseCursorSessionAgentResumeEntryData(entry.data);
-			if (
-				data &&
-				matchesCurrentSession(data, branchPathHash, compactionGeneration) &&
-				!isResumeHandleSuperseded(data, allEntries)
-			) {
-				activeHandle = data;
-				lastBranchHandle = data;
-			}
-			continue;
-		}
-		if (activeHandle && !canResumeHandleSpanEntry(entry)) activeHandle = undefined;
-		if (entry.type === "compaction") compactionGeneration += 1;
-		branchPathHash = hashBranchStep(branchPathHash, entry);
+		const next = advanceResumeBranchState(entry, fold, resumeIndex, {
+			matchesEntry: matchesCurrentSession,
+			canSpanEntry: canRestoreHandleSpanEntry,
+		});
+		if (next.activeHandle && next.activeHandle !== fold.activeHandle) lastBranchHandle = next.activeHandle;
+		fold = next;
 	}
-	state.branchPathHash = branchPathHash;
-	state.compactionGeneration = compactionGeneration;
-	state.activeHandle = activeHandle;
+	state.branchPathHash = fold.branchPathHash;
+	state.compactionGeneration = fold.compactionGeneration;
+	state.activeHandle = fold.activeHandle;
 	state.lastBranchHandle = lastBranchHandle;
 }
 
 export function getMatchingCursorSessionAgentResumeHandle(poolKey: string): CursorSessionAgentResumeEntryData | undefined {
 	const handle = state.activeHandle;
-	if (!handle) return undefined;
+	if (!handle || !isCursorLocalAgentId(handle.agentId)) return undefined;
 	if (handle.poolKey !== poolKey) return undefined;
 	if (handle.scopeKey !== state.scopeKey) return undefined;
 	if (handle.sessionFile !== state.sessionFile) return undefined;
@@ -219,6 +324,7 @@ export function getMatchingCursorSessionAgentResumeHandle(poolKey: string): Curs
 }
 
 export function persistCursorSessionAgentResumeHandle(input: PendingCursorSessionAgentResumeHandle): void {
+	if (!isCursorLocalAgentId(input.agentId)) return;
 	state.pendingHandle = {
 		runtime: input.runtime,
 		agentId: input.agentId,
@@ -275,7 +381,9 @@ export function registerCursorSessionAgentResume(pi: CursorSessionAgentResumeExt
 		state.sessionFile = ctx.sessionManager.getSessionFile?.() ?? undefined;
 		state.sessionId = ctx.sessionManager.getSessionId?.() ?? undefined;
 		state.cwd = ctx.cwd;
-		state.repoRoot = getGitRepoRoot(ctx.cwd);
+		state.repoRoot = resolveCursorSessionRepoRoot(ctx.cwd);
+		state.unownedUserEntryIds = new Set(ctx.sessionManager.getBranch().flatMap((entry) =>
+			entry.type === "message" && entry.message.role === "user" ? [entry.id] : []));
 		restoreFromSessionManager(ctx.sessionManager);
 	});
 	pi.on("before_agent_start", (_event, ctx) => {
@@ -285,6 +393,9 @@ export function registerCursorSessionAgentResume(pi: CursorSessionAgentResumeExt
 		flushPendingCursorSessionAgentResumeHandle(ctx.sessionManager.getBranch());
 	});
 	pi.on("session_tree", (_event, ctx) => {
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type === "message" && entry.message.role === "user") state.unownedUserEntryIds.add(entry.id);
+		}
 		restoreFromSessionManager(ctx.sessionManager);
 	});
 	pi.on("session_compact", (event, ctx) => {
@@ -316,6 +427,7 @@ function resetStateForTests(): void {
 	state.activeHandle = undefined;
 	state.lastBranchHandle = undefined;
 	state.pendingHandle = undefined;
+	state.unownedUserEntryIds = new Set();
 }
 
 export const __testUtils = {

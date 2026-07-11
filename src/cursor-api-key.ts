@@ -4,7 +4,7 @@ const CURSOR_PROVIDER_ID = "cursor";
 // Non-secret literal sentinel for pi's provider registry. Pi 0.77 treats `$ENV_VAR`
 // values as unconfigured when the env var is absent, which hides fallback models
 // before `/login`. Keep the provider available and resolve the real key in the
-// Cursor provider turn path from pi auth, --api-key, or CURSOR_API_KEY.
+// Cursor provider turn path from pi auth or CURSOR_API_KEY.
 export const CURSOR_API_KEY_CONFIG_VALUE = "pi-cursor-sdk-cursor-api-key-placeholder";
 
 const CURSOR_API_KEY_PLACEHOLDERS = new Set([
@@ -21,24 +21,6 @@ export function resolveCursorApiKey(apiKey?: string): string | undefined {
 	return trimmed;
 }
 
-export function getCliCursorApiKeyFromArgv(argv: string[] = process.argv): string | undefined {
-	for (let index = 0; index < argv.length; index++) {
-		const arg = argv[index];
-		if (arg === "--api-key") {
-			const value = argv[index + 1];
-			if (!value || value.startsWith("--")) return undefined;
-			const trimmed = value.trim();
-			return trimmed || undefined;
-		}
-		const prefix = "--api-key=";
-		if (arg.startsWith(prefix)) {
-			const trimmed = arg.slice(prefix.length).trim();
-			return trimmed || undefined;
-		}
-	}
-	return undefined;
-}
-
 async function getStoredCursorApiKey(): Promise<string | undefined> {
 	try {
 		const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
@@ -49,9 +31,5 @@ async function getStoredCursorApiKey(): Promise<string | undefined> {
 }
 
 export async function resolveCursorRuntimeApiKey(): Promise<string | undefined> {
-	return (
-		resolveCursorApiKey(getCliCursorApiKeyFromArgv()) ??
-		(await getStoredCursorApiKey()) ??
-		resolveCursorApiKey(process.env.CURSOR_API_KEY)
-	);
+	return (await getStoredCursorApiKey()) ?? resolveCursorApiKey(process.env.CURSOR_API_KEY);
 }

@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import {
 	createExtensionCommandContext,
+	createExtensionRegistrationPi,
 	createExtensionTestContext,
 	makeAssistantMessage,
 	makeContext,
 	makeHarnessModel,
 	makeModel,
 	makeProviderModelConfig,
-	createExtensionRegistrationPi,
 } from "./helpers/pi-harness.js";
 import {
 	createExtensionPi,
@@ -34,6 +34,7 @@ import { streamCursorLazy } from "../src/cursor-provider-lazy.js";
 import { buildCursorPiToolBridgeSnapshot } from "../src/cursor-pi-tool-bridge.js";
 import { CURSOR_ASK_QUESTION_TOOL_NAME } from "../src/cursor-question-tool.js";
 import { CURSOR_ACTIVATE_SKILL_TOOL_NAME } from "../src/cursor-skill-tool.js";
+import { __testUtils as cursorSdkProcessErrorGuardTestUtils } from "../src/cursor-sdk-process-error-guard.js";
 
 const mockedDiscover = vi.mocked(discoverModels);
 const mockedStreamCursor = vi.mocked(streamCursor);
@@ -42,6 +43,25 @@ type DiscoverOptions = Parameters<typeof discoverModels>[0];
 
 describe("extension registration and discovery", () => {
 	beforeEach(resetIndexExtensionTestState);
+
+	it("keeps one process error guard for the active session lifecycle", async () => {
+		mockedDiscover.mockResolvedValueOnce([]);
+		const pi = createExtensionPi();
+		const originalEmit = process.emit;
+		await extensionFactory(pi);
+
+		expect(cursorSdkProcessErrorGuardTestUtils.activeSessionCount()).toBe(0);
+		await pi.runSessionStart();
+		expect(cursorSdkProcessErrorGuardTestUtils.activeSessionCount()).toBe(1);
+		expect(process.emit).not.toBe(originalEmit);
+		await pi.runSessionStart({}, { reason: "reload" });
+		expect(cursorSdkProcessErrorGuardTestUtils.activeSessionCount()).toBe(1);
+		await pi.runSessionShutdown({ reason: "reload" });
+		expect(cursorSdkProcessErrorGuardTestUtils.activeSessionCount()).toBe(0);
+		expect(process.emit).toBe(originalEmit);
+		await pi.runSessionShutdown({ reason: "quit" });
+		expect(cursorSdkProcessErrorGuardTestUtils.activeSessionCount()).toBe(0);
+	});
 
 	it("registers Cursor runtime controls and one provider with correct fields", async () => {
 		const mockModels = [makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" })];
@@ -66,10 +86,6 @@ describe("extension registration and discovery", () => {
 		);
 		expect(pi.registerFlag).toHaveBeenCalledWith(
 			"cursor-runtime",
-			expect.objectContaining({ type: "string", default: "" }),
-		);
-		expect(pi.registerFlag).toHaveBeenCalledWith(
-			"cursor-tool-transport",
 			expect.objectContaining({ type: "string", default: "" }),
 		);
 		expect(pi.registerFlag).toHaveBeenCalledWith(
@@ -439,6 +455,7 @@ describe("extension registration and discovery", () => {
 		const pi = createExtensionPi();
 		await extensionFactory(pi);
 		const notify = vi.fn();
+		const getApiKeyForProvider = vi.fn().mockResolvedValue(" registry-key ");
 
 		await pi.runCommand(
 			"cursor-refresh-models",
@@ -446,10 +463,13 @@ describe("extension registration and discovery", () => {
 			createExtensionCommandContext({
 				hasUI: true,
 				model: undefined,
+				modelRegistry: { getApiKeyForProvider } as never,
 				ui: { notify },
 			}),
 		);
 
+		expect(getApiKeyForProvider).toHaveBeenCalledWith("cursor");
+		expect(mockedDiscover).toHaveBeenNthCalledWith(2, expect.objectContaining({ apiKey: "registry-key", forceRefresh: true }));
 		expect(mockedDiscover).toHaveBeenCalledTimes(2);
 		expect(pi.registerProvider).toHaveBeenCalledTimes(2);
 		expect(pi._registered[0].config.models).toBe(startupModels);
@@ -544,7 +564,7 @@ describe("extension registration and discovery", () => {
 			options?.onFallback?.({
 				reason: "missing-api-key",
 				message:
-					"Cursor model discovery needs an API key from /login (Use an API key -> Cursor), CURSOR_API_KEY, or --api-key with a Cursor SDK API key; Cursor Agent CLI/Desktop login is not reused. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
+					"Cursor model discovery needs an API key from /login (Use an API key -> Cursor) or CURSOR_API_KEY; startup discovery does not parse Pi CLI arguments, and Cursor Agent CLI/Desktop login is not reused. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
 			});
 			return [makeProviderModelConfig("composer-2", { name: "Cursor Composer 2" })];
 		});
@@ -561,7 +581,7 @@ describe("extension registration and discovery", () => {
 		});
 
 		expect(notify).toHaveBeenCalledWith(
-			"Cursor model discovery needs an API key from /login (Use an API key -> Cursor), CURSOR_API_KEY, or --api-key with a Cursor SDK API key; Cursor Agent CLI/Desktop login is not reused. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
+			"Cursor model discovery needs an API key from /login (Use an API key -> Cursor) or CURSOR_API_KEY; startup discovery does not parse Pi CLI arguments, and Cursor Agent CLI/Desktop login is not reused. Using fallback Cursor models so /login and model selection still work; fallback models can run once auth exists. After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.",
 			"warning",
 		);
 	});

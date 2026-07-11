@@ -6,6 +6,7 @@ import {
 	__testUtils as cursorSessionScopeTestUtils,
 	getCursorSessionCwd,
 	getCursorSessionName,
+	MAX_CURSOR_SESSION_NAME_LENGTH,
 	registerCursorSessionScope,
 } from "../src/cursor-session-scope.js";
 import { createEventHarness } from "./helpers/pi-harness.js";
@@ -46,11 +47,26 @@ describe("cursor-session-scope cwd", () => {
 		registerCursorSessionScope(pi);
 		await pi.runSessionStart({ sessionManager: { getSessionName: vi.fn(() => "Initial") } });
 
-		await pi.invokeEvent("session_info_changed", { type: "session_info_changed", name: "  Renamed session  " });
-		expect(getCursorSessionName()).toBe("Renamed session");
+		await pi.invokeEvent("session_info_changed", {
+			type: "session_info_changed",
+			name: "  Renamed\tsession\u001bwith\0controls\u0085  ",
+		});
+		expect(getCursorSessionName()).toBe("Renamed session with controls");
 
-		await pi.invokeEvent("session_info_changed", { type: "session_info_changed", name: "   " });
+		await pi.invokeEvent("session_info_changed", { type: "session_info_changed", name: " \t\u001b\0 " });
 		expect(getCursorSessionName()).toBeUndefined();
+	});
+
+	it("bounds session names before exposing them to provider callers", async () => {
+		const pi = createEventHarness();
+		registerCursorSessionScope(pi);
+		await pi.runSessionStart({
+			sessionManager: { getSessionName: vi.fn(() => "x".repeat(MAX_CURSOR_SESSION_NAME_LENGTH + 20)) },
+		});
+
+		expect(MAX_CURSOR_SESSION_NAME_LENGTH).toBe(100);
+		expect(getCursorSessionName()).toHaveLength(MAX_CURSOR_SESSION_NAME_LENGTH);
+		expect(getCursorSessionName()?.endsWith("…")).toBe(true);
 	});
 
 	it("updates cwd on subsequent session_start events", async () => {

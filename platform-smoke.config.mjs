@@ -24,7 +24,8 @@ export default {
 		install: "Homebrew package or PLATFORM_SMOKE_CRABBOX override",
 		minVersion: "0.26.0",
 	},
-	ubuntuContainerImage: "cimg/node:24.16",
+	ubuntuContainerImage: "pi-cursor-sdk-platform-node:24.16-root",
+	ubuntuContainerBaseImage: "cimg/node:24.16",
 	nodeValidationMajor: 24,
 	windowsParallels: {
 		sourceVm: "pi-extension-windows-template",

@@ -1,6 +1,6 @@
 import type { ModelListItem } from "@cursor/sdk";
 
-// Generated/maintained fallback Cursor catalog snapshot.
+// Generated with @cursor/sdk@1.0.23 from 34 Cursor models.
 // Refresh with: npm run refresh:cursor-snapshots -- --write
 // Do not add secrets; this file stores public model metadata only.
 export const FALLBACK_MODEL_ITEMS = [
@@ -3450,6 +3450,411 @@ export const FALLBACK_MODEL_ITEMS = [
 		]
 	},
 	{
+		id: "claude-sonnet-5",
+		displayName: "Sonnet 5",
+		aliases: [
+			"sonnet-latest",
+			"sonnet-5"
+		],
+		parameters: [
+			{
+				id: "thinking",
+				displayName: "Thinking",
+				values: [
+					{
+						value: "false"
+					},
+					{
+						value: "true"
+					}
+				]
+			},
+			{
+				id: "context",
+				displayName: "Context",
+				values: [
+					{
+						value: "300k",
+						displayName: "300K"
+					},
+					{
+						value: "1m",
+						displayName: "1M"
+					}
+				]
+			},
+			{
+				id: "effort",
+				displayName: "Effort",
+				values: [
+					{
+						value: "low",
+						displayName: "Low"
+					},
+					{
+						value: "medium",
+						displayName: "Medium"
+					},
+					{
+						value: "high",
+						displayName: "High"
+					},
+					{
+						value: "xhigh",
+						displayName: "Extra High"
+					},
+					{
+						value: "max",
+						displayName: "Max"
+					}
+				]
+			}
+		],
+		variants: [
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "false"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "300k"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "low"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "medium"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "high"
+					}
+				],
+				displayName: "Sonnet 5",
+				isDefault: true
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "xhigh"
+					}
+				],
+				displayName: "Sonnet 5"
+			},
+			{
+				params: [
+					{
+						id: "thinking",
+						value: "true"
+					},
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "effort",
+						value: "max"
+					}
+				],
+				displayName: "Sonnet 5"
+			}
+		]
+	},
+	{
 		id: "composer-2",
 		displayName: "Composer 2",
 		parameters: [
@@ -4875,8 +5280,6 @@ export const FALLBACK_MODEL_ITEMS = [
 		id: "gpt-5.5",
 		displayName: "GPT-5.5",
 		aliases: [
-			"gpt-latest",
-			"gpt",
 			"gpt-5-5"
 		],
 		parameters: [
@@ -5194,11 +5597,10 @@ export const FALLBACK_MODEL_ITEMS = [
 		]
 	},
 	{
-		id: "grok-4.3",
-		displayName: "Grok 4.3",
+		id: "gpt-5.6-luna",
+		displayName: "GPT-5.6 Luna",
 		aliases: [
-			"grok-latest",
-			"grok"
+			"gpt-5-6-luna"
 		],
 		parameters: [
 			{
@@ -5206,12 +5608,55 @@ export const FALLBACK_MODEL_ITEMS = [
 				displayName: "Context",
 				values: [
 					{
-						value: "200k",
-						displayName: "200K"
+						value: "272k",
+						displayName: "272K"
 					},
 					{
 						value: "1m",
 						displayName: "1M"
+					}
+				]
+			},
+			{
+				id: "reasoning",
+				displayName: "Reasoning",
+				values: [
+					{
+						value: "none",
+						displayName: "None"
+					},
+					{
+						value: "low",
+						displayName: "Low"
+					},
+					{
+						value: "medium",
+						displayName: "Medium"
+					},
+					{
+						value: "high",
+						displayName: "High"
+					},
+					{
+						value: "xhigh",
+						displayName: "Extra High"
+					},
+					{
+						value: "max",
+						displayName: "Max"
+					}
+				]
+			},
+			{
+				id: "fast",
+				displayName: "Fast",
+				values: [
+					{
+						value: "false"
+					},
+					{
+						value: "true",
+						displayName: "Fast"
 					}
 				]
 			}
@@ -5221,28 +5666,319 @@ export const FALLBACK_MODEL_ITEMS = [
 				params: [
 					{
 						id: "context",
-						value: "200k"
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "false"
 					}
 				],
-				displayName: "Grok 4.3"
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
 			},
 			{
 				params: [
 					{
 						id: "context",
 						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "false"
 					}
 				],
-				displayName: "Grok 4.3",
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna",
 				isDefault: true
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Luna"
 			}
 		]
 	},
 	{
-		id: "grok-build-0.1",
-		displayName: "Grok Build 0.1",
+		id: "gpt-5.6-sol",
+		displayName: "GPT-5.6 Sol",
 		aliases: [
-			"grok-build"
+			"gpt-latest",
+			"gpt",
+			"gpt-5-6-sol",
+			"gpt-5.6"
 		],
 		parameters: [
 			{
@@ -5250,12 +5986,55 @@ export const FALLBACK_MODEL_ITEMS = [
 				displayName: "Context",
 				values: [
 					{
-						value: "200k",
-						displayName: "200K"
+						value: "272k",
+						displayName: "272K"
 					},
 					{
 						value: "1m",
 						displayName: "1M"
+					}
+				]
+			},
+			{
+				id: "reasoning",
+				displayName: "Reasoning",
+				values: [
+					{
+						value: "none",
+						displayName: "None"
+					},
+					{
+						value: "low",
+						displayName: "Low"
+					},
+					{
+						value: "medium",
+						displayName: "Medium"
+					},
+					{
+						value: "high",
+						displayName: "High"
+					},
+					{
+						value: "xhigh",
+						displayName: "Extra High"
+					},
+					{
+						value: "max",
+						displayName: "Max"
+					}
+				]
+			},
+			{
+				id: "fast",
+				displayName: "Fast",
+				values: [
+					{
+						value: "false"
+					},
+					{
+						value: "true",
+						displayName: "Fast"
 					}
 				]
 			}
@@ -5265,26 +6044,807 @@ export const FALLBACK_MODEL_ITEMS = [
 				params: [
 					{
 						id: "context",
-						value: "200k"
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "false"
 					}
 				],
-				displayName: "Grok Build 0.1"
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
 			},
 			{
 				params: [
 					{
 						id: "context",
 						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "false"
 					}
 				],
-				displayName: "Grok Build 0.1",
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol",
+				isDefault: true
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Sol"
+			}
+		]
+	},
+	{
+		id: "gpt-5.6-terra",
+		displayName: "GPT-5.6 Terra",
+		aliases: [
+			"gpt-5-6-terra"
+		],
+		parameters: [
+			{
+				id: "context",
+				displayName: "Context",
+				values: [
+					{
+						value: "272k",
+						displayName: "272K"
+					},
+					{
+						value: "1m",
+						displayName: "1M"
+					}
+				]
+			},
+			{
+				id: "reasoning",
+				displayName: "Reasoning",
+				values: [
+					{
+						value: "none",
+						displayName: "None"
+					},
+					{
+						value: "low",
+						displayName: "Low"
+					},
+					{
+						value: "medium",
+						displayName: "Medium"
+					},
+					{
+						value: "high",
+						displayName: "High"
+					},
+					{
+						value: "xhigh",
+						displayName: "Extra High"
+					},
+					{
+						value: "max",
+						displayName: "Max"
+					}
+				]
+			},
+			{
+				id: "fast",
+				displayName: "Fast",
+				values: [
+					{
+						value: "false"
+					},
+					{
+						value: "true",
+						displayName: "Fast"
+					}
+				]
+			}
+		],
+		variants: [
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "272k"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "none"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra",
+				isDefault: true
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "xhigh"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			},
+			{
+				params: [
+					{
+						id: "context",
+						value: "1m"
+					},
+					{
+						id: "reasoning",
+						value: "max"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "GPT-5.6 Terra"
+			}
+		]
+	},
+	{
+		id: "grok-4.5",
+		displayName: "Cursor Grok 4.5",
+		parameters: [
+			{
+				id: "effort",
+				displayName: "Effort",
+				values: [
+					{
+						value: "low",
+						displayName: "Low"
+					},
+					{
+						value: "medium",
+						displayName: "Medium"
+					},
+					{
+						value: "high",
+						displayName: "High"
+					}
+				]
+			},
+			{
+				id: "fast",
+				displayName: "Fast",
+				values: [
+					{
+						value: "false"
+					},
+					{
+						value: "true",
+						displayName: "Fast​"
+					}
+				]
+			}
+		],
+		variants: [
+			{
+				params: [
+					{
+						id: "effort",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "Cursor Grok 4.5"
+			},
+			{
+				params: [
+					{
+						id: "effort",
+						value: "low"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "Cursor Grok 4.5"
+			},
+			{
+				params: [
+					{
+						id: "effort",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "Cursor Grok 4.5"
+			},
+			{
+				params: [
+					{
+						id: "effort",
+						value: "medium"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "Cursor Grok 4.5"
+			},
+			{
+				params: [
+					{
+						id: "effort",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "false"
+					}
+				],
+				displayName: "Cursor Grok 4.5"
+			},
+			{
+				params: [
+					{
+						id: "effort",
+						value: "high"
+					},
+					{
+						id: "fast",
+						value: "true"
+					}
+				],
+				displayName: "Cursor Grok 4.5",
 				isDefault: true
 			}
 		]
 	},
 	{
-		id: "kimi-k2.5",
-		displayName: "Kimi K2.5",
+		id: "kimi-k2.7-code",
+		displayName: "Kimi K2.7 Code",
 		aliases: [
 			"kimi-latest",
 			"kimi"
@@ -5292,7 +6852,7 @@ export const FALLBACK_MODEL_ITEMS = [
 		variants: [
 			{
 				params: [],
-				displayName: "Kimi K2.5",
+				displayName: "Kimi K2.7 Code",
 				isDefault: true
 			}
 		]

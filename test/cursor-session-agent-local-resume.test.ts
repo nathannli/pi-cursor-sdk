@@ -77,6 +77,55 @@ describe("cursor-session-agent local resume", () => {
 		expect(createAgent).not.toHaveBeenCalled();
 	});
 
+	it("force-creates once while keeping replacement resume persistence enabled", async () => {
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const context = makeContext([{ role: "user", content: "Replacement", timestamp: 1 }]);
+		const createAgent = vi.fn().mockResolvedValue({ agentId: "agent-new", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+		const resumeAgent = vi.fn().mockResolvedValue({ agentId: "agent-recorded", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+		cursorSessionScopeTestUtils.set("/tmp/project", scopeKey);
+		const params = {
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			localResume: true,
+			createAgent,
+			resumeAgent,
+		};
+		resumeTestUtils.set({
+			scopeKey,
+			sessionFile: scopeKey,
+			cwd: "/tmp/project",
+			branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
+			compactionGeneration: 0,
+			activeHandle: {
+				version: 1,
+				runtime: "local",
+				agentId: "agent-recorded",
+				scopeKey,
+				sessionFile: scopeKey,
+				cwd: "/tmp/project",
+				poolKey: sessionAgentTestUtils.buildSessionAgentPoolKey(scopeKey, params),
+				branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
+				compactionGeneration: 0,
+				sendState: { bootstrapped: true, contextFingerprint: "old", incrementalSendCount: 5 },
+				createdAt: "2026-07-07T00:00:00.000Z",
+			},
+		});
+
+		const lease = await acquireSessionCursorAgent({ ...params, forceCreate: true });
+		lease.commitSend(context, true);
+
+		expect(resumeAgent).not.toHaveBeenCalled();
+		expect(createAgent).toHaveBeenCalledTimes(1);
+		expect(lease.resumed).toBe(false);
+		expect(lease.sendState).toMatchObject({ bootstrapped: true, incrementalSendCount: 0 });
+		expect(resumeTestUtils.state.pendingHandle).toMatchObject({
+			agentId: "agent-new",
+			poolKey: lease.poolKey,
+		});
+	});
+
 	it("does not resume recorded agents unless local resume is enabled", async () => {
 		const scopeKey = "/tmp/sessions/test.jsonl";
 		const createAgent = vi.fn().mockResolvedValue({ agentId: "agent-new", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
@@ -202,6 +251,44 @@ describe("cursor-session-agent local resume", () => {
 
 		expect(lease.resumed).toBe(false);
 		expect(resumeAgent).not.toHaveBeenCalled();
+		expect(createAgent).toHaveBeenCalledTimes(1);
+	});
+
+	it("refreshes resume persistence on a pooled agent across false, true, and false leases", async () => {
+		const createAgent = vi.fn().mockResolvedValue({ agentId: "agent-1", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		cursorSessionScopeTestUtils.set("/tmp/project", scopeKey);
+		resumeTestUtils.set({
+			scopeKey,
+			sessionFile: scopeKey,
+			cwd: "/tmp/project",
+			branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
+			compactionGeneration: 0,
+		});
+		const context = makeContext([{ role: "user", content: "Hello", timestamp: 1 }]);
+		const params = {
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+
+		const disabled = await acquireSessionCursorAgent({ ...params, localResume: false });
+		disabled.commitSend(context, true);
+		expect(resumeTestUtils.state.pendingHandle).toBeUndefined();
+
+		const enabled = await acquireSessionCursorAgent({ ...params, localResume: true });
+		enabled.commitSend(context, false);
+		expect(resumeTestUtils.state.pendingHandle).toMatchObject({ agentId: "agent-1" });
+		resumeTestUtils.state.pendingHandle = undefined;
+		enabled.trackRunCompletion(Promise.resolve());
+
+		const disabledAgain = await acquireSessionCursorAgent({ ...params, localResume: false });
+		disabledAgain.commitSend(context, false);
+		expect(resumeTestUtils.state.pendingHandle).toBeUndefined();
+		expect(disabled.agent).toBe(enabled.agent);
+		expect(enabled.agent).toBe(disabledAgain.agent);
 		expect(createAgent).toHaveBeenCalledTimes(1);
 	});
 

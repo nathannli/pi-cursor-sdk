@@ -13,6 +13,7 @@ import type { planCursorSessionSend } from "./cursor-session-agent.js";
 import type { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import type { CursorSdkTurnCoordinator } from "./cursor-provider-turn-coordinator.js";
 import type { CursorPrompt } from "./context.js";
+import type { CursorResolvedSetting } from "./cursor-config.js";
 
 export interface CursorProviderTurnRunnerParams {
 	model: Model<Api>;
@@ -38,12 +39,25 @@ export interface CursorProviderTurnSendMeta {
 	nativeReplayId: string;
 	agentMode: AgentModeOption;
 	modelSelection: ModelSelection;
-	localForce: boolean;
 	resumeNotice?: string;
 }
 
 interface CursorProviderTurnRuntimeBase {
 	turnCoordinator: CursorSdkTurnCoordinator;
+}
+
+/**
+ * Runtime-agnostic lifecycle operations for a prepared turn.
+ *
+ * Local implementations delegate to the session agent lease; cloud
+ * implementations no-op the local-only operations (commitSend,
+ * trackRunCompletion, abandon) and dispose the cloud agent instead.
+ */
+export interface CursorProviderTurnLifecycle {
+	trackRunCompletion(completion: Promise<unknown>): void;
+	commitSend(context: Context, bootstrapped: boolean): void;
+	abandon(): Promise<void>;
+	dispose(): Promise<void>;
 }
 
 export interface DirectCursorProviderTurnRuntime extends CursorProviderTurnRuntimeBase {
@@ -66,6 +80,7 @@ interface CursorProviderTurnPrepareResultBase {
 	contextWindowAgentId: string;
 	textDeltas: string[];
 	restoreCursorSdkOutputFilter: () => void;
+	lifecycle: CursorProviderTurnLifecycle;
 }
 
 export interface LocalCursorProviderTurnPrepareResult extends CursorProviderTurnPrepareResultBase {
@@ -73,6 +88,7 @@ export interface LocalCursorProviderTurnPrepareResult extends CursorProviderTurn
 	runtime: CursorProviderTurnRuntime;
 	sessionAgentScopeKey: string;
 	sessionAgentLease: SessionCursorAgentLease;
+	localForce: CursorResolvedSetting<boolean>;
 }
 
 export interface CloudCursorProviderTurnPrepareResult extends CursorProviderTurnPrepareResultBase {

@@ -42,6 +42,18 @@ describe("cursor-sensitive-text", () => {
 		expect(scrubbed).toContain("[redacted-bridge-endpoint]");
 	});
 
+	it("redacts URL and SCP-style userinfo", () => {
+		const scrubbed = scrubSensitiveText(
+			"clone https://repo-user:repo-p@ss@example.com/org/repo.git or repo-user:repo-p@ss@example.com:org/repo.git",
+		);
+
+		expect(scrubbed).not.toContain("repo-user");
+		expect(scrubbed).not.toContain("repo-p");
+		expect(scrubbed).not.toContain("@ss@");
+		expect(scrubbed).toContain("https://[redacted]@example.com/org/repo.git");
+		expect(scrubbed).toContain("[redacted]@example.com:org/repo.git");
+	});
+
 	it("scrubs bridge endpoint material from nested pi tool display values", () => {
 		const endpointToken = "secret-endpoint-token-display";
 		const display = scrubPiToolDisplay({

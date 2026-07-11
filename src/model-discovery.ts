@@ -8,7 +8,8 @@ import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import type { ModelThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai/compat";
 import { loadContextWindowCache } from "./context-window-cache.js";
 import { loadCursorSdk } from "./cursor-sdk-runtime.js";
-import { getCliCursorApiKeyFromArgv, resolveCursorApiKey, resolveCursorRuntimeApiKey } from "./cursor-api-key.js";
+import { resolveCursorApiKey, resolveCursorRuntimeApiKey } from "./cursor-api-key.js";
+import { scrubSensitiveText } from "./cursor-sensitive-text.js";
 import {
 	fingerprintApiKey,
 	loadAnyCachedModelCatalog,
@@ -20,7 +21,7 @@ const FALLBACK_CONTEXT_WINDOW = 128000;
 const FALLBACK_MAX_TOKENS = 16384;
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const TEXT_AND_IMAGE_INPUT: ProviderModelConfig["input"] = ["text", "image"];
-const AUTH_SETUP_HINT = "/login (Use an API key -> Cursor), CURSOR_API_KEY, or --api-key with a Cursor SDK API key; Cursor Agent CLI/Desktop login is not reused";
+const AUTH_SETUP_HINT = "/login (Use an API key -> Cursor) or CURSOR_API_KEY; startup discovery does not parse Pi CLI arguments, and Cursor Agent CLI/Desktop login is not reused";
 const CATALOG_REFRESH_HINT =
 	"After adding auth to an already-started pi session, run /cursor-refresh-models to refresh the full live Cursor model catalog without restarting pi.";
 
@@ -34,14 +35,15 @@ export interface CursorModelFallbackIssue {
 
 export interface DiscoverModelsOptions {
 	onFallback?: (issue: CursorModelFallbackIssue) => void;
+	apiKey?: string;
 	// Bypass the on-disk model cache and always hit the live catalog. Used by the
 	// /cursor-refresh-models command; the startup path leaves this false so warm
 	// boots skip the slow network round-trip.
 	forceRefresh?: boolean;
 }
 
-async function getDiscoveryApiKey(): Promise<string | undefined> {
-	return resolveCursorRuntimeApiKey();
+async function getDiscoveryApiKey(apiKey?: string): Promise<string | undefined> {
+	return resolveCursorApiKey(apiKey) ?? resolveCursorRuntimeApiKey();
 }
 
 export interface CursorModelMetadata {
@@ -410,22 +412,9 @@ export function buildCursorModelSelection(
 	return params.length > 0 ? { id: metadata.selectionModelId, params } : { id: metadata.selectionModelId };
 }
 
-function scrubDiscoveryErrorText(text: string, apiKey: string): string {
-	let scrubbed = text.replace(new RegExp(apiKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "[redacted]");
-	return scrubbed
-		.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
-		.replace(/((?:^|[\s,{])cookie["']?\s*[:=]\s*["']?)[^\n]+/gi, "$1[redacted]")
-		.replace(
-			/((?:authorization|api[_-]?key|apiKey|token|session(?:[_-]?id)?)["']?\s*[:=]\s*["']?)[^"'\s,;}]+/gi,
-			"$1[redacted]",
-		)
-		.trim();
-}
-
 function sanitizeDiscoveryError(error: unknown, apiKey: string): string | undefined {
 	const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-	const scrubbed = scrubDiscoveryErrorText(message, apiKey);
-	return scrubbed || undefined;
+	return scrubSensitiveText(message, apiKey).trim() || undefined;
 }
 
 async function useFallbackModels(options: DiscoverModelsOptions, issue: CursorModelFallbackIssue): Promise<ProviderModelConfig[]> {
@@ -435,7 +424,7 @@ async function useFallbackModels(options: DiscoverModelsOptions, issue: CursorMo
 }
 
 export async function discoverModels(options: DiscoverModelsOptions = {}): Promise<ProviderModelConfig[]> {
-	const apiKey = await getDiscoveryApiKey();
+	const apiKey = await getDiscoveryApiKey(options.apiKey);
 	if (!apiKey) {
 		return useFallbackModels(options, {
 			reason: "missing-api-key",
@@ -472,8 +461,8 @@ export async function discoverModels(options: DiscoverModelsOptions = {}): Promi
 		if (cachedCatalog && cachedCatalog.models.length > 0) {
 			options.onFallback?.({
 				reason: "cached-after-error",
-				message: `Cursor model discovery failed; using cached Cursor model catalog from ${new Date(cachedCatalog.fetchedAt).toISOString()}. ${errorMessage}`,
-				errorMessage,
+				message: `Cursor model discovery failed; using cached Cursor model catalog from ${new Date(cachedCatalog.fetchedAt).toISOString()}.${errorMessage ? ` ${errorMessage}` : ""}`,
+				...(errorMessage ? { errorMessage } : {}),
 			});
 			return registerModelItems(cachedCatalog.models);
 		}
@@ -488,6 +477,5 @@ export async function discoverModels(options: DiscoverModelsOptions = {}): Promi
 export const __testUtils = {
 	parseContextWindow,
 	registerModelItems,
-	getCliApiKeyFromArgv: getCliCursorApiKeyFromArgv,
 	normalizeApiKey: resolveCursorApiKey,
 };

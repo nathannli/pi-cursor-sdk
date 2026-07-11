@@ -11,21 +11,18 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { redactSecrets, scanForSecrets } from "./artifacts.mjs";
+import { redactSecrets, writePlatformArtifactBundle } from "./artifacts.mjs";
 import { extractContentText, jsonlHasAssistantFinalTextMarker } from "./jsonl-text.mjs";
 import { getScenario, renderPrompt } from "./scenarios.mjs";
 
-const BUNDLE_START = "PLATFORM_LIVE_BUNDLE_JSON_START";
-const BUNDLE_END = "PLATFORM_LIVE_BUNDLE_JSON_END";
 const DEFAULT_MODEL = "cursor/composer-2-5";
 const DEFAULT_WAIT_MS = 240_000;
 const READY_WAIT_MS = 45_000;
 const SESSION_JSONL_WAIT_MS = 60_000;
 const COLS = 150;
 const ROWS = 45;
-const MAX_BUNDLE_FILE_BYTES = 5 * 1024 * 1024;
 
 function writeRedactedTextFile(path, text) {
 	writeFileSync(path, redactSecrets(text ?? ""));
@@ -44,6 +41,7 @@ Options:
   --package-name <n>  Packed package name. Default: pi-cursor-sdk.
   --out-dir <dir>     Remote artifact dir. Default: .platform-smoke-runs/live-<suite>-<timestamp>.
   --prep-dir <dir>    Optional shared packed-install prep dir reused by live suites on one target.
+  --prepare-only      Prepare/reuse --prep-dir and print the packed package path without a live run.
   --wait-ms <ms>      Max wait for final marker. Default: ${DEFAULT_WAIT_MS}.
   -h, --help          Show help.
 `);
@@ -74,13 +72,15 @@ function parseArgs(argv) {
 			case "--package-name": out.packageName = next(); break;
 			case "--out-dir": out.outDir = resolve(next()); break;
 			case "--prep-dir": out.prepDir = resolve(next()); break;
+			case "--prepare-only": out.prepareOnly = true; break;
 			case "--wait-ms": out.waitMs = Number(next()); break;
 			default: fail(`unknown argument: ${arg}`);
 		}
 	}
 	if (out.help) return out;
-	if (!out.suite) fail("--suite is required");
+	if (!out.prepareOnly && !out.suite) fail("--suite is required");
 	if (!out.target) fail("--target is required");
+	if (out.prepareOnly && !out.prepDir) fail("--prepare-only requires --prep-dir");
 	if (!Number.isSafeInteger(out.waitMs) || out.waitMs <= 0) fail("--wait-ms must be a positive integer");
 	out.outDir ??= resolve(".platform-smoke-runs", `live-${out.suite}-${Date.now()}`);
 	return out;
@@ -498,59 +498,20 @@ function assertNoAbortLeftover(logDir, platform) {
 	requireOk(result, "leftover process check");
 }
 
-function shouldBundleFile(root, path) {
-	const rel = relative(root, path).replace(/\\/g, "/");
-	if (/(^|\/)node_modules\//i.test(rel)) return false;
-	if (/\.env(?:\.|$)/i.test(rel)) return false;
-	if (/(^|\/)auth\.json$/i.test(rel)) return false;
-	if (/(^|\/)(?:id_rsa|id_ed25519|.*\.pem|.*\.key)$/i.test(rel)) return false;
-	return true;
-}
-
-function collectFiles(root) {
-	const files = [];
-	const findings = [];
-	function visit(dir) {
-		let entries;
-		try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
-		for (const entry of entries) {
-			const path = join(dir, entry.name);
-			if (entry.isDirectory()) visit(path);
-			else if (entry.isFile() && shouldBundleFile(root, path)) {
-				const rel = relative(root, path).replace(/\\/g, "/");
-				const size = statSync(path).size;
-				if (size <= MAX_BUNDLE_FILE_BYTES) {
-					const content = readFileSync(path);
-					if (/\.(?:txt|json|jsonl|md|log|ansi|html|yml|yaml|js|mjs|ts)$/i.test(entry.name)) {
-						for (const violation of scanForSecrets(content.toString("utf8"))) findings.push({ file: rel, violation });
-					}
-					files.push({ path: rel, contentBase64: content.toString("base64"), size });
-				}
-			}
-		}
-	}
-	visit(root);
-	return { files, findings };
-}
-
-function printBundle(root) {
-	const collected = collectFiles(root);
-	const files = collected.findings.length === 0
-		? collected.files
-		: [{
-			path: "artifacts/bundle-redaction-violations.json",
-			contentBase64: Buffer.from(JSON.stringify(collected.findings, null, 2)).toString("base64"),
-			size: Buffer.byteLength(JSON.stringify(collected.findings, null, 2)),
-		}];
-	const bundle = { root: basename(root), files };
-	const payload = `${BUNDLE_START}\n${JSON.stringify(bundle)}\n${BUNDLE_END}\n`;
-	return new Promise((resolvePromise) => process.stdout.write(payload, resolvePromise));
-}
-
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.help) {
 		usage();
+		return;
+	}
+	if (args.prepareOnly) {
+		const bootstrapDir = `${args.prepDir}-bootstrap`;
+		const logDir = join(bootstrapDir, "logs");
+		const artifactDir = join(bootstrapDir, "artifacts");
+		mkdirSync(logDir, { recursive: true });
+		mkdirSync(artifactDir, { recursive: true });
+		const prep = prepareSharedPackedInstall(args.prepDir, logDir, artifactDir, args.packageName);
+		console.log(`PLATFORM_PACKED_PACKAGE_PATH=${prep.packagePath}`);
 		return;
 	}
 	const scenario = getScenario(args.suite);
@@ -663,7 +624,7 @@ async function main() {
 		status.error = error;
 		status.finishedAt = new Date().toISOString();
 		writeFileSync(join(artifactDir, "live-status.json"), JSON.stringify(status, null, 2));
-		await printBundle(runRoot);
+		writePlatformArtifactBundle(runRoot);
 	}
 	if (!ok) process.exitCode = 1;
 }

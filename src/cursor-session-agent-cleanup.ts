@@ -1,20 +1,23 @@
-import { execFileSync } from "node:child_process";
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { asRecord, getString } from "./cursor-record-utils.js";
+import { fsyncExistingRegularFile } from "./cursor-durable-fs.js";
 import { scrubSensitiveText } from "./cursor-sensitive-text.js";
 import { loadCursorSdk } from "./cursor-sdk-runtime.js";
 import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 import {
 	CURSOR_SESSION_AGENT_RESUME_ENTRY_TYPE,
+	isCursorLocalAgentId,
 	parseCursorSessionAgentResumeEntryData,
+	readResumableCursorSessionAgentIds,
+	resolveCursorSessionRepoRoot,
 	type CursorSessionAgentResumeEntryData,
+	type CursorSessionAgentResumeScope,
 } from "./cursor-session-agent-resume.js";
 
 export const CURSOR_SESSION_AGENT_CLEANUP_ENTRY_TYPE = "cursor-sdk-agent-cleanup";
 
-const MAX_AGENT_ID_LENGTH = 256;
-
 type CleanupAction = "dry-run" | "delete";
+type CleanupPhase = "intent" | "result";
 
 export interface CursorSessionAgentCleanupFailure {
 	agentId: string;
@@ -23,6 +26,7 @@ export interface CursorSessionAgentCleanupFailure {
 
 export interface CursorSessionAgentCleanupEntryData {
 	action: CleanupAction;
+	phase?: CleanupPhase;
 	runtime: "local";
 	timestamp: string;
 	candidateAgentIds: string[];
@@ -36,13 +40,7 @@ export interface CursorSessionAgentCleanupPlan {
 	protectedAgentIds: string[];
 }
 
-export interface CursorSessionAgentCleanupScope {
-	scopeKey: string;
-	sessionFile?: string;
-	sessionId?: string;
-	cwd: string;
-	repoRoot?: string;
-}
+export type CursorSessionAgentCleanupScope = CursorSessionAgentResumeScope;
 
 type LocalResumeCleanupApi = Pick<ExtensionAPI, "appendEntry">;
 type LocalResumeCleanupCommandContext = Pick<ExtensionCommandContext, "cwd"> & {
@@ -53,11 +51,13 @@ type LocalResumeCleanupSdkOperations = {
 	delete(agentId: string, options?: { cwd?: string }): Promise<void>;
 };
 
+// ponytail: grows for the process lifetime, but its ceiling is the exact agent IDs this process
+// attempted to delete (never global) — it only fills the gap until this process exits; the durable
+// intent entry, not this Set, is the authority a restarted process relies on to block retries.
+// Tests must call __testUtils.reset() between cases.
+const nondurableCleanupResultAgentIds = new Set<string>();
+let appendDurabilityForTests: ((data: CursorSessionAgentCleanupEntryData) => boolean) | undefined;
 let sdkOperationsForTests: LocalResumeCleanupSdkOperations | undefined;
-
-function isSafeLocalAgentId(agentId: string): boolean {
-	return agentId.startsWith("agent-") && agentId.length <= MAX_AGENT_ID_LENGTH && !/[*?[\]{}]/.test(agentId);
-}
 
 function uniqueSorted(values: Iterable<string>): string[] {
 	return [...new Set(values)].sort((a, b) => a.localeCompare(b));
@@ -73,18 +73,6 @@ function readResumeEntries(entries: readonly SessionEntry[]): CursorSessionAgent
 	return records;
 }
 
-function getGitRepoRoot(cwd: string): string | undefined {
-	try {
-		return execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			timeout: 2_000,
-		}).trim() || undefined;
-	} catch {
-		return undefined;
-	}
-}
-
 function resumeEntryMatchesCleanupScope(data: CursorSessionAgentResumeEntryData, scope: CursorSessionAgentCleanupScope): boolean {
 	return data.scopeKey === scope.scopeKey &&
 		data.sessionFile === scope.sessionFile &&
@@ -96,7 +84,7 @@ function resumeEntryMatchesCleanupScope(data: CursorSessionAgentResumeEntryData,
 function getCurrentCleanupScope(ctx: LocalResumeCleanupCommandContext): CursorSessionAgentCleanupScope {
 	const sessionFile = ctx.sessionManager.getSessionFile();
 	const sessionId = ctx.sessionManager.getSessionId();
-	const repoRoot = getGitRepoRoot(ctx.cwd);
+	const repoRoot = resolveCursorSessionRepoRoot(ctx.cwd);
 	return {
 		scopeKey: getCursorSessionScopeKey(),
 		...(sessionFile ? { sessionFile } : {}),
@@ -110,35 +98,51 @@ function parseCleanupEntryData(value: unknown): CursorSessionAgentCleanupEntryDa
 	const record = asRecord(value);
 	if (!record || (record.action !== "dry-run" && record.action !== "delete") || record.runtime !== "local") return undefined;
 	if (typeof record.timestamp !== "string") return undefined;
+	if (record.phase !== undefined && record.phase !== "intent" && record.phase !== "result") return undefined;
+	if (record.action === "dry-run" && record.phase !== undefined) return undefined;
 	const candidateAgentIds = Array.isArray(record.candidateAgentIds) ? record.candidateAgentIds.filter((id): id is string => typeof id === "string") : [];
 	const protectedAgentIds = Array.isArray(record.protectedAgentIds) ? record.protectedAgentIds.filter((id): id is string => typeof id === "string") : undefined;
 	const deletedAgentIds = Array.isArray(record.deletedAgentIds) ? record.deletedAgentIds.filter((id): id is string => typeof id === "string") : undefined;
 	const failedAgentIds = Array.isArray(record.failedAgentIds)
 		? record.failedAgentIds.flatMap((item): CursorSessionAgentCleanupFailure[] => {
 			const failure = asRecord(item);
-			return typeof failure?.agentId === "string" && typeof failure.error === "string" ? [{ agentId: failure.agentId, error: failure.error }] : [];
+			return isCursorLocalAgentId(failure?.agentId) && typeof failure.error === "string" ? [{ agentId: failure.agentId, error: failure.error }] : [];
 		})
 		: undefined;
 	return {
 		action: record.action,
+		...(record.phase ? { phase: record.phase } : {}),
 		runtime: "local",
 		timestamp: record.timestamp,
-		candidateAgentIds: uniqueSorted(candidateAgentIds.filter(isSafeLocalAgentId)),
-		...(protectedAgentIds?.length ? { protectedAgentIds: uniqueSorted(protectedAgentIds.filter(isSafeLocalAgentId)) } : {}),
-		...(deletedAgentIds?.length ? { deletedAgentIds: uniqueSorted(deletedAgentIds.filter(isSafeLocalAgentId)) } : {}),
+		candidateAgentIds: uniqueSorted(candidateAgentIds.filter(isCursorLocalAgentId)),
+		...(protectedAgentIds?.length ? { protectedAgentIds: uniqueSorted(protectedAgentIds.filter(isCursorLocalAgentId)) } : {}),
+		...(deletedAgentIds?.length ? { deletedAgentIds: uniqueSorted(deletedAgentIds.filter(isCursorLocalAgentId)) } : {}),
 		...(failedAgentIds?.length ? { failedAgentIds } : {}),
 	};
 }
 
-function readDeletedAgentIds(entries: readonly SessionEntry[]): Set<string> {
+function readUnavailableAgentIds(entries: readonly SessionEntry[]): Set<string> {
 	const deleted = new Set<string>();
+	const pending = new Set<string>();
 	for (const entry of entries) {
 		if (entry.type !== "custom" || entry.customType !== CURSOR_SESSION_AGENT_CLEANUP_ENTRY_TYPE) continue;
 		const data = parseCleanupEntryData(entry.data);
 		if (data?.action !== "delete") continue;
-		for (const agentId of data.deletedAgentIds ?? []) deleted.add(agentId);
+		if (data.phase === "intent") {
+			for (const agentId of data.candidateAgentIds) {
+				if (!deleted.has(agentId)) pending.add(agentId);
+			}
+			continue;
+		}
+		for (const agentId of data.deletedAgentIds ?? []) {
+			deleted.add(agentId);
+			pending.delete(agentId);
+		}
+		if (data.phase === "result") {
+			for (const { agentId } of data.failedAgentIds ?? []) pending.delete(agentId);
+		}
 	}
-	return deleted;
+	return new Set([...deleted, ...pending, ...nondurableCleanupResultAgentIds]);
 }
 
 function readLatestBranchAgentId(branch: readonly SessionEntry[], scope: CursorSessionAgentCleanupScope): string | undefined {
@@ -150,14 +154,15 @@ export function readCursorSessionAgentCleanupPlan(
 	branch: readonly SessionEntry[],
 	scope: CursorSessionAgentCleanupScope,
 ): CursorSessionAgentCleanupPlan {
-	const deleted = readDeletedAgentIds(entries);
+	const unavailable = readUnavailableAgentIds(entries);
 	const latestBranchAgentId = readLatestBranchAgentId(branch, scope);
-	const protectedAgentIds = latestBranchAgentId && isSafeLocalAgentId(latestBranchAgentId) ? new Set([latestBranchAgentId]) : new Set<string>();
+	const protectedAgentIds = new Set(readResumableCursorSessionAgentIds(entries, scope));
+	if (latestBranchAgentId && isCursorLocalAgentId(latestBranchAgentId)) protectedAgentIds.add(latestBranchAgentId);
 	const candidates = new Set<string>();
 	for (const resume of readResumeEntries(entries)) {
 		if (!resumeEntryMatchesCleanupScope(resume, scope)) continue;
 		for (const agentId of resume.cleanupCandidateAgentIds ?? []) {
-			if (!isSafeLocalAgentId(agentId) || protectedAgentIds.has(agentId) || deleted.has(agentId)) continue;
+			if (!isCursorLocalAgentId(agentId) || protectedAgentIds.has(agentId) || unavailable.has(agentId)) continue;
 			candidates.add(agentId);
 		}
 	}
@@ -184,8 +189,48 @@ async function getSdkOperations(): Promise<LocalResumeCleanupSdkOperations> {
 	};
 }
 
+function cleanupEntryVerificationKey(data: CursorSessionAgentCleanupEntryData): string {
+	return JSON.stringify({
+		action: data.action,
+		phase: data.phase,
+		runtime: data.runtime,
+		timestamp: data.timestamp,
+		candidateAgentIds: data.candidateAgentIds,
+		protectedAgentIds: data.protectedAgentIds ?? [],
+		deletedAgentIds: data.deletedAgentIds ?? [],
+		failedAgentIds: data.failedAgentIds ?? [],
+	});
+}
+
+function cleanupEntriesMatch(left: CursorSessionAgentCleanupEntryData, right: CursorSessionAgentCleanupEntryData): boolean {
+	return cleanupEntryVerificationKey(left) === cleanupEntryVerificationKey(right);
+}
+
 function appendCleanupEntry(pi: LocalResumeCleanupApi, data: CursorSessionAgentCleanupEntryData): void {
 	pi.appendEntry<CursorSessionAgentCleanupEntryData>(CURSOR_SESSION_AGENT_CLEANUP_ENTRY_TYPE, data);
+}
+
+function appendDurableCleanupEntry(
+	pi: LocalResumeCleanupApi,
+	ctx: LocalResumeCleanupCommandContext,
+	data: CursorSessionAgentCleanupEntryData,
+): boolean {
+	const sessionFile = ctx.sessionManager.getSessionFile();
+	const previousEntryId = ctx.sessionManager.getBranch().at(-1)?.id;
+	try {
+		appendCleanupEntry(pi, data);
+	} catch {
+		return false;
+	}
+	if (appendDurabilityForTests) return appendDurabilityForTests(data);
+	const anchor = ctx.sessionManager.getBranch().at(-1);
+	const persisted = anchor?.type === "custom" &&
+		anchor.customType === CURSOR_SESSION_AGENT_CLEANUP_ENTRY_TYPE &&
+		anchor.id !== previousEntryId
+		? parseCleanupEntryData(anchor.data)
+		: undefined;
+	if (!sessionFile || !persisted || !cleanupEntriesMatch(persisted, data)) return false;
+	return fsyncExistingRegularFile(sessionFile);
 }
 
 export async function runCursorSessionAgentCleanupCommand(pi: LocalResumeCleanupApi, args: string, ctx: LocalResumeCleanupCommandContext): Promise<void> {
@@ -213,28 +258,50 @@ export async function runCursorSessionAgentCleanupCommand(pi: LocalResumeCleanup
 		return;
 	}
 	if (plan.candidateAgentIds.length === 0) {
-		appendCleanupEntry(pi, { action: "delete", ...baseEntry, deletedAgentIds: [] });
-		ctx.ui.notify("No recorded superseded local Cursor SDK agents to delete.", "info");
+		try {
+			appendCleanupEntry(pi, { action: "delete", phase: "result", ...baseEntry, deletedAgentIds: [] });
+			ctx.ui.notify("No recorded superseded local Cursor SDK agents to delete.", "info");
+		} catch {
+			ctx.ui.notify("No agents were deleted, but the no-op cleanup result could not be recorded.", "error");
+		}
 		return;
 	}
 
-	const operations = await getSdkOperations();
+	if (!appendDurableCleanupEntry(pi, ctx, { action: "delete", phase: "intent", ...baseEntry })) {
+		ctx.ui.notify("Cleanup intent could not be durably recorded. No agents were deleted.", "error");
+		return;
+	}
+
 	const deletedAgentIds: string[] = [];
 	const failedAgentIds: CursorSessionAgentCleanupFailure[] = [];
-	for (const agentId of plan.candidateAgentIds) {
-		try {
-			await operations.delete(agentId, { cwd: ctx.cwd });
-			deletedAgentIds.push(agentId);
-		} catch (error) {
-			failedAgentIds.push({ agentId, error: scrubSensitiveText(getString(asRecord(error), "message") ?? String(error)) });
+	try {
+		const operations = await getSdkOperations();
+		for (const agentId of plan.candidateAgentIds) {
+			try {
+				await operations.delete(agentId, { cwd: ctx.cwd });
+				deletedAgentIds.push(agentId);
+			} catch (error) {
+				failedAgentIds.push({ agentId, error: scrubSensitiveText(getString(asRecord(error), "message") ?? String(error)) });
+			}
 		}
+	} catch (error) {
+		const message = scrubSensitiveText(getString(asRecord(error), "message") ?? String(error));
+		failedAgentIds.push(...plan.candidateAgentIds.map((agentId) => ({ agentId, error: message })));
 	}
-	appendCleanupEntry(pi, {
+	if (!appendDurableCleanupEntry(pi, ctx, {
 		action: "delete",
+		phase: "result",
 		...baseEntry,
 		deletedAgentIds,
 		...(failedAgentIds.length ? { failedAgentIds } : {}),
-	});
+	})) {
+		for (const agentId of plan.candidateAgentIds) nondurableCleanupResultAgentIds.add(agentId);
+		ctx.ui.notify(
+			`Deleted ${deletedAgentIds.length} recorded local Cursor SDK agent(s). The cleanup ledger is partial because its result could not be durably recorded; the durable intent blocks automatic retries.`,
+			"error",
+		);
+		return;
+	}
 	if (failedAgentIds.length > 0) {
 		ctx.ui.notify(
 			`Deleted ${deletedAgentIds.length} recorded local Cursor SDK agent(s); ${failedAgentIds.length} failed.`,
@@ -247,7 +314,12 @@ export async function runCursorSessionAgentCleanupCommand(pi: LocalResumeCleanup
 
 export const __testUtils = {
 	reset: () => {
+		nondurableCleanupResultAgentIds.clear();
+		appendDurabilityForTests = undefined;
 		sdkOperationsForTests = undefined;
+	},
+	setAppendDurability: (appendDurability: ((data: CursorSessionAgentCleanupEntryData) => boolean) | undefined) => {
+		appendDurabilityForTests = appendDurability;
 	},
 	setSdkOperations: (operations: LocalResumeCleanupSdkOperations | undefined) => {
 		sdkOperationsForTests = operations;

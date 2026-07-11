@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Context, Message, ToolCall } from "@earendil-works/pi-ai/compat";
 import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { AgentModeOption, SDKImage } from "@cursor/sdk";
+import { CURSOR_PI_BRIDGE_PREFERENCE_TEXT } from "./cursor-bridge-contract.js";
 import { getCursorReplayPromptLabel } from "./cursor-tool-presentation-registry.js";
 
 export interface CursorPrompt {
@@ -48,6 +49,7 @@ export function getCursorToolTailGuardText(
 			: getCursorPlanModeToolGuidanceText(options.agentMode, { includePiBridgeGuidance: options.includePiBridgeGuidance }),
 		"Exact-output requests: output exactly the requested text; no preamble or checks unless asked.",
 		"Tools: call available Cursor SDK/MCP tools; never print tool cards as assistant text.",
+		options.includePiBridgeGuidance === false ? undefined : CURSOR_PI_BRIDGE_PREFERENCE_TEXT,
 	].filter((line): line is string => line !== undefined).join("\n");
 }
 
@@ -73,7 +75,9 @@ function getCursorToolBoundaryText(
 	return lines.join("\n");
 }
 
-function getCursorBootstrapTailSections(options: Pick<CursorPromptOptions, "agentMode"> = {}): string[] {
+function getCursorBootstrapTailSections(
+	options: Pick<CursorPromptOptions, "agentMode" | "includePiBridgeGuidance"> = {},
+): string[] {
 	return [
 		"Answer the latest user request above using the instructions and Cursor SDK capabilities available in this run.",
 		getCursorToolTailGuardText({ ...options, includePlanModeGuidance: false }),
@@ -437,7 +441,6 @@ export function buildCursorPrompt(context: Context, options: CursorPromptOptions
 		budgetOptions,
 	);
 	const text = parts.join(SECTION_SEPARATOR);
-
 
 	return { text, images };
 }

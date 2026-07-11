@@ -1,28 +1,48 @@
 # Changelog
 
-## Unreleased
+## 0.1.57 - 2026-07-10
 
 ### Changed
 
+- Prefer exposed `pi__mcp` and `pi__subagent` bridge tools for MCP work and delegation, with Cursor-configured MCP and Cursor-native subagents as fallbacks when the matching pi tool is not exposed or is unavailable.
+- Update the Pi development and platform-smoke baseline to 0.80.5, including native `openai-codex/gpt-5.6-luna`, `gpt-5.6-sol`, and `gpt-5.6-terra` metadata.
 - Enable guarded branch-scoped local Cursor SDK resume by default for local runtime; users can opt out with `--cursor-no-local-resume`, `PI_CURSOR_LOCAL_RESUME=0`, or `local.resume: false`.
 
 ### Added
 
+- Refresh the reviewed Cursor fallback catalog with Cursor's GPT-5.6 Luna/Sol/Terra models and Claude Sonnet 5, including the SDK-advertised aliases, context variants, reasoning/effort levels, and fast selections.
 - Add `/cursor-refresh-config` to call the current pooled Cursor SDK agent's `agent.reload()` for filesystem Cursor config refreshes without recreating the agent.
 - Add explicit local Cursor safety controls: `--cursor-auto-review` / `PI_CURSOR_AUTO_REVIEW` and `--cursor-sandbox` / `PI_CURSOR_SANDBOX`, plus `local.autoReview` and `local.sandboxOptions.enabled` config. Defaults stay off.
-- Add one-shot manual local stuck-run recovery with `--cursor-local-force` / `PI_CURSOR_LOCAL_FORCE`, wired only to the next `Agent.send(..., { local: { force: true } })`; no persistent config default, retry loop, or automatic force recovery is added.
+- Add one-shot manual local stuck-run recovery with `--cursor-local-force` / `PI_CURSOR_LOCAL_FORCE`, consumed only at the next actual `Agent.send(..., { local: { force: true } })` so pre-send failures/aborts preserve it and session reload cannot rearm a consumed CLI flag; no persistent config default, retry loop, or automatic force recovery is added.
 - Add minimal explicit Cursor cloud runtime execution after first-use acknowledgement and safety preflight. Defaults stay local + loopback MCP; cloud runs use fresh context by default, skip the pi bridge/local MCP/env forwarding, leave cloud agents alive for Cursor-managed cleanup, and keep project config limited to the runtime default for the initial cloud slice.
 - Show Cursor runtime directly in the interactive status footer (`cursor:local · fast:on|off|n/a`, `cursor:cloud · fast:n/a`) so cloud opt-in is visible.
 - Name explicit Cursor cloud agents from the current pi session title when available so Cursor Cloud agent lists are easier to match back to pi sessions.
 - Add explicit Cursor-managed cloud environment selection with `--cursor-cloud-env-type`, `--cursor-cloud-env-name`, `PI_CURSOR_CLOUD_ENV_TYPE`, `PI_CURSOR_CLOUD_ENV_NAME`, and `cloud.environment.type/name` user config. This selects Cursor Cloud `cloud` / `pool` / `machine` environments without forwarding local env values.
-- Stream bounded display-only Cursor Cloud completion telemetry when available: agent/run IDs, pushed branch and PR URL with fetch/checkout hint, passive artifact paths, and raw cloud usage without persisting it into transcript content or feeding that usage into pi accounting.
+- Stream bounded display-only Cursor Cloud completion telemetry when available: agent/run IDs, pushed branch, repository and PR URL, passive artifact paths, and raw cloud usage without persisting it into transcript content or feeding that usage into pi accounting.
 - Add `/cursor-cloud list`, `/cursor-cloud archive <bc-agentId>`, and `/cursor-cloud delete <bc-agentId> --yes` for session-branch recorded cloud agents; archive/delete reject empty, non-`bc-`, wildcard, unrecorded, bulk, and unconfirmed delete requests before SDK calls.
-- Add guarded branch-scoped local Cursor SDK resume; it stores SDK agent IDs only in pi session custom entries, re-supplies current model/tool transport, and falls back to create+bootstrap with a display-only continuity note when resume is unavailable.
+- Add guarded branch-scoped local Cursor SDK resume; it stores SDK agent IDs only in pi session custom entries, re-supplies the current model and loopback MCP bridge, bootstraps the current pi transcript once after process reattachment, and falls back to create+bootstrap with a display-only continuity note when resume is unavailable.
 
 ### Fixed
 
+- Prevent Bun from terminating pi when `@cursor/sdk` 1.0.23's controlled-exec error path writes to an already closed internal iterable during a long bridged tool call. Suppression is limited to the exact `WriteIterableClosedError` name/message with Cursor SDK stack provenance for the Pi session lifecycle because controlled-exec can reject after the originating provider turn; Connect/network/abort suppression remains active-turn scoped, and unrelated failures remain fatal.
 - Stop applying Cursor SDK `RunResult.usage` to pi assistant messages when no per-turn `turn-ended` usage is available; long local sessions can report full-agent-context usage there, which can poison compaction/session token totals. Pi now falls back to bounded local estimates unless real per-turn SDK usage is present and fits the selected model window.
 - Pass the current Cursor model selection on every SDK `agent.send()` so resumed and pooled agents keep pi's active model as the source of truth.
+- Fail closed on invalid explicit Cursor runtime or cloud-context CLI/environment values, and report the effective runtime source or safety cap from `/cursor-runtime` instead of claiming a shadowed session value took effect.
+- Apply `local.resume` enable/disable changes to the next pooled-agent turn without recreating the agent.
+- Force-create the replacement local SDK agent after incremental-threshold or context-divergence rebootstrap while keeping resume persistence enabled for the replacement, instead of resuming the agent the reset just disposed.
+- Stop parsing process-wide `--api-key` values during startup discovery; provider turns keep Pi's scoped `options.apiKey`, while model refresh and Cloud lifecycle commands ask Pi's `ModelRegistry` for provider `cursor`, preventing another provider's key from reaching Cursor SDK calls while preserving stored and environment Cursor auth fallback.
+- Terminate full smoke-runner process trees on timeout/cleanup, give bounded Windows CIM orphan discovery enough time under VM contention, reject unknown or conflicting paid smoke lane arguments before starting a live run, and prepare a root-started wrapper around the unprivileged Ubuntu Node image so Crabbox can install its SSH bootstrap dependencies.
+- Persist Cursor Cloud agent intent immediately after `Agent.create()` and before debug/abort handling to a branch-bound, fsynced, newline-framed sidecar keyed by stable pi session ID, opened through regular-file descriptor identity checks without following symlinks (POSIX mode `0600`, Windows user-directory ACL), and persist returned run IDs before abort/wait handling so rejected, cancelled, or first-turn-crashed sends remain cleanup-eligible; individually truncated records no longer hide later valid IDs, successive run/report records merge without losing metadata, anchored journals fsync Pi session JSONL first, archive/delete require auth before durable intent/result records, tolerate optional Pi-mirror failure after a durable result, and leave durable intent pending when the sidecar result fails, Cloud requires a persisted pi session, lifecycle persistence failures fail closed with bounded cancellation and dashboard guidance, and optional debug-write failures cannot orphan returned or live runs.
+- Verify and fsync exact local-agent cleanup intent in the Pi session JSONL before SDK deletion, fsync the result afterward, use Windows-compatible read-write flush descriptors, and keep both durable intent and current-process state blocking retry when result durability fails.
+- Make Cloud smoke cleanup harvest exact agent IDs from canonical session/lifecycle artifacts as well as optional debug metadata, archive the union, and retain artifacts on run or cleanup failure.
+- Keep canonical platform artifact transport below Crabbox's 64 KiB ceiling with gzip JSON/base64 inline bundles or checksum-verified 32 KiB no-sync chunk retrieval before lease release; large bundles now use only the exact CWD-relative `.platform-artifact-bundle.gz` final component, created and written exclusively through a no-follow identity-checked descriptor, and chunk/marker validation rejects every parent-bearing path. Bounded scans accept caller roots only when their real path matches the same relative path beneath the canonical real CWD or temp base (preserving expected macOS `/var` → `/private/var` aliasing while rejecting user-created intermediate links), then hold each traversed directory and recheck its identity plus immutable ctime/mtime/size/link/mode snapshot around traversal and file reads, so nested rename/symlink ABA cannot expose outside bytes. Scans still cover every regular artifact before transport exclusions, reject non-regular entries, prune `node_modules`/`.git`, fail closed on oversized or unscannable files, and any traversal failure emits only bounded failure evidence rather than findings or previously observed bytes; bundles cap compressed/inflated/per-file/file-count/aggregate extraction before host writes, reject duplicate/file-prefix bundle paths and symlinked or pre-existing host destinations, and extract only through exclusive identity-checked descriptors after securing destination directories. Compact output still uses `--capture-stdout` and preserves real scenario exit codes. Windows controllers reject nonempty extraction before mutation because Node has no handle-relative Windows creation API; Windows remains a supported matrix target from the POSIX controller, with target-side scan/spill identity guards kept free of POSIX-only flags.
+- Reject local resume handles that cross user messages already persisted at process startup, preventing a hard-crash restart from resending a prompt that the prior Cursor agent may already have accepted.
+- Reject non-HTTPS and credential/query/fragment-bearing Cursor Cloud repository URLs before `Agent.create()`, and redact URL/SCP-style userinfo from provider and maintainer output.
+
+### Validation
+
+- Current offline evidence is limited to the checked-in focused tests, full unit suite, platform-smoke syntax/tooling checks, and TypeScript checks; final command results belong in the release artifacts/status.
+- Required and pending release gates are `npm publish --dry-run`, `npm run smoke:platform:all`, `npm run smoke:cloud`, and the applicable live release smokes. Their final results belong in the release artifacts/status, not this changelog.
 
 ## 0.1.56 - 2026-07-04
 
@@ -68,7 +88,7 @@
 
 ### Changed
 
-- Use real per-turn Cursor SDK usage when available, including cache read/write fields, while keeping local prompt/output estimates as the no-SDK-usage fallback. SDK-attributed context occupancy is pinned to latest-turn input plus output so cumulative run input and cache reads do not overstate compaction pressure; fallback context occupancy uses the replayable context estimate so split tool turns do not show a tiny footer percentage next to large input counts.
+- Use real per-turn Cursor SDK usage when available, including cache read/write fields, while keeping local prompt/output estimates as the no-SDK-usage fallback. SDK-attributed context occupancy includes the latest turn's input, output, cache-read, and cache-write counters per the SDK and pi compaction contracts; fallback context occupancy uses the replayable context estimate so split tool turns do not show a tiny footer percentage next to large input counts.
 - Shorten Cursor bootstrap and incremental prompt boundary text while preserving host-tool, configured MCP, pi bridge, exact-output, shell cwd, plan-mode, and latest-image guidance. The callable-surface manifest remains enabled by default but uses compact wording for Cursor host/configured MCP tools and pi tools/bridge exposure.
 
 ### Fixed

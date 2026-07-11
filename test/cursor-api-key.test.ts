@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	CURSOR_API_KEY_CONFIG_VALUE,
-	getCliCursorApiKeyFromArgv,
 	resolveCursorApiKey,
 	resolveCursorRuntimeApiKey,
 } from "../src/cursor-api-key.js";
@@ -35,12 +34,6 @@ describe("cursor-api-key helpers", () => {
 		process.argv = originalArgv;
 	});
 
-	it("parses --api-key forms", () => {
-		expect(getCliCursorApiKeyFromArgv(["node", "pi", "--api-key", "cli-key-123"])).toBe("cli-key-123");
-		expect(getCliCursorApiKeyFromArgv(["node", "pi", "--api-key=cli-key-123"])).toBe("cli-key-123");
-		expect(getCliCursorApiKeyFromArgv(["node", "pi", "--api-key", "--list-models"])).toBeUndefined();
-	});
-
 	it.each(["CURSOR_API_KEY", "$CURSOR_API_KEY", "${CURSOR_API_KEY}", CURSOR_API_KEY_CONFIG_VALUE])(
 		"resolves placeholder %s through env only",
 		(placeholder) => {
@@ -50,13 +43,21 @@ describe("cursor-api-key helpers", () => {
 		},
 	);
 
-	it("prefers CLI, then stored auth, then env for runtime keys", async () => {
-		writeStoredCursorApiKey("stored-key-123");
-		process.env.CURSOR_API_KEY = "env-key-123";
-		expect(await resolveCursorRuntimeApiKey()).toBe("stored-key-123");
+	it("ignores every process argv form and resolves stored auth before env", async () => {
+		process.argv = [
+			"node", "pi", "--model", "anthropic/first", "--api-key", "first-key",
+			"--MODEL", "cursor/case", "--API-KEY", "case-key",
+			"--model=cursor/unsupported", "--api-key=equals-key",
+			"--models", "cursor/list-like", "--provider", "cursor",
+			"--model", "cursor/final", "--api-key", "last-key",
+		];
+		expect(await resolveCursorRuntimeApiKey()).toBeUndefined();
 
-		process.argv = ["node", "pi", "--api-key", "cli-key-123"];
-		expect(await resolveCursorRuntimeApiKey()).toBe("cli-key-123");
+		process.env.CURSOR_API_KEY = "env-key-123";
+		expect(await resolveCursorRuntimeApiKey()).toBe("env-key-123");
+
+		writeStoredCursorApiKey("stored-key-123");
+		expect(await resolveCursorRuntimeApiKey()).toBe("stored-key-123");
 	});
 
 	it("resolves stored placeholders through env", async () => {

@@ -1,4 +1,5 @@
 import type { ExtensionHandler, SessionInfoChangedEvent, SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 
 interface CursorSessionScopeExtensionApi {
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
@@ -7,6 +8,7 @@ interface CursorSessionScopeExtensionApi {
 
 const ANONYMOUS_SESSION_SCOPE_KEY = "__anonymous__";
 const EPHEMERAL_SESSION_SCOPE_PREFIX = "__ephemeral__:";
+export const MAX_CURSOR_SESSION_NAME_LENGTH = 100;
 
 type CursorSessionScopeChangeHandler = (previousScopeKey: string) => Promise<void> | void;
 
@@ -62,8 +64,8 @@ export function getCursorSessionName(): string | undefined {
 }
 
 function normalizeCursorSessionName(name: string | undefined): string | undefined {
-	const trimmed = name?.trim();
-	return trimmed ? trimmed : undefined;
+	if (name === undefined) return undefined;
+	return truncateCursorDisplayLine(name, MAX_CURSOR_SESSION_NAME_LENGTH) || undefined;
 }
 
 function setCursorSessionScope(

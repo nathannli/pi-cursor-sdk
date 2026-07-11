@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Context } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	resetCursorProviderTestState,
 	mockedCreate,
@@ -38,17 +42,11 @@ import { estimateCursorPromptMessageTokens } from "../src/context.js";
 import { __testUtils as sessionAgentTestUtils } from "../src/cursor-session-agent.js";
 import { __testUtils as cursorPiToolBridgeTestUtils } from "../src/cursor-pi-tool-bridge.js";
 import { __testUtils as nativeToolDisplayTestUtils } from "../src/cursor-native-tool-display-state.js";
-import type { Context } from "@earendil-works/pi-ai/compat";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-
 
 describe("streamCursor session agent", () => {
 	beforeEach(resetCursorProviderTestState);
 
-it("keeps the session agent alive after a successful text-only turn", async () => {
+	it("keeps the session agent alive after a successful text-only turn", async () => {
 		const mockDispose = vi.fn().mockResolvedValue(undefined);
 		const mockSend = vi.fn().mockResolvedValue({
 			id: "run-1",
@@ -118,7 +116,14 @@ it("keeps the session agent alive after a successful text-only turn", async () =
 		expect(mockDispose).toHaveBeenCalledTimes(1);
 	});
 
-	it("reuses the session agent and sends an incremental prompt on follow-up turns", async () => {
+	it("reuses the session agent and keeps bridge guidance on follow-up turns", async () => {
+		registerBridgeForProviderTest({
+			active: ["mcp", "subagent"],
+			tools: [
+				createTestToolInfo("mcp", Type.Object({}), "Call an MCP server"),
+				createTestToolInfo("subagent", Type.Object({}), "Delegate to a pi subagent"),
+			],
+		});
 		const mockSend = vi.fn().mockImplementation(async (message: { text?: string }) => {
 			return asMockCursorRun({
 				id: "run-1",
@@ -153,8 +158,10 @@ it("keeps the session agent alive after a successful text-only turn", async () =
 		const secondPrompt = mockSend.mock.calls[1]?.[0] as { text?: string };
 		expect(firstPrompt.text).toContain("Cursor SDK tool boundary:");
 		expect(firstPrompt.text).toContain("User: Hello");
+		expect(firstPrompt.text).toContain("prefer pi__mcp for MCP work and pi__subagent for delegation");
 		expect(secondPrompt.text).toContain("User: Follow up");
 		expect(secondPrompt.text).not.toContain("User: Hello");
+		expect(secondPrompt.text).toContain("prefer pi__mcp for MCP work and pi__subagent for delegation");
 	});
 
 	it("recreates the session agent after session-tree invalidation", async () => {

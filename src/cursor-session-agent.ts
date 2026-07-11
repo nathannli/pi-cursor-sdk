@@ -119,6 +119,7 @@ interface SessionCursorAgentCreateParams {
 	onBridgeToolRequest?: (request: CursorPiBridgeToolRequest) => void;
 	debugRecorder?: CursorSdkEventDebugRecorder;
 	localResume?: boolean;
+	forceCreate?: boolean;
 	createAgent?: CursorSdkModule["Agent"]["create"];
 	resumeAgent?: CursorSdkModule["Agent"]["resume"];
 }
@@ -348,6 +349,7 @@ function leaseFromEntry(
 	params: SessionCursorAgentCreateParams,
 	created: boolean,
 ): SessionCursorAgentLease {
+	entry.resumeEnabled = params.localResume === true;
 	bindBridgeToolRequest(entry, params.onBridgeToolRequest);
 	entry.bridgeRun?.setDebugRecorder(params.debugRecorder);
 	const resumeNotice = entry.resumeNotice;
@@ -418,9 +420,14 @@ async function createSessionAgentEntry(
 	}
 
 	const resolvedPoolKey = buildSessionAgentPoolKey(scopeKey, params);
-	const sdk = !params.createAgent || (params.localResume === true && !params.resumeAgent) ? await loadCursorSdk() : undefined;
-	const createAgent = params.createAgent ?? sdk!.Agent.create;
-	const resumeAgent = params.resumeAgent ?? sdk?.Agent.resume;
+	const resumeEligible = params.localResume === true && !params.forceCreate;
+	let createAgent = params.createAgent;
+	let resumeAgent = params.resumeAgent;
+	if (!createAgent || (resumeEligible && !resumeAgent)) {
+		const sdk = await loadCursorSdk();
+		createAgent ??= sdk.Agent.create;
+		resumeAgent ??= sdk.Agent.resume;
+	}
 	const agentOptions = {
 		apiKey: params.apiKey,
 		model: params.modelSelection,
@@ -436,7 +443,7 @@ async function createSessionAgentEntry(
 	let effectiveSendState = sendState;
 	let resumed = false;
 	let resumeNotice: string | undefined;
-	const resumeHandle = params.localResume ? getMatchingCursorSessionAgentResumeHandle(resolvedPoolKey) : undefined;
+	const resumeHandle = resumeEligible ? getMatchingCursorSessionAgentResumeHandle(resolvedPoolKey) : undefined;
 	if (resumeHandle && resumeAgent) {
 		try {
 			agent = await resumeAgent(resumeHandle.agentId, agentOptions);
