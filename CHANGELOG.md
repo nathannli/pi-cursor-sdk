@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.58 - 2026-07-14
+
 ### Changed
 
 - Update the Pi development and validation baseline to 0.80.7, including Pi's 372k GPT-5.6 Codex metadata, and expose opt-in `max` thinking only when Cursor advertises a distinct `max` value.
@@ -45,11 +47,6 @@
 - Keep canonical platform artifact transport below Crabbox's 64 KiB ceiling with gzip JSON/base64 inline bundles or checksum-verified 32 KiB no-sync chunk retrieval before lease release; large bundles now use only the exact CWD-relative `.platform-artifact-bundle.gz` final component, created and written exclusively through a no-follow identity-checked descriptor, and chunk/marker validation rejects every parent-bearing path. Bounded scans accept caller roots only when their real path matches the same relative path beneath the canonical real CWD or temp base (preserving expected macOS `/var` → `/private/var` aliasing while rejecting user-created intermediate links), then hold each traversed directory and recheck its identity plus immutable ctime/mtime/size/link/mode snapshot around traversal and file reads, so nested rename/symlink ABA cannot expose outside bytes. Scans still cover every regular artifact before transport exclusions, reject non-regular entries, prune `node_modules`/`.git`, fail closed on oversized or unscannable files, and any traversal failure emits only bounded failure evidence rather than findings or previously observed bytes; bundles cap compressed/inflated/per-file/file-count/aggregate extraction before host writes, reject duplicate/file-prefix bundle paths and symlinked or pre-existing host destinations, and extract only through exclusive identity-checked descriptors after securing destination directories. Compact output still uses `--capture-stdout` and preserves real scenario exit codes. Windows controllers reject nonempty extraction before mutation because Node has no handle-relative Windows creation API; Windows remains a supported matrix target from the POSIX controller, with target-side scan/spill identity guards kept free of POSIX-only flags.
 - Reject local resume handles that cross user messages already persisted at process startup, preventing a hard-crash restart from resending a prompt that the prior Cursor agent may already have accepted.
 - Reject non-HTTPS and credential/query/fragment-bearing Cursor Cloud repository URLs before `Agent.create()`, and redact URL/SCP-style userinfo from provider and maintainer output.
-
-### Validation
-
-- Current offline evidence is limited to the checked-in focused tests, full unit suite, platform-smoke syntax/tooling checks, and TypeScript checks; final command results belong in the release artifacts/status.
-- Required and pending release gates are `npm publish --dry-run`, `npm run smoke:platform:all`, `npm run smoke:cloud`, and the applicable live release smokes. Their final results belong in the release artifacts/status, not this changelog.
 
 ## 0.1.56 - 2026-07-04
 
