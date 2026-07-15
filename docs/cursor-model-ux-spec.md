@@ -15,7 +15,7 @@ Current implementation notes:
 - Cursor status uses one coordinated `ctx.ui.setStatus("cursor", ...)` value for fast and non-default plan mode; the default pi footer remains intact.
 - Installed `@cursor/sdk` user messages accept images, and Cursor models are treated as image-capable; registered input metadata is `text` plus `image`.
 - Image payload forwarding sends images only from the latest user message. If the latest user turn is plain text after an earlier image turn, the transcript keeps an `[image omitted from transcript]` placeholder but no image bytes are sent to Cursor. The prompt explicitly tells Cursor that prior image bytes are unavailable and to ask the user to reattach or describe a prior image when needed. Carrying images forward across turns remains a future product decision because it affects token cost, privacy, stale visual context, and expected multimodal follow-up behavior.
-- Exact `@cursor/sdk@1.0.23` is a package dependency of this extension; users should not need a global SDK install. pi 0.80.5 is the current recommended validation baseline, while published pi core peer dependencies use `"*"` ranges per current pi package guidance. Newer pi versions are allowed to attempt loading this extension before a matching extension release exists; compatibility is best-effort until validated.
+- Exact `@cursor/sdk@1.0.23` is a package dependency of this extension; users should not need a global SDK install. pi 0.80.7 is the current recommended validation baseline, while published pi core peer dependencies use `"*"` ranges per current pi package guidance. Newer pi versions are allowed to attempt loading this extension before a matching extension release exists; compatibility is best-effort until validated.
 - Startup discovery does not duplicate Pi CLI parsing: it uses stored `~/.pi/agent/auth.json` API-key auth from `/login`, then `CURSOR_API_KEY`, otherwise it registers the bundled fallback catalog. Provider turns keep Pi's resolved `options.apiKey`. `/cursor-refresh-models` and `/cursor-cloud` mutations resolve provider `cursor` through the command context's Pi ModelRegistry, then normalize placeholders through `CURSOR_API_KEY`. The extension config file stores only non-secret Cursor-only state such as fast defaults.
 - Cursor Cloud repository overrides accept only HTTPS repository URLs without userinfo, query parameters, or fragments. Invalid values fail during preflight before `Agent.create()`, messages never echo the supplied URL, and shared provider/maintainer scrubbing removes URL/SCP-style userinfo defensively.
 - Cursor Cloud requires a persisted pi session. Immediately after remote `Agent.create()` returns, before debug work or abort checks, the provider appends a branch-local pi lifecycle entry, fsyncs the existing Pi session JSONL anchor through a read-write descriptor, and then fsyncs a newline-framed sidecar keyed by the stable pi session ID (POSIX mode `0600`; Windows inherits the user session directory ACL) in the session directory. Journal creation is exclusive, and existing append/read opens reject symlinks and require matching regular-file descriptor/path identity before using the descriptor. Existing session files use the exact lifecycle entry ID as anchor; fileless first turns use an orphan marker that a same-session-ID restart durably claims onto exactly one matching or replacement branch, surviving the timestamped path change and later JSONL creation without granting sibling access; returned run IDs are fsynced before abort/wait handling, readers skip malformed/truncated lines independently, and branch-only history events are reduced after deduplicated sidecar history, and tombstones are tracked before records exist. A durable sidecar result remains authoritative if its optional Pi mirror append fails; if the sidecar result itself fails, the prior durable intent remains pending and blocks retry rather than claiming success. `--no-session` and durable-ledger failures fail closed before send, while post-send ledger failure requests bounded cancellation. `/cursor-cloud` always validates the embedded session ID, accepts only null anchors while truly fileless, and reconciles each orphan to one branch before listing or mutation. Successive record events merge run/branch metadata monotonically even when mirrored sources arrive out of order. Archive/delete require resolved Cursor auth, fsync a durable intent before the SDK call, and fsync a durable success result afterward; unresolved intent blocks repeat mutation and requires dashboard inspection.
@@ -276,7 +276,7 @@ Do not mark a model `reasoning: true` only because it can think. That would make
 Pi levels:
 
 ```text
-off, minimal, low, medium, high, xhigh
+off, minimal, low, medium, high, xhigh, max
 ```
 
 Cursor values vary by model. Build `thinkingLevelMap` from the values Cursor exposes.
@@ -290,18 +290,19 @@ Mapping rules:
 | `low` | `low` |
 | `medium` | `medium` |
 | `high` | `high`, else `true` for boolean-only thinking |
-| `xhigh` | `xhigh`, else `max`, else `extra-high` |
+| `xhigh` | `xhigh`, else `extra-high` |
+| `max` | `max` |
 
 Important details:
 
 - Use `null` for unsupported pi levels so pi hides/skips/clamps them natively.
-- Include `xhigh` only when Cursor exposes a real value for it.
-- Prefer exact `xhigh` over `max`. Cursor currently exposes both on some Claude models, and exact `xhigh` is the closer native mapping.
+- Include `xhigh` and `max` only when Cursor exposes real values for them.
+- Keep `xhigh` and `max` distinct. Cursor exposes both on some models, while `extra-high` remains an `xhigh` alias.
 - If Cursor exposes `reasoning=none`, map pi `off` to `none`.
 - If Cursor exposes `thinking=false`, map pi `off` to `false`.
 - `thinkingLevelMap` does not create Cursor SDK params by itself. It only controls pi-native behavior. The Cursor stream implementation must use the active pi thinking level plus the extension's discovered Cursor metadata to build `ModelSelection.params` for `Agent.create()`.
 
-For boolean-only `thinking`, unsupported pi levels must be explicit `null`; otherwise pi treats omitted non-`xhigh` levels as supported. Use this shape unless Cursor exposes richer values:
+For boolean-only `thinking`, unsupported pi levels must be explicit `null`; otherwise pi treats omitted non-`xhigh`/`max` levels as supported. Use this shape unless Cursor exposes richer values:
 
 ```ts
 {
@@ -311,6 +312,7 @@ For boolean-only `thinking`, unsupported pi levels must be explicit `null`; othe
   medium: null,
   high: "true",
   xhigh: null,
+  max: null,
 }
 ```
 
@@ -701,7 +703,8 @@ Before calling done:
    - `reasoning` mapping
    - `effort` mapping
    - boolean `thinking` maps to pi `off` / enabled levels
-   - pi `xhigh` preference order: `xhigh`, then `max`, then `extra-high`
+   - pi `xhigh` preference order: `xhigh`, then `extra-high`
+   - pi `max` maps only to Cursor `max`
    - session restore for Cursor-only state
    - global default state for Cursor-only state
    - unsupported no-op notifications
@@ -722,6 +725,7 @@ Before calling done:
 3. Print mode:
    - `pi --model cursor/gpt-5.5@1m:medium -p "Say ok only"`
    - `pi --model cursor/gpt-5.5@272k --thinking xhigh -p "Say ok only"`
+   - `pi --model cursor/claude-opus-4-7@1m --thinking max -p "Say ok only"`
    - `pi --model cursor/gpt-5.5@1m --cursor-fast -p "Say ok only"`
    - `pi --model cursor/gpt-5.5@1m --cursor-mode plan -p "Say ok only"`
    - confirm requests use selected context, pi thinking, fast flag state, and SDK-native mode

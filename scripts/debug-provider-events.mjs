@@ -248,7 +248,7 @@ export async function runDebugProviderEvents(args, envInput = process.env) {
 			const start = Date.now();
 			const tick = () => {
 				const events = parseJsonLines(stdout);
-				if (events.some((event) => event.type === "agent_end")) {
+				if (events.some((event) => event.type === "agent_settled")) {
 					resolve(events);
 					return;
 				}

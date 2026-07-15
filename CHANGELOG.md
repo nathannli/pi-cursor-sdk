@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Update the Pi development and validation baseline to 0.80.7, including Pi's 372k GPT-5.6 Codex metadata, and expose opt-in `max` thinking only when Cursor advertises a distinct `max` value.
+- Wait for Pi's final-idle `agent_settled` RPC event in smoke/debug harnesses instead of stopping at a low-level `agent_end` that may precede retries or queued work.
+
 ## 0.1.57 - 2026-07-10
 
 ### Changed

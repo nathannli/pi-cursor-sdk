@@ -51,10 +51,10 @@ If pi started without a key, run `/cursor-refresh-models` after `/login` to refr
 ## Requirements
 
 - Node.js 22.19+
-- pi 0.80.5 or newer recommended; pi core peer metadata is intentionally unpinned so newer pi releases are not blocked
+- pi 0.80.7 or newer recommended; pi core peer metadata is intentionally unpinned so newer pi releases are not blocked
 - a Cursor SDK API key saved through `/login`, available as `CURSOR_API_KEY`, or passed with pi's `--api-key`
 
-No global `@cursor/sdk` install is required. This package depends on exact `@cursor/sdk@1.0.23`, so normal package installation brings in the SDK version this extension was built and tested against. Cursor SDK 1.0.23 declares its Node ConnectRPC transport dependency directly, so npm installs place `@connectrpc/connect-node` where the SDK can resolve it. The extension intentionally does not bundle `@cursor/sdk` or its platform packages, because packing from one maintainer OS can otherwise ship the wrong optional SDK binary for another OS. Cursor SDK 1.0.23 keeps the older `sqlite3 -> node-gyp@8` dependency chain out of the runtime tree, so deprecated install warnings for `inflight`, `rimraf`, `glob@7`, `npmlog`, `gauge`, `are-we-there-yet`, and `tar@6` from that chain are not expected. This package follows pi package guidance by declaring pi core package peers with `"*"` ranges, so users who update pi before this extension is republished are not blocked by peer metadata. The current recommended and validated pi baseline is 0.80.5 plus Cursor SDK 1.0.23; older pi compatibility paths are best-effort and older Cursor SDK compatibility paths are not maintained.
+No global `@cursor/sdk` install is required. This package depends on exact `@cursor/sdk@1.0.23`, so normal package installation brings in the SDK version this extension was built and tested against. Cursor SDK 1.0.23 declares its Node ConnectRPC transport dependency directly, so npm installs place `@connectrpc/connect-node` where the SDK can resolve it. The extension intentionally does not bundle `@cursor/sdk` or its platform packages, because packing from one maintainer OS can otherwise ship the wrong optional SDK binary for another OS. Cursor SDK 1.0.23 keeps the older `sqlite3 -> node-gyp@8` dependency chain out of the runtime tree, so deprecated install warnings for `inflight`, `rimraf`, `glob@7`, `npmlog`, `gauge`, `are-we-there-yet`, and `tar@6` from that chain are not expected. This package follows pi package guidance by declaring pi core package peers with `"*"` ranges, so users who update pi before this extension is republished are not blocked by peer metadata. The current recommended and validated pi baseline is 0.80.7 plus Cursor SDK 1.0.23; older pi compatibility paths are best-effort and older Cursor SDK compatibility paths are not maintained.
 
 ## Install
 
@@ -178,7 +178,7 @@ How to read model IDs:
 
 - `cursor/...` is the Cursor provider registered by this extension
 - `@1m`, `@272k`, and `@300k` are context-window variants
-- `:medium`, `:high`, and `:xhigh` are pi thinking-level suffixes for models where the Cursor SDK exposes a pi-controllable thinking parameter
+- `:medium`, `:high`, `:xhigh`, and `:max` are pi thinking-level suffixes for models where the Cursor SDK exposes the corresponding pi-controllable thinking parameter
 - unambiguous latest-style Cursor aliases returned by `Cursor.models.list()` are registered too, using the same context suffixes when the target model has context variants; aliases shared by multiple base models or colliding with a base model ID are skipped because their SDK resolution and displayed metadata can diverge
 
 Examples with pi thinking controls:
@@ -186,6 +186,7 @@ Examples with pi thinking controls:
 ```bash
 pi --model cursor/gpt-5.5@1m:medium
 pi --model cursor/gpt-5.5@272k:xhigh
+pi --model cursor/claude-opus-4-7@1m:max
 pi --model cursor/gpt-5.5@1m --thinking medium
 ```
 
@@ -200,6 +201,8 @@ For models where Cursor exposes `reasoning`, `effort`, or boolean `thinking` par
 - `reasoning=none|low|medium|high|extra-high`
 - `effort=low|medium|high|xhigh|max`
 - `thinking=false|true` for boolean thinking models
+
+Pi `xhigh` maps to Cursor `xhigh` or `extra-high`; Pi `max` maps only to a distinct Cursor `max` value.
 
 For Claude models with both `thinking` and `effort`, pi thinking `off` sends `thinking=false` and omits `effort`.
 

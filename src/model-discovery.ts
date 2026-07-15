@@ -104,7 +104,7 @@ function mapComparableLevel(
 	level: Exclude<ModelThinkingLevel, "off">,
 ): string | null {
 	if (level === "xhigh") {
-		return getPreferredParameterValue(parameter, ["xhigh", "max", "extra-high"]);
+		return getPreferredParameterValue(parameter, ["xhigh", "extra-high"]);
 	}
 	return getParameterValue(parameter, level);
 }
@@ -124,6 +124,7 @@ function getThinkingLevelMap(item: ModelListItem): ThinkingLevelMap | undefined 
 			medium: null,
 			high: getParameterValue(valueParameter, "true"),
 			xhigh: null,
+			max: null,
 		};
 	}
 
@@ -137,6 +138,7 @@ function getThinkingLevelMap(item: ModelListItem): ThinkingLevelMap | undefined 
 		medium: mapComparableLevel(valueParameter, "medium"),
 		high: mapComparableLevel(valueParameter, "high"),
 		xhigh: mapComparableLevel(valueParameter, "xhigh"),
+		max: mapComparableLevel(valueParameter, "max"),
 	};
 }
 

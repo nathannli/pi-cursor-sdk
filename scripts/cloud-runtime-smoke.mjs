@@ -337,19 +337,19 @@ function startRpc({ artifactDir, contextHandoff, sessionId }) {
 	return { events, send, stop, get stderr() { return stderr; } };
 }
 
-async function waitForAgentEnd(rpc, fromIndex, timeoutMs) {
+async function waitForAgentSettled(rpc, fromIndex, timeoutMs) {
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
-		if (rpc.events.slice(fromIndex).some((event) => event.type === "agent_end")) return;
+		if (rpc.events.slice(fromIndex).some((event) => event.type === "agent_settled")) return;
 		await new Promise((resolveWait) => setTimeout(resolveWait, 250));
 	}
-	throw new Error(`timeout waiting for agent_end. Stderr: ${rpc.stderr}`);
+	throw new Error(`timeout waiting for agent_settled. Stderr: ${rpc.stderr}`);
 }
 
 async function promptAndRead({ rpc, artifactDir, message, timeoutMs, expectedContextHandoff }) {
 	const fromIndex = rpc.events.length;
 	await rpc.send("prompt", { message }, timeoutMs);
-	await waitForAgentEnd(rpc, fromIndex, timeoutMs);
+	await waitForAgentSettled(rpc, fromIndex, timeoutMs);
 	const textResponse = await rpc.send("get_last_assistant_text", {}, 120000);
 	if (!textResponse.success) fail("failed to read last assistant text", textResponse.error);
 	const latestMetadata = readLatestMetadataIfPresent(artifactDir);

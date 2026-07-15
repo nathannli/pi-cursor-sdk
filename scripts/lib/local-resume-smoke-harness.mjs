@@ -268,22 +268,22 @@ export async function withRpc(options, run) {
 	}
 }
 
-async function waitForAgentEnd(rpc, fromIndex, timeoutMs) {
+async function waitForAgentSettled(rpc, fromIndex, timeoutMs) {
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
-		if (rpc.events.slice(fromIndex).some((event) => event.type === "agent_end"))
+		if (rpc.events.slice(fromIndex).some((event) => event.type === "agent_settled"))
 			return;
 		await new Promise((resolveWait) => setTimeout(resolveWait, 250));
 	}
-	throw new Error(`timeout waiting for agent_end. Stderr: ${rpc.stderr}`);
+	throw new Error(`timeout waiting for agent_settled. Stderr: ${rpc.stderr}`);
 }
 
 async function waitForFile(path, timeoutMs, rpc) {
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
 		if (existsSync(path)) return;
-		if (rpc?.events.some((event) => event.type === "agent_end"))
-			fail(`agent ended before ${path} existed`, rpc.stderr);
+		if (rpc?.events.some((event) => event.type === "agent_settled"))
+			fail(`agent settled before ${path} existed`, rpc.stderr);
 		await new Promise((resolveWait) => setTimeout(resolveWait, 250));
 	}
 	fail(`timeout waiting for ${path}`, rpc?.stderr ?? "");
@@ -443,7 +443,7 @@ export async function promptAndRead({
 }) {
 	const eventStart = rpc.events.length;
 	await rpc.send("prompt", { message }, timeoutMs);
-	await waitForAgentEnd(rpc, eventStart, timeoutMs);
+	await waitForAgentSettled(rpc, eventStart, timeoutMs);
 	const text = await readLastAssistantText(rpc);
 	return {
 		text,
@@ -464,7 +464,7 @@ export async function promptAbortAndRead({
 	await rpc.send("prompt", { message }, timeoutMs);
 	await waitForFile(markerPath, timeoutMs, rpc);
 	await rpcData(rpc, "abort", {}, 120000);
-	await waitForAgentEnd(rpc, eventStart, timeoutMs);
+	await waitForAgentSettled(rpc, eventStart, timeoutMs);
 	return takeLatestMetadata(artifactDir, seenMetadata);
 }
 

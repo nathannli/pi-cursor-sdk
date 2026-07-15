@@ -114,6 +114,19 @@ describe("smoke CLI and package contracts", () => {
 		expect(invalidVisualArgs.stderr).toContain("--expose-builtin-tools requires --bridge");
 	}, 90_000);
 
+	it("waits for final RPC settlement instead of a low-level run end", () => {
+		for (const path of [
+			"scripts/cloud-runtime-smoke.mjs",
+			"scripts/debug-provider-events.mjs",
+			"scripts/lib/local-resume-smoke-harness.mjs",
+			"scripts/steering-rpc-smoke.mjs",
+		]) {
+			const source = readFileSync(path, "utf8");
+			expect(source).toContain("agent_settled");
+			expect(source).not.toContain("agent_end");
+		}
+	});
+
 	it("runs paid cloud smoke in a persisted session", () => {
 		const source = readFileSync("scripts/cloud-runtime-smoke.mjs", "utf8");
 		expect(source).toContain('"--session-dir"');

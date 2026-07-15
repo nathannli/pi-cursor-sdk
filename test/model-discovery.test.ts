@@ -640,6 +640,7 @@ describe("discoverModels", () => {
 			medium: "medium",
 			high: "high",
 			xhigh: "extra-high",
+			max: null,
 		});
 	});
 
@@ -673,10 +674,11 @@ describe("discoverModels", () => {
 			medium: null,
 			high: "true",
 			xhigh: null,
+			max: null,
 		});
 	});
 
-	it("maps Claude effort and prefers exact xhigh over max and extra-high", async () => {
+	it("maps Claude effort with distinct xhigh and max values", async () => {
 		process.env.CURSOR_API_KEY = "test-key-123";
 		mockedList.mockResolvedValueOnce([
 			{
@@ -722,6 +724,7 @@ describe("discoverModels", () => {
 			medium: "medium",
 			high: "high",
 			xhigh: "xhigh",
+			max: "max",
 		});
 	});
 
@@ -766,6 +769,7 @@ describe("discoverModels", () => {
 			medium: "medium",
 			high: "high",
 			xhigh: null,
+			max: null,
 		});
 		expect(buildCursorModelSelection("reasoning-only", "off")).toEqual({
 			id: "reasoning-only",
@@ -805,6 +809,7 @@ describe("discoverModels", () => {
 			medium: "medium",
 			high: "high",
 			xhigh: null,
+			max: null,
 		});
 		expect(buildCursorModelSelection("claude-like", "high")).toEqual({
 			id: "claude-like",
