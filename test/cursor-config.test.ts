@@ -21,6 +21,7 @@ import {
 	CURSOR_SANDBOX_ENV,
 	CURSOR_LOCAL_FORCE_ENV,
 	CURSOR_LOCAL_RESUME_ENV,
+	CURSOR_HTTP1_ENV,
 	cursorFastDefaultsFromConfig,
 	getCursorSdkProjectConfigPath,
 	getCursorSdkUserConfigPath,
@@ -96,6 +97,34 @@ describe("Cursor SDK config resolver", () => {
 			resolveCursorSdkConfig({ cli: { runtime: "local" }, env: { [CURSOR_RUNTIME_ENV]: "cloud" }, user, project }).runtime,
 		).toMatchObject({ value: "local", source: "cli", trustLevel: "one-shot" });
 		expect(resolveCursorSdkConfig().runtime).toMatchObject({ value: "local", source: "builtin" });
+	});
+
+	it("resolves HTTP/1.1 as session, env, user, then byte-identical default", () => {
+		const user = { local: { useHttp1ForAgent: true } };
+		const project = { local: { useHttp1ForAgent: false } };
+
+		expect(resolveCursorSdkConfig({ env: {}, user }).local.useHttp1ForAgent).toMatchObject({
+			value: true,
+			source: "user",
+		});
+		expect(
+			resolveCursorSdkConfig({
+				env: { [CURSOR_HTTP1_ENV]: "false" },
+				user,
+				project,
+			}).local.useHttp1ForAgent,
+		).toMatchObject({ value: false, source: "environment" });
+		expect(
+			resolveCursorSdkConfig({
+				env: { [CURSOR_HTTP1_ENV]: "false" },
+				session: { local: { useHttp1ForAgent: true } },
+				user,
+			}).local.useHttp1ForAgent,
+		).toMatchObject({ value: true, source: "session" });
+		expect(resolveCursorSdkConfig({ env: {}, project }).local.useHttp1ForAgent).toMatchObject({
+			value: false,
+			source: "builtin",
+		});
 	});
 
 	it("rejects invalid explicit CLI runtime and cloud-context overrides before lower layers", () => {

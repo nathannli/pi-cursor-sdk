@@ -1,5 +1,6 @@
 import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import type { AgentModeOption, ModelSelection, SDKAgent } from "@cursor/sdk";
+import { configureCursorSdkHttp1 } from "./cursor-http1.js";
 import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./cursor-sdk-output-filter.js";
 import {
@@ -250,7 +251,12 @@ async function prepareCursorLocalProviderTurn(
 			autoReview: resolvedConfig.local.autoReview.value,
 			sandboxEnabled: resolvedConfig.local.sandboxEnabled.value,
 		};
-		const { Agent } = await loadCursorSdk();
+		const sdk = await loadCursorSdk();
+		const { Agent } = sdk;
+		const useHttp1ForAgent = configureCursorSdkHttp1(
+			sdk,
+			resolvedConfig.local.useHttp1ForAgent,
+		);
 
 		installCursorMcpToolTimeoutOverride();
 		restoreCursorSdkOutputFilter = installCursorSdkOutputFilter();
@@ -266,6 +272,7 @@ async function prepareCursorLocalProviderTurn(
 			settingSources,
 			localSafety,
 			localResume: resolvedConfig.local.resume.value,
+			useHttp1ForAgent,
 			debugRecorder: sdkEventDebug,
 			onBridgeToolRequest: (request: CursorPiBridgeToolRequest) => {
 				if (liveRunForBridgeQueue && !liveRunForBridgeQueue.disposed) {

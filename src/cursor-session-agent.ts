@@ -116,6 +116,7 @@ interface SessionCursorAgentCreateParams {
 	modelSelection: ModelSelection;
 	settingSources?: SettingSource[];
 	localSafety?: CursorLocalSafetyOptions;
+	useHttp1ForAgent?: boolean;
 	onBridgeToolRequest?: (request: CursorPiBridgeToolRequest) => void;
 	debugRecorder?: CursorSdkEventDebugRecorder;
 	localResume?: boolean;
@@ -203,6 +204,11 @@ function buildSessionAgentPoolKey(scopeKey: string, params: SessionCursorAgentCr
 		buildModelPoolKey(params.modelSelection),
 		buildSettingSourcesPoolKey(params.settingSources),
 		buildLocalSafetyPoolKey(params.localSafety),
+		params.useHttp1ForAgent === undefined
+			? "http1:default"
+			: params.useHttp1ForAgent
+				? "http1:on"
+				: "http1:off",
 		buildApiKeyPoolKeyFingerprint(params.apiKey),
 		buildBridgePoolKeySuffix(),
 	].join("\0");

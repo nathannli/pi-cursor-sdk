@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 vi.mock("@cursor/sdk", () => {
 	const mockCancel = vi.fn().mockResolvedValue(undefined);
 	const mockDispose = vi.fn().mockResolvedValue(undefined);
+	const mockConfigure = vi.fn();
 
 	const mockAgent = {
 		agentId: "agent-1",
@@ -19,6 +20,9 @@ vi.mock("@cursor/sdk", () => {
 	};
 
 	return {
+		Cursor: {
+			configure: mockConfigure,
+		},
 		Agent: {
 			create: vi.fn().mockResolvedValue(mockAgent),
 			resume: vi.fn().mockResolvedValue(mockAgent),
@@ -29,12 +33,13 @@ vi.mock("@cursor/sdk", () => {
 		createAgentPlatform: vi.fn().mockResolvedValue(mockPlatform),
 		_mockAgent: mockAgent,
 		_mockCancel: mockCancel,
+		_mockConfigure: mockConfigure,
 		_mockDispose: mockDispose,
 		_mockPlatform: mockPlatform,
 	};
 });
 
-import { Agent, createAgentPlatform } from "@cursor/sdk";
+import { Agent, createAgentPlatform, Cursor } from "@cursor/sdk";
 import {
 	__testUtils as cloudLifecycleTestUtils,
 	registerCursorCloudLifecycleLedger,
@@ -42,6 +47,8 @@ import {
 import { __testUtils as cursorSessionScopeTestUtils } from "../../src/cursor-session-scope.js";
 import { __testUtils as cursorSessionResumeTestUtils } from "../../src/cursor-session-agent-resume.js";
 import { __testUtils as cursorStateTestUtils } from "../../src/cursor-state.js";
+import { __testUtils as cursorHttp1TestUtils } from "../../src/cursor-http1.js";
+import { CURSOR_HTTP1_ENV } from "../../src/cursor-config.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../../src/cursor-provider.js";
 import { registerCursorPiToolBridge, __testUtils as cursorPiToolBridgeTestUtils } from "../../src/cursor-pi-tool-bridge.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../../src/model-discovery.js";
@@ -86,6 +93,7 @@ export {
 export const mockedCreate = vi.mocked(Agent.create);
 export const mockedResume = vi.mocked(Agent.resume);
 export const mockedMessagesList = vi.mocked(Agent.messages.list);
+export const mockedConfigureCursor = vi.mocked(Cursor.configure);
 export const mockedCreateAgentPlatform = vi.mocked(createAgentPlatform, { partial: true });
 
 export type MockSdkAgent = Awaited<ReturnType<typeof Agent.create>>;
@@ -377,6 +385,7 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	delete process.env.PI_CURSOR_SANDBOX;
 	delete process.env.PI_CURSOR_LOCAL_FORCE;
 	delete process.env.PI_CURSOR_LOCAL_RESUME;
+	delete process.env[CURSOR_HTTP1_ENV];
 	process.env.PI_CURSOR_TOOL_MANIFEST = "0";
 	expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 	cursorProviderTestUtils.resetCursorNativeReplayIdleDisposeMs();
@@ -385,6 +394,7 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	cursorSessionScopeTestUtils.reset();
 	cursorSessionResumeTestUtils.reset();
 	cursorStateTestUtils.resetCursorModeStateForTests();
+	cursorHttp1TestUtils.reset();
 	nativeToolDisplayTestUtils.reset();
 	modelDiscoveryTestUtils.registerModelItems(cursorModelItems);
 	mockCreatedAgent({ send: vi.fn() });
