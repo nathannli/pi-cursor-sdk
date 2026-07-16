@@ -23,8 +23,9 @@ export function resolveCursorApiKey(apiKey?: string): string | undefined {
 
 async function getStoredCursorApiKey(): Promise<string | undefined> {
 	try {
-		const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
-		return resolveCursorApiKey(await AuthStorage.create().getApiKey(CURSOR_PROVIDER_ID, { includeFallback: false }));
+		const { readStoredCredential } = await import("@earendil-works/pi-coding-agent");
+		const credential = readStoredCredential(CURSOR_PROVIDER_ID);
+		return resolveCursorApiKey(credential?.type === "api_key" ? credential.key : undefined);
 	} catch {
 		return undefined;
 	}

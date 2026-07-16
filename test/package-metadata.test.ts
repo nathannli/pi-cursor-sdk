@@ -80,12 +80,12 @@ describe("package metadata cutover baselines", () => {
 
 	it("pins pi validation baselines", () => {
 		for (const packageName of PI_PACKAGES) {
-			expect(packageJson.devDependencies[packageName]).toBe("0.80.7");
-			expect(lockPackageVersion(packageName)).toBe("0.80.7");
+			expect(packageJson.devDependencies[packageName]).toBe("0.80.9");
+			expect(lockPackageVersion(packageName)).toBe("0.80.9");
 		}
 	});
 
-	it("tracks Pi 0.80.7 GPT-5.6 Codex metadata", () => {
+	it("tracks Pi 0.80.9 GPT-5.6 Codex metadata", () => {
 		for (const modelId of ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"] as const) {
 			expect(OPENAI_CODEX_MODELS[modelId]).toMatchObject({
 				contextWindow: 372000,

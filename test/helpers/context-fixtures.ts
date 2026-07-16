@@ -1,8 +1,9 @@
 import { vi } from "vitest";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import type { AssistantMessage, AssistantMessageEvent, Context } from "@earendil-works/pi-ai/compat";
 import {
-	AuthStorage,
 	ModelRegistry,
+	ModelRuntime,
 	type BuildSystemPromptOptions,
 	type ExtensionCommandContext,
 	type ExtensionContext,
@@ -10,10 +11,13 @@ import {
 import { makeModel } from "./model-fixtures.js";
 import type { ExtensionCommandContextOverrides, ExtensionContextOverrides } from "./pi-harness-types.js";
 
-let sharedTestModelRegistry: ModelRegistry | undefined;
+const sharedTestModelRegistry = new ModelRegistry(await ModelRuntime.create({
+	allowModelNetwork: false,
+	credentials: new InMemoryCredentialStore(),
+	modelsPath: null,
+}));
 
 function getSharedTestModelRegistry(): ModelRegistry {
-	sharedTestModelRegistry ??= ModelRegistry.inMemory(AuthStorage.inMemory());
 	return sharedTestModelRegistry;
 }
 

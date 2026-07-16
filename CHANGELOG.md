@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.59 - 2026-07-16
+
+### Changed
+
+- Migrate stored Cursor API-key reads from the removed root `AuthStorage` export to the Pi 0.80.9 `readStoredCredential()` contract, accepting only stored `api_key` credentials before the existing environment fallback.
+- Build extension test contexts through an isolated async `ModelRuntime` and `ModelRegistry` compatibility facade, and refresh exact Pi development dependencies to 0.80.9 while preserving wildcard runtime peers.
 
 ## 0.1.58 - 2026-07-14
 
