@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { registerApiProvider } from "@earendil-works/pi-ai/compat";
 import { discoverModels, type CursorModelFallbackIssue } from "./model-discovery.js";
 import { registerCursorRuntimeControls } from "./cursor-state.js";
 import { registerCursorNativeToolDisplay } from "./cursor-native-tool-display-registration.js";
@@ -95,6 +96,10 @@ export default async function (pi: CursorExtensionApi) {
 	});
 
 	registerCursorProvider(pi, models);
+	// Fallback: mirror cursor-sdk into the legacy compat API registry so
+	// compat.streamSimple can resolve it when the agent's streamFn is lost
+	// (e.g. after compaction, extension reload, or lifecycle edge cases).
+	registerApiProvider({ api: "cursor-sdk", stream: streamCursorLazy, streamSimple: streamCursorLazy });
 	// Register last so session_shutdown cleanup remains protected until other Cursor handlers finish.
 	registerCursorSdkSessionProcessErrorGuard(pi);
 }
