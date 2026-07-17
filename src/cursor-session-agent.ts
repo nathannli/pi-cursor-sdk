@@ -126,6 +126,8 @@ interface SessionCursorAgentCreateParams {
 
 const sessionAgentsByScope = new Map<string, SessionCursorAgentPoolEntry>();
 const invalidatedScopeKeys = new Set<string>();
+const deadTransportScopeKeys = new Set<string>();
+let deadTransportAgentDisposeTimeoutMs = 3000;
 const terminalDisposedScopeGenerations = new Map<string, number>();
 const scopeCreationGenerations = new Map<string, number>();
 const EMPTY_POOL_STATE: SessionCursorAgentPoolState = { status: "empty" };
@@ -206,7 +208,7 @@ function buildSessionAgentPoolKey(scopeKey: string, params: SessionCursorAgentCr
 	].join("\0");
 }
 
-async function disposePoolEntry(entry: SessionCursorAgentPoolEntry): Promise<void> {
+async function disposePoolEntry(entry: SessionCursorAgentPoolEntry, options?: { deadTransport?: boolean }): Promise<void> {
 	if (!isActivePoolEntry(entry)) return;
 	entry.bridgeRun?.cancel("Cursor session agent disposed");
 	try {
@@ -215,7 +217,15 @@ async function disposePoolEntry(entry: SessionCursorAgentPoolEntry): Promise<voi
 		// disposal failure should not block session replacement
 	}
 	try {
-		await entry.agent[Symbol.asyncDispose]();
+		const disposal = Promise.resolve(entry.agent[Symbol.asyncDispose]()).catch(() => undefined);
+		// A dead local transport may never settle SDK disposal; bound the wait so the
+		// next acquire recreates instead of hanging on the dead agent.
+		await (options?.deadTransport
+			? Promise.race([
+					disposal,
+					new Promise<void>((resolve) => setTimeout(resolve, deadTransportAgentDisposeTimeoutMs).unref?.()),
+				])
+			: disposal);
 	} catch {
 		// disposal failure should not block session replacement
 	}
@@ -228,6 +238,7 @@ async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?:
 	}
 	const entry = sessionAgentsByScope.get(scopeKey);
 	invalidatedScopeKeys.delete(scopeKey);
+	const deadTransport = deadTransportScopeKeys.delete(scopeKey);
 	if (!entry) return;
 	sessionAgentsByScope.delete(scopeKey);
 	if (entry.status === "busy") {
@@ -239,7 +250,7 @@ async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?:
 		});
 		return;
 	}
-	await disposePoolEntry(entry);
+	await disposePoolEntry(entry, { deadTransport });
 }
 
 function createInitialSendState(): SessionCursorAgentSendState {
@@ -489,8 +500,12 @@ export {
 	type CursorSessionSendPlan,
 } from "./cursor-session-send-policy.js";
 
-export function invalidateSessionAgent(scopeKey: string = getCursorSessionScopeKey()): void {
+export function invalidateSessionAgent(
+	scopeKey: string = getCursorSessionScopeKey(),
+	options?: { deadTransport?: boolean },
+): void {
 	invalidatedScopeKeys.add(scopeKey);
+	if (options?.deadTransport) deadTransportScopeKeys.add(scopeKey);
 }
 
 export async function acquireSessionCursorAgent(params: SessionCursorAgentCreateParams): Promise<SessionCursorAgentLease> {
@@ -611,6 +626,7 @@ export async function disposeAllSessionCursorAgents(): Promise<void> {
 	const scopeKeys = [...new Set([...sessionAgentsByScope.keys(), ...terminalDisposedScopeGenerations.keys()])];
 	await Promise.all(scopeKeys.map((scopeKey) => disposePoolEntryForScope(scopeKey, { terminal: true })));
 	invalidatedScopeKeys.clear();
+	deadTransportScopeKeys.clear();
 	terminalDisposedScopeGenerations.clear();
 }
 
@@ -624,6 +640,11 @@ export const __testUtils = {
 	disposeAllSessionCursorAgents,
 	buildApiKeyPoolKeyFingerprint,
 	buildSessionAgentPoolKey,
+	setDeadTransportAgentDisposeTimeoutMs(ms: number): number {
+		const previous = deadTransportAgentDisposeTimeoutMs;
+		deadTransportAgentDisposeTimeoutMs = ms;
+		return previous;
+	},
 	SessionCursorAgentCreationSupersededError,
 	SessionCursorAgentScopeClosedError,
 };

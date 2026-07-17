@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.60 - 2026-07-17
+
+### Fixed
+
+- Contain the fatal raw `write EPIPE` uncaught exception the Cursor SDK's local shell executor can surface when a spawned child exits mid stdin write. Containment matches only the exact observed shape (code `EPIPE`, syscall `write`, stack exactly the single async pipe-write completion frame `WriteWrap.onWriteComplete`) and only while a local Cursor provider turn is active (from the turn's pre-send live-run drain through run completion, including the live-run wait window). A contained hit marks that turn's pooled/resumable local agent transport dead so the next acquire disposes it with a bounded wait and recreates it. EPIPE outside an active local turn — including idle pooled agents between turns — and the multi-frame synchronous write-path EPIPE from pi's own piped stdout or a dead terminal stay fatal. Known limit: an in-flight async pipe write anywhere in the process produces an identical shape, so one such EPIPE landing exactly during an active local turn is also contained; the next write to that pipe still dies normally.
+
 ## 0.1.59 - 2026-07-16
 
 ### Changed

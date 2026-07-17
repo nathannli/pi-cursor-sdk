@@ -3,12 +3,14 @@ import { classifyCursorConnectError, isCursorSdkAbortConnectError } from "./curs
 
 interface CursorSdkProcessErrorGuardToken {
 	suppressAbortErrors: boolean;
+	onLocalTransportClosedPipe?: () => void;
 }
 
 interface CursorSdkSessionProcessErrorGuardToken {}
 
 export interface CursorSdkProcessErrorGuard {
 	suppressAbortErrors(): void;
+	containLocalTransportClosedPipe(onClosedPipe: () => void): void;
 	dispose(): void;
 }
 
@@ -52,9 +54,46 @@ function isCursorSdkWriteIterableClosedError(error: unknown): boolean {
 	);
 }
 
+// The exact observed incident: the Cursor SDK 1.0.23 local shell executor writes a
+// spawned child's stdin without a stream 'error' listener, so a child exiting while
+// a write is in flight surfaces a raw `write EPIPE` uncaught exception whose stack
+// is exactly the single async pipe-write completion frame. Pi's own piped-stdout or
+// dead-terminal EPIPE normally surfaces through the synchronous write-dispatch path
+// with multiple frames (afterWriteDispatched/Socket._writeGeneric) and must stay
+// fatal per Unix convention, so anything beyond this one-frame contract is rejected.
+const OBSERVED_CLOSED_PIPE_STACK_FRAME =
+	/^\s+at WriteWrap\.onWriteComplete \[as oncomplete\] \(node:internal\/stream_base_commons:\d+:\d+\)$/;
+
+function isObservedLocalTransportClosedPipeWriteError(error: unknown): boolean {
+	if (!(error instanceof Error) || error.name !== "Error") return false;
+	const { code, syscall } = error as NodeJS.ErrnoException;
+	if (code !== "EPIPE" || syscall !== "write" || !error.message.startsWith("write EPIPE")) return false;
+	const frames = (error.stack ?? "").split("\n").filter((line) => /^\s+at /.test(line));
+	return frames.length === 1 && OBSERVED_CLOSED_PIPE_STACK_FRAME.test(frames[0] ?? "");
+}
+
+// Contained only while a provider turn that declared a local transport is active;
+// each contained turn invalidates its own session-agent scope for recreation.
+function containLocalTransportClosedPipeError(): boolean {
+	let contained = false;
+	for (const turn of [...activeProviderTurns]) {
+		if (!turn.onLocalTransportClosedPipe) continue;
+		contained = true;
+		try {
+			turn.onLocalTransportClosedPipe();
+		} catch {
+			// stale-agent invalidation must not throw inside process error handling
+		}
+	}
+	return contained;
+}
+
 function shouldSuppressProcessError(event: string | symbol, args: readonly unknown[]): boolean {
 	if (event !== "uncaughtException" && event !== "unhandledRejection") return false;
 	const error = args[0];
+	if (isObservedLocalTransportClosedPipeWriteError(error)) {
+		return containLocalTransportClosedPipeError();
+	}
 	if (isCursorSdkWriteIterableClosedError(error)) return activeSessions.size > 0;
 	const classification = classifyCursorConnectError(error);
 	if (!classification) return false;
@@ -136,6 +175,10 @@ export function installCursorSdkProcessErrorGuard(): CursorSdkProcessErrorGuard 
 		suppressAbortErrors(): void {
 			if (disposed) return;
 			token.suppressAbortErrors = true;
+		},
+		containLocalTransportClosedPipe(onClosedPipe: () => void): void {
+			if (disposed) return;
+			token.onLocalTransportClosedPipe = onClosedPipe;
 		},
 		dispose(): void {
 			if (disposed) return;
