@@ -27,25 +27,24 @@ Every capability in this roadmap has exactly one status:
 
 ## Current configuration and runtime contract
 
-**Status: Implemented.** `src/cursor-config.ts` and `src/cursor-runtime-state.ts` own ordinary precedence, stricter safety caps, first-use acknowledgement, trust-gated project loading, explicit save destinations, runtime status, cloud context/repo/ref/direct-push/local-state choices, and Cursor-managed environment selection. Coverage is in `test/cursor-config.test.ts` and `test/cursor-runtime-state.test.ts`.
+**Status: Implemented.** `src/cursor-config.ts` and `src/cursor-runtime-state.ts` own field-specific precedence, stricter safety caps, first-use acknowledgement, trust-gated project loading, explicit save destinations, runtime status, cloud context/repo/ref/direct-push/local-state choices, and Cursor-managed environment selection. Coverage is in `test/cursor-config.test.ts` and `test/cursor-runtime-state.test.ts`.
 
-Ordinary precedence:
+Field-specific source precedence:
 
-1. CLI flag
-2. Environment variable
-3. Trusted project config
-4. User config
-5. Built-in default
+- Runtime: CLI > environment > session > trusted project > user > built-in.
+- Cloud settings: CLI > environment > session > user > built-in.
+- Local `autoReview`, `sandbox`, and `resume`: CLI > environment > trusted project > user > built-in.
+- Local `force`: CLI > environment > built-in.
 
-Safety-sensitive cloud choices use: explicit one-shot CLI allow > user deny/cap > explicit env allow > session/user allow > built-in safe default. Project config is excluded. Project config may select runtime only; it cannot acknowledge cloud or provide repo/ref, bootstrap, env names, direct-push, local-state, environment, or cleanup choices.
+Safety-sensitive cloud choices use: explicit one-shot CLI allow > user deny/cap > explicit env allow > session/user allow > built-in safe default. Project config is excluded. For cloud settings, trusted project config may select runtime only; it cannot acknowledge cloud or provide repo/ref, bootstrap, env names, direct-push, local-state, environment, or cleanup choices. Local `autoReview`, `sandbox`, and `resume` may load from trusted project config; local `force` cannot.
 
 | Setting | Current behavior | Status |
 | --- | --- | --- |
 | Runtime | `--cursor-runtime`, `PI_CURSOR_RUNTIME`, `runtime`; built-in default is `local`. | **Implemented** |
 | First cloud acknowledgement | `--cursor-cloud-ack`, `PI_CURSOR_CLOUD_ACK`, session/user acknowledgement; project config excluded. | **Implemented** |
 | Explicit repo/ref | HTTPS repo override; branch/ref requires repo and maps to `repos[].startingRef`. | **Implemented** |
-| Direct push | Explicit one-shot/user/session choice maps to `workOnCurrentBranch`; default false. | **Implemented** |
-| Local-only state allow | Explicit one-shot/user/session escape hatch; default is fail closed. | **Implemented** |
+| Direct push | Explicit CLI/environment/session/user choice maps to `workOnCurrentBranch`; default false. | **Implemented** |
+| Local-only state allow | Explicit CLI/environment/session/user escape hatch; default is fail closed. | **Implemented** |
 | Context handoff | Fresh by default; bootstrap requires explicit CLI/env/session/user choice. | **Implemented** |
 | Cursor-managed environment | Explicit `cloud` / `pool` / `machine` selection; no local env values are forwarded. | **Implemented** |
 | Pi env forwarding and `.env` reads | Parsed reserved shapes fail preflight with Cursor-native environment guidance. | **Intentionally deferred/rejected** — avoids a parallel secret-management path. |
@@ -60,11 +59,11 @@ Non-interactive print/JSON/RPC runs never prompt. They fail closed when acknowle
 | Capability | Status | Current evidence, acceptance, or reason |
 | --- | --- | --- |
 | One runtime-aware `cursor/*` provider; local default; explicit cloud opt-in | **Implemented** | Defaults: `src/cursor-config.ts`; dispatch: `src/cursor-provider-turn-prepare.ts`; coverage: `test/cursor-config.test.ts`, `test/cursor-provider-stream-config.test.ts`. |
-| Ordinary precedence, user safety caps, trust-gated project loading, runtime-only project saves | **Implemented** | `src/cursor-config.ts`; `test/cursor-config.test.ts`. P0.2 adds a non-interactive contract proof without changing the landed policy. |
+| Field-specific runtime/cloud/local precedence, user safety caps, trust-gated project loading, cloud project saves limited to runtime | **Implemented** | `src/cursor-config.ts`; `test/cursor-config.test.ts`. P0.2 adds a non-interactive contract proof without changing the landed policy. |
 | First-use disclosure and acknowledgement, including remote execution, tools/context, branching/retention, and Max Mode cost | **Implemented** | `src/cursor-runtime-state.ts`; `test/cursor-runtime-state.test.ts`. |
 | Project config cannot acknowledge cloud or set cloud safety/repo/environment choices | **Implemented** | Project source is omitted for those fields in `src/cursor-config.ts`; covered by `test/cursor-config.test.ts`. |
 | Fresh cloud context by default; explicit bootstrap; original Pi project instructions preserved | **Implemented** | `src/cursor-provider-turn-prepare.ts`, `src/cursor-agents-context.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-agents-context.test.ts`. |
-| Per-switch interactive fresh/bootstrap chooser | **Intentionally deferred/rejected** | Fresh is the safe default; explicit flag/env/config already covers higher-trust bootstrap without another prompt. |
+| Per-switch interactive fresh/bootstrap chooser | **Intentionally deferred/rejected** | Fresh is the safe default; explicit CLI/env/session/user choice already covers higher-trust bootstrap without another prompt. |
 | Explicit HTTPS repo/ref/direct-push mapping | **Implemented** | `src/cursor-cloud-options.ts`; `test/cursor-cloud-options.test.ts`. |
 | Dirty/unpushed local-state validation against the explicit cloud repo/ref target | **Still open** | Current code checks the working tree and current branch upstream only. P0.1 defines target-aware acceptance. |
 | Fingerprinted interactive warn-once/status behavior for unchanged dirty state | **Intentionally deferred/rejected** | Current runs fail every time unless explicitly allowed; no repeated-click UX is needed until product feedback justifies it. |
@@ -83,7 +82,7 @@ Non-interactive print/JSON/RPC runs never prompt. They fail closed when acknowle
 | Agent/run IDs, branch/PR, passive artifacts, and raw usage completion telemetry | **Implemented** | `src/cursor-cloud-reporting.ts`, `src/cursor-provider-turn-finalize.ts`; `test/cursor-provider-cloud-reporting.test.ts`, `test/cursor-cloud-reporting.test.ts`. Raw usage remains display-only and outside Pi accounting/transcript. |
 | Artifact auto-download or download command | **Intentionally deferred/rejected** | Runtime lists passive artifacts only; Cursor UI remains the download surface unless explicit product scope is added. |
 | Durable cloud create intent, returned run ID, branch-scoped ledger, malformed-line isolation | **Implemented** | `src/cursor-cloud-lifecycle.ts`, `src/cursor-provider-turn-prepare.ts`, `src/cursor-provider-turn-send.ts`; `test/cursor-cloud-lifecycle.test.ts`. |
-| Exact recorded-ID `/cursor-cloud list|archive|delete --yes` with durable mutation intent/result | **Implemented** | `src/cursor-cloud-lifecycle.ts`; `test/cursor-cloud-lifecycle.test.ts`. No bulk or raw filters. |
+| Exact recorded-ID `/cursor-cloud list`, `/cursor-cloud archive <bc-agentId>`, and `/cursor-cloud delete <bc-agentId> --yes` commands with durable mutation intent/result | **Implemented** | `src/cursor-cloud-lifecycle.ts`; `test/cursor-cloud-lifecycle.test.ts`. No bulk or raw filters. |
 | Automatic cleanup, exit prompt, bulk deletion, raw filters, or global sweeping | **Intentionally deferred/rejected** | Exact recorded-ID commands are the safety boundary; normal exit leaves cloud agents archiveable. |
 | Cloud resume/default-on | **Intentionally deferred/rejected** | Local remains default. Cloud resume needs explicit lifecycle/privacy/compaction policy and broader live evidence before reconsideration. |
 | Agent/run URL display | **Intentionally deferred/rejected** | Public `SDKAgentInfo` exposes no URL. Current reporting shows IDs and PR URL; do not depend on private raw shapes. |
@@ -204,7 +203,7 @@ Likely anchors: provider turn prepare/send/coordinator modules and cloud provide
 
 ## Historical probe context
 
-**Status: Intentionally deferred/rejected as current release evidence.**
+**Evidence classification: Historical only; not current release evidence.**
 
 The 2026-07-05/06 local/cloud probes described repo/ref behavior, protected-branch fallback, direct push, missing branch, env vars, inline MCP, cancel/archive/delete, artifacts, raw usage, auth, resume, force, and `customTools` cancellation. Temporary repositories and agents were reportedly cleaned up. No tracked cloud smoke report exists at baseline `a2d574b`, and successful `scripts/cloud-runtime-smoke.mjs` runs delete raw artifacts by default. These claims may guide future probes but cannot satisfy a current smoke gate.
 
