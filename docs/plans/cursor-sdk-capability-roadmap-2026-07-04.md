@@ -21,7 +21,7 @@ Every capability in this roadmap has exactly one status:
 2. Local Cursor agents retain Pi tools by default through the canonical loopback MCP bridge.
 3. Cloud is explicit opt-in and cannot be acknowledged or safety-weakened by project config.
 4. Cloud uses the local streaming/coordinator shape where the SDK permits it, while clearly reporting cloud runtime and cloud-only limitations.
-5. Cloud receives no Pi-local bridge, local MCP, `local.customTools`, local setting sources, Pi skill paths, or Pi env values.
+5. Pi does not automatically inject or forward the local bridge, local MCP, `local.customTools`, local settings or skill metadata, or process environment values to cloud. Explicit bootstrap is cloud-bound, requires explicit consent, and sends prior Pi context, which may include file contents, tool outputs, paths or skill references, environment values, or secrets.
 6. The bridge invariant remains Cursor tool call → real Pi `toolCall` → matching Pi `toolResult` → Cursor result.
 7. `npm run smoke:platform:all` remains required for provider/runtime/bridge changes; `npm run smoke:cloud` is additionally required when actual cloud execution changes.
 
@@ -29,30 +29,31 @@ Every capability in this roadmap has exactly one status:
 
 **Status: Implemented.** `src/cursor-config.ts` and `src/cursor-runtime-state.ts` own field-specific precedence, stricter safety caps, first-use acknowledgement, trust-gated project loading, explicit save destinations, runtime status, cloud context/repo/ref/direct-push/local-state choices, and Cursor-managed environment selection. Coverage is in `test/cursor-config.test.ts` and `test/cursor-runtime-state.test.ts`.
 
-Field-specific source precedence:
+Field-specific effective source precedence:
 
 - Runtime: CLI > environment > session > trusted project > user > built-in.
-- Cloud settings: CLI > environment > session > user > built-in.
+- Cloud acknowledgement: CLI > environment > session > user > built-in.
+- Other cloud fields (repo/ref, context handoff, direct push, local-state allow, env names/file forwarding, and Cursor-managed environment): CLI > environment > user > built-in, subject to field-specific validation and safety caps.
 - Local `autoReview`, `sandbox`, and `resume`: CLI > environment > trusted project > user > built-in.
 - Local `force`: CLI > environment > built-in.
 
-Safety-sensitive cloud choices use: explicit one-shot CLI allow > user deny/cap > explicit env allow > session/user allow > built-in safe default. Project config is excluded. For cloud settings, trusted project config may select runtime only; it cannot acknowledge cloud or provide repo/ref, bootstrap, env names, direct-push, local-state, environment, or cleanup choices. Local `autoReview`, `sandbox`, and `resume` may load from trusted project config; local `force` cannot.
+Safety-sensitive cloud fields preserve explicit one-shot CLI intent. Below CLI, a stricter user setting may cap a riskier environment choice; field-specific validation still applies. The effective session layer currently populates only runtime and cloud acknowledgement, so it cannot supply other cloud fields. Project config is excluded from acknowledgement and all other cloud fields; trusted project config may select runtime only. It cannot acknowledge cloud or provide repo/ref, bootstrap, env names, direct-push, local-state, environment, or cleanup choices. Local `autoReview`, `sandbox`, and `resume` may load from trusted project config; local `force` cannot.
 
 | Setting | Current behavior | Status |
 | --- | --- | --- |
 | Runtime | `--cursor-runtime`, `PI_CURSOR_RUNTIME`, `runtime`; built-in default is `local`. | **Implemented** |
 | First cloud acknowledgement | `--cursor-cloud-ack`, `PI_CURSOR_CLOUD_ACK`, session/user acknowledgement; project config excluded. | **Implemented** |
 | Explicit repo/ref | HTTPS repo override; branch/ref requires repo and maps to `repos[].startingRef`. | **Implemented** |
-| Direct push | Explicit CLI/environment/session/user choice maps to `workOnCurrentBranch`; default false. | **Implemented** |
-| Local-only state allow | Explicit CLI/environment/session/user escape hatch; default is fail closed. | **Implemented** |
-| Context handoff | Fresh by default; bootstrap requires explicit CLI/env/session/user choice. | **Implemented** |
-| Cursor-managed environment | Explicit `cloud` / `pool` / `machine` selection; no local env values are forwarded. | **Implemented** |
+| Direct push | Explicit CLI/environment/user choice maps to `workOnCurrentBranch`; default false. | **Implemented** |
+| Local-only state allow | Explicit CLI/environment/user escape hatch; default is fail closed. | **Implemented** |
+| Context handoff | Fresh by default; bootstrap requires explicit CLI/environment/user consent because it sends prior Pi context to cloud, which may include file contents, tool outputs, paths or skill references, environment values, or secrets. | **Implemented** |
+| Cursor-managed environment | Explicit `cloud` / `pool` / `machine` selection; Pi does not automatically forward process environment values. | **Implemented** |
 | Pi env forwarding and `.env` reads | Parsed reserved shapes fail preflight with Cursor-native environment guidance. | **Intentionally deferred/rejected** — avoids a parallel secret-management path. |
 | Inline cloud MCP | No create/send path supplies it. | **Intentionally deferred/rejected** — live historical probes showed unsafe first-run/replacement persistence behavior. |
 | Local resume | Default-on branch-scoped resume with strict session/tree/compaction/tool-surface identity and explicit cleanup. | **Implemented** |
 | Cloud resume | Every cloud turn creates a new cloud agent. | **Intentionally deferred/rejected** — lifecycle, privacy, compaction, and broader live evidence decisions remain unresolved. |
 
-Non-interactive print/JSON/RPC runs never prompt. They fail closed when acknowledgement or required Pi-owned safety choices are absent. The unit-tested trust gate is implemented; the exact packed `--no-approve` acceptance proof remains P0.2 below.
+Automatic provider startup in print/JSON/RPC does not prompt and fails closed when acknowledgement or required Pi-owned safety choices are absent. The `/cursor-runtime cloud` command is separate: it may request confirmation whenever the host exposes UI (`ctx.hasUI`), including an RPC host with UI. The unit-tested trust gate is implemented; the exact packed `--no-approve` automatic-startup acceptance proof remains P0.2 below.
 
 ## Capability ledger
 
@@ -62,19 +63,20 @@ Non-interactive print/JSON/RPC runs never prompt. They fail closed when acknowle
 | Field-specific runtime/cloud/local precedence, user safety caps, trust-gated project loading, cloud project saves limited to runtime | **Implemented** | `src/cursor-config.ts`; `test/cursor-config.test.ts`. P0.2 adds a non-interactive contract proof without changing the landed policy. |
 | First-use disclosure and acknowledgement, including remote execution, tools/context, branching/retention, and Max Mode cost | **Implemented** | `src/cursor-runtime-state.ts`; `test/cursor-runtime-state.test.ts`. |
 | Project config cannot acknowledge cloud or set cloud safety/repo/environment choices | **Implemented** | Project source is omitted for those fields in `src/cursor-config.ts`; covered by `test/cursor-config.test.ts`. |
-| Fresh cloud context by default; explicit bootstrap; original Pi project instructions preserved | **Implemented** | `src/cursor-provider-turn-prepare.ts`, `src/cursor-agents-context.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-agents-context.test.ts`. |
-| Per-switch interactive fresh/bootstrap chooser | **Intentionally deferred/rejected** | Fresh is the safe default; explicit CLI/env/session/user choice already covers higher-trust bootstrap without another prompt. |
+| Fresh cloud context by default; explicit, consented bootstrap; original Pi project instructions preserved | **Implemented** | Bootstrap is cloud-bound and sends prior Pi context, which may include file contents, tool outputs, paths or skill references, environment values, or secrets. Anchors: `src/cursor-provider-turn-prepare.ts`, `src/cursor-agents-context.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-agents-context.test.ts`. |
+| Per-switch interactive fresh/bootstrap chooser | **Intentionally deferred/rejected** | Fresh is the safe default; explicit CLI/environment/user consent already covers higher-trust bootstrap without another prompt. |
+| Session-scoped cloud choices beyond runtime and acknowledgement | **Intentionally deferred/rejected** | Current session state persists only runtime and acknowledgement. CLI, environment, and user config already cover explicit repo/ref/context/direct-push/local-state/environment choices. Revisit only if a temporary session-only UX is approved. |
 | Explicit HTTPS repo/ref/direct-push mapping | **Implemented** | `src/cursor-cloud-options.ts`; `test/cursor-cloud-options.test.ts`. |
 | Dirty/unpushed local-state validation against the explicit cloud repo/ref target | **Still open** | Current code checks the working tree and current branch upstream only. P0.1 defines target-aware acceptance. |
 | Fingerprinted interactive warn-once/status behavior for unchanged dirty state | **Intentionally deferred/rejected** | Current runs fail every time unless explicitly allowed; no repeated-click UX is needed until product feedback justifies it. |
 | Pi env forwarding and `.env` reading | **Intentionally deferred/rejected** | `src/cursor-cloud-options.ts` rejects configured forwarding and directs users to Cursor-native environments; covered by `test/cursor-provider-cloud-env-validation.test.ts`. |
 | Explicit Cursor-managed cloud/pool/machine environment selection | **Implemented** | `src/cursor-cloud-options.ts`; `test/cursor-provider-stream-config.test.ts`. |
-| No local Pi bridge, local MCP, `local.customTools`, local settings, or Pi skill paths in cloud | **Implemented** | `src/cursor-cloud-options.ts`, `src/cursor-provider-turn-prepare.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-skill-tool.test.ts`. |
+| No automatic injection or forwarding of the local Pi bridge, local MCP, `local.customTools`, local settings or skill metadata, or process environment values to cloud | **Implemented** | This excludes automatic metadata forwarding, not content explicitly included in consented bootstrap context. Anchors: `src/cursor-cloud-options.ts`, `src/cursor-provider-turn-prepare.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-skill-tool.test.ts`. |
 | Inline cloud MCP | **Intentionally deferred/rejected** | SDK types expose `mcpServers`, but the current product omits them because historical first-run/replacement probes showed hidden persistence and replacement failure. Revisit only with a deterministic SDK contract and retained passing evidence. |
 | Cursor-native SDK `agents` / Pi-subagent mapping | **Intentionally deferred/rejected** | SDK exposes `AgentOptions.agents`; no automatic Pi mapping is approved. Cursor may load native `.cursor/agents/*.md` from its own settings. |
 | Runtime-aware footer; cloud fast state is `n/a` | **Implemented** | `src/cursor-state.ts`; `test/cursor-runtime-state.test.ts`. |
-| Cloud model validation through public `Agent.create()` | **Implemented** | `src/cursor-provider-turn-prepare.ts` calls `Agent.create()`; installed SDK validates cloud model selection before construction; `test/cursor-provider-stream-config.test.ts` covers the public create path. |
-| `/model` cloud annotations, compatibility warning, and cloud-aware `--list-models` | **Blocked on SDK/API** | Missing contract: installed `ModelListItem` has no local/cloud availability field, and no maintained account-scoped availability/preflight source exists. `Agent.create()` remains the run-start safety net; P1.5 states the acceptance trigger. |
+| Best-effort catalog ID/alias preflight through public `Agent.create()` | **Implemented** | `src/cursor-provider-turn-prepare.ts` calls `Agent.create()`. Installed SDK code checks the base model ID/alias against `Cursor.models.list()`, but does not validate variant parameters or cloud runtime availability, and catalog lookup failures can fall through; backend create/send errors are authoritative. The mocked provider coverage in `test/cursor-provider-stream-config.test.ts` proves only that Pi calls the public `Agent.create()` path. |
+| `/model` cloud annotations, compatibility warning, and cloud-aware `--list-models` | **Blocked on SDK/API** | Missing contract: installed `ModelListItem` has no local/cloud availability field, and no maintained account-scoped availability/preflight source exists. Preserve best-effort catalog ID/alias preflight through `Agent.create()` while backend create/send errors remain authoritative; P1.5 states the acceptance trigger. |
 | Cloud streaming through the shared coordinator | **Implemented** | `src/cursor-provider-turn-prepare.ts` and `src/cursor-provider-turn-send.ts` use `CursorSdkTurnCoordinator`; `test/cursor-provider-stream-config.test.ts` covers direct cloud mode. P2.7 adds retained cloud activity-card evidence. |
 | Abort cancels the active cloud run | **Implemented** | `src/cursor-provider-turn-send.ts`; `test/cursor-provider-cloud-reporting.test.ts`. |
 | Detach/keep-running control | **Intentionally deferred/rejected** | Abort stays fast and canceling; no detach lifecycle or ownership contract is approved. |
@@ -120,14 +122,15 @@ Likely anchors: `src/cursor-cloud-options.ts`, `test/cursor-cloud-options.test.t
 
 **Status: Still open.**
 
-Current limitation: trust gating is unit-tested, but the exact packed/CLI `--no-approve` print/JSON/RPC behavior is not retained as a contract proof.
+Current limitation: trust gating is unit-tested, but the exact packed/CLI `--no-approve` automatic provider-startup behavior in print/JSON/RPC is not retained as a contract proof.
 
 Acceptance criteria:
 
 - A project `.pi/cursor-sdk.json` selecting cloud is ignored under `--no-approve`.
 - Trusted/approved project runtime still cannot supply cloud acknowledgement.
-- No UI confirmation is attempted in non-interactive modes.
+- No UI confirmation is attempted during automatic provider startup under `--no-approve` in print/JSON/RPC.
 - SDK create/send is not reached when required choices are absent.
+- Slash-command RPC behavior is outside this proof: `/cursor-runtime cloud` currently follows `ctx.hasUI` and may confirm when an RPC host exposes UI.
 - Use an isolated CLI/provider contract test; do not make a live cloud call.
 
 Likely anchors: `src/cursor-session-scope.ts`, `src/cursor-config.ts`, config/provider tests.
@@ -152,7 +155,7 @@ Likely anchors: `src/cursor-provider-errors.ts`, provider-error tests, installed
 
 Acceptance criteria if implemented:
 
-- Add `autoCreatePR` and `skipReviewerRequest` to typed config, CLI/env/session/user precedence, project exclusion/safety rules, cloud option building, docs, and focused tests.
+- Add `autoCreatePR` and `skipReviewerRequest` to typed config, CLI/environment/user precedence, project exclusion/safety rules, cloud option building, docs, and focused tests. Add session precedence only if the deferred status for non-acknowledgement session-scoped cloud choices is explicitly revisited.
 - Run a throwaway-repo live probe and retain sanitized results.
 
 Decision acceptance if not implemented: change this capability to **Intentionally deferred/rejected** with the product reason. Do not leave partial flags or config.
@@ -169,7 +172,7 @@ Acceptance trigger and criteria:
 
 - Start only when SDK/API availability metadata or a maintained account-scoped preflight source exists.
 - Then add `/model` annotations, runtime compatibility warnings, list filtering, and catalog-drift contract tests.
-- Preserve `Agent.create()` validation as the final safety net and never infer a compatibility map from catalog count or model parameters.
+- Preserve best-effort catalog ID/alias preflight through `Agent.create()` while treating backend create/send errors as authoritative; never infer a compatibility map from catalog count or model parameters.
 
 Likely anchors after the contract exists: `src/model-discovery.ts`, `src/cursor-state.ts`, model discovery tests.
 
@@ -251,6 +254,6 @@ Installed package: `@cursor/sdk@1.0.23`.
 - `cloud-agent.d.ts` and `stubs.d.ts` — cloud resume/list/get/cancel/archive/delete APIs.
 - `run.d.ts` and `artifacts.d.ts` — branch/PR/usage and artifact metadata.
 - `errors.d.ts` — `IntegrationNotConnectedError.helpUrl` and `.provider`.
-- Installed bundled source — public `Agent.create()` cloud model validation and current option forwarding.
+- Installed bundled source — public `Agent.create()` performs best-effort base model ID/alias preflight through `Cursor.models.list()`; it does not validate variant parameters or cloud runtime availability, catalog lookup failures can fall through, and backend create/send errors remain authoritative. Also anchors current option forwarding.
 
 Do not schedule Pi env forwarding, inline cloud MCP, remote Pi bridge, Pi-subagent mapping, cloud resume/default-on, agent/run URL display, detach/keep-running, automatic cleanup, bulk deletion, raw filters, or artifact auto-download without changing the explicit status and recording the new product/security or SDK/API decision here first.
