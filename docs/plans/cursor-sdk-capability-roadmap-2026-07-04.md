@@ -71,7 +71,7 @@ Automatic provider startup in print/JSON/RPC does not prompt and fails closed wh
 | Fingerprinted interactive warn-once/status behavior for unchanged dirty state | **Intentionally deferred/rejected** | Current runs fail every time unless explicitly allowed; no repeated-click UX is needed until product feedback justifies it. |
 | Pi env forwarding and `.env` reading | **Intentionally deferred/rejected** | `src/cursor-cloud-options.ts` rejects configured forwarding and directs users to Cursor-native environments; covered by `test/cursor-provider-cloud-env-validation.test.ts`. |
 | Explicit Cursor-managed cloud/pool/machine environment selection | **Implemented** | `src/cursor-cloud-options.ts`; `test/cursor-provider-stream-config.test.ts`. |
-| No automatic injection or forwarding of the local Pi bridge, local MCP, `local.customTools`, local settings or skill metadata, or process environment values to cloud | **Implemented** | This excludes automatic metadata forwarding, not content explicitly included in consented bootstrap context. Anchors: `src/cursor-cloud-options.ts`, `src/cursor-provider-turn-prepare.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-skill-tool.test.ts`. |
+| No automatic injection or forwarding of the local Pi bridge, local MCP, `local.customTools`, local settings or skill metadata, or process environment values to cloud | **Implemented** | This excludes automatic metadata forwarding, not content explicitly included in consented bootstrap context. Anchors: `src/cursor-cloud-options.ts`, `src/cursor-provider-turn-prepare.ts`, `src/cursor-skill-tool.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-skill-tool.test.ts`. |
 | Inline cloud MCP | **Intentionally deferred/rejected** | SDK types expose `mcpServers`, but the current product omits them because historical first-run/replacement probes showed hidden persistence and replacement failure. Revisit only with a deterministic SDK contract and retained passing evidence. |
 | Cursor-native SDK `agents` / Pi-subagent mapping | **Intentionally deferred/rejected** | SDK exposes `AgentOptions.agents`; no automatic Pi mapping is approved. Cursor may load native `.cursor/agents/*.md` from its own settings. |
 | Runtime-aware footer; cloud fast state is `n/a` | **Implemented** | `src/cursor-state.ts`; `test/cursor-runtime-state.test.ts`. |
@@ -231,6 +231,7 @@ Retained local evidence remains current only for its named local contracts, incl
 - `scripts/cloud-runtime-smoke.mjs` — minimal runtime/context smoke and archival verification.
 - `src/cursor-session-agent.ts` and local resume/lifecycle/cleanup modules — local pooling and guarded resume.
 - `src/cursor-pi-tool-bridge-run.ts` and `src/cursor-pi-tool-bridge-snapshot.ts` — canonical local Pi-tool transport.
+- `src/cursor-skill-tool.ts` — removes Pi skill metadata from the cloud system prompt.
 - `src/cursor-provider-errors.ts` — current generic sanitized provider errors; P1.3 target.
 
 Primary focused coverage:
@@ -249,9 +250,9 @@ Primary focused coverage:
 
 Installed package: `@cursor/sdk@1.0.23`.
 
-- `options.d.ts` — cloud repo/ref/direct-push/environment/PR options, model catalog shape, `AgentOptions.agents`, `customTools` surfaces.
-- `agent.d.ts` — create/send options, public agent info, artifacts.
-- `cloud-agent.d.ts` and `stubs.d.ts` — cloud resume/list/get/cancel/archive/delete APIs.
+- `options.d.ts` — `AgentOptions`, cloud repo/ref/direct-push/environment/PR options, model catalog shape, `AgentOptions.agents`, and `customTools` surfaces.
+- `agent.d.ts` — `SDKAgent`, per-send options, public agent metadata, and artifact methods.
+- `stubs.d.ts` — public `Agent.create()` / resume / list / get / cancel / archive / delete declarations; `cloud-agent.d.ts` — the cloud-agent implementation surface.
 - `run.d.ts` and `artifacts.d.ts` — branch/PR/usage and artifact metadata.
 - `errors.d.ts` — `IntegrationNotConnectedError.helpUrl` and `.provider`.
 - Installed bundled source — public `Agent.create()` performs best-effort base model ID/alias preflight through `Cursor.models.list()`; it does not validate variant parameters or cloud runtime availability, catalog lookup failures can fall through, and backend create/send errors remain authoritative. Also anchors current option forwarding.
