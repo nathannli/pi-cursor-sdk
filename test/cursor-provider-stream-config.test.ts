@@ -162,7 +162,7 @@ describe("streamCursor prompt and model config", () => {
 		expect(mockSend).not.toHaveBeenCalled();
 	});
 
-	it("fails closed with cloud preflight remediation before cloud implementation exists", async () => {
+	it("fails closed with cloud preflight remediation before cloud agent creation", async () => {
 		process.env.PI_CURSOR_RUNTIME = "cloud";
 		process.env.PI_CURSOR_LOCAL_FORCE = "1";
 
