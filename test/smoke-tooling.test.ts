@@ -63,6 +63,8 @@ try {
 		try {
 			process.env.PI_CURSOR_CLOUD_REPO = "ambient/repo";
 			process.env.PI_CURSOR_CLOUD_DIRECT_PUSH = "1";
+			process.env.PI_CURSOR_CLOUD_AUTO_CREATE_PR = "1";
+			process.env.PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST = "1";
 			process.env.PI_CURSOR_CLOUD_ENV = "SECRET";
 			process.env.PI_CURSOR_CLOUD_ENV_TYPE = "pool";
 			process.env.PI_CURSOR_CLOUD_ENV_NAME = "ambient-pool";
@@ -83,12 +85,16 @@ try {
 			expect(env.PI_CURSOR_SETTING_SOURCES).toBe("none");
 			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_DIRECT_PUSH).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_AUTO_CREATE_PR).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_ENV).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_ENV_TYPE).toBe("machine");
 			expect(env.PI_CURSOR_CLOUD_ENV_NAME).toBe("smoke-machine");
 		} finally {
 			delete process.env.PI_CURSOR_CLOUD_REPO;
 			delete process.env.PI_CURSOR_CLOUD_DIRECT_PUSH;
+			delete process.env.PI_CURSOR_CLOUD_AUTO_CREATE_PR;
+			delete process.env.PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST;
 			delete process.env.PI_CURSOR_CLOUD_ENV;
 			delete process.env.PI_CURSOR_CLOUD_ENV_TYPE;
 			delete process.env.PI_CURSOR_CLOUD_ENV_NAME;
@@ -136,6 +142,8 @@ try {
 					PI_CURSOR_RUNTIME: "cloud",
 					PI_CURSOR_CLOUD_ACK: "1",
 					PI_CURSOR_CLOUD_REPO: "ambient/repo",
+					PI_CURSOR_CLOUD_AUTO_CREATE_PR: "1",
+					PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST: "1",
 					PI_CURSOR_CLOUD_ENV: "SECRET",
 				},
 			});
@@ -144,6 +152,8 @@ try {
 			expect(env.PI_CURSOR_LOCAL_RESUME).toBe("1");
 			expect(env.PI_CURSOR_CLOUD_ACK).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_AUTO_CREATE_PR).toBeUndefined();
+			expect(env.PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_ENV).toBeUndefined();
 			expect(env.PI_CURSOR_PI_TOOL_BRIDGE).toBe("0");
 			expect(env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS).toBe("0");

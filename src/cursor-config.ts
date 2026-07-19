@@ -23,6 +23,8 @@ export const CURSOR_CLOUD_REPO_ENV = "PI_CURSOR_CLOUD_REPO";
 export const CURSOR_CLOUD_BRANCH_ENV = "PI_CURSOR_CLOUD_BRANCH";
 export const CURSOR_CLOUD_CONTEXT_ENV = "PI_CURSOR_CLOUD_CONTEXT";
 export const CURSOR_CLOUD_DIRECT_PUSH_ENV = "PI_CURSOR_CLOUD_DIRECT_PUSH";
+export const CURSOR_CLOUD_AUTO_CREATE_PR_ENV = "PI_CURSOR_CLOUD_AUTO_CREATE_PR";
+export const CURSOR_CLOUD_SKIP_REVIEWER_REQUEST_ENV = "PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST";
 export const CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV = "PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE";
 export const CURSOR_CLOUD_ENV_ENV = "PI_CURSOR_CLOUD_ENV";
 export const CURSOR_CLOUD_ENV_FROM_FILES_ENV = "PI_CURSOR_CLOUD_ENV_FROM_FILES";
@@ -53,6 +55,8 @@ export interface CursorSdkConfig {
 		branch?: string;
 		contextHandoff?: CursorCloudContextHandoff;
 		directPush?: boolean;
+		autoCreatePR?: boolean;
+		skipReviewerRequest?: boolean;
 		allowLocalState?: boolean;
 		envNames?: string[];
 		envFromFiles?: boolean;
@@ -93,6 +97,8 @@ export interface CursorResolvedSdkConfig {
 		branch: CursorResolvedSetting<string | undefined>;
 		contextHandoff: CursorResolvedSetting<CursorCloudContextHandoff>;
 		directPush: CursorResolvedSetting<boolean>;
+		autoCreatePR: CursorResolvedSetting<boolean>;
+		skipReviewerRequest: CursorResolvedSetting<boolean>;
 		allowLocalState: CursorResolvedSetting<boolean>;
 		envNames: CursorResolvedSetting<string[]>;
 		envFromFiles: CursorResolvedSetting<boolean>;
@@ -154,6 +160,8 @@ const BUILT_IN_CURSOR_CONFIG: Required<Pick<CursorSdkConfig, "runtime">> & {
 		branch: "",
 		contextHandoff: "fresh",
 		directPush: false,
+		autoCreatePR: false,
+		skipReviewerRequest: false,
 		allowLocalState: false,
 		envNames: [],
 		envFromFiles: false,
@@ -251,6 +259,8 @@ export function parseCursorSdkConfig(value: unknown): CursorSdkConfig | undefine
 		if (branch) parsedCloud.branch = branch;
 		if (isCursorCloudContextHandoff(cloud.contextHandoff)) parsedCloud.contextHandoff = cloud.contextHandoff;
 		if (typeof cloud.directPush === "boolean") parsedCloud.directPush = cloud.directPush;
+		if (typeof cloud.autoCreatePR === "boolean") parsedCloud.autoCreatePR = cloud.autoCreatePR;
+		if (typeof cloud.skipReviewerRequest === "boolean") parsedCloud.skipReviewerRequest = cloud.skipReviewerRequest;
 		if (typeof cloud.allowLocalState === "boolean") parsedCloud.allowLocalState = cloud.allowLocalState;
 		if (envNames) parsedCloud.envNames = envNames;
 		if (typeof cloud.envFromFiles === "boolean") parsedCloud.envFromFiles = cloud.envFromFiles;
@@ -548,6 +558,8 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 		'"never", "fresh", or "bootstrap"',
 	);
 	const directPush = parseOptionalEnvBoolean(env[CURSOR_CLOUD_DIRECT_PUSH_ENV]);
+	const autoCreatePR = parseOptionalEnvBoolean(env[CURSOR_CLOUD_AUTO_CREATE_PR_ENV]);
+	const skipReviewerRequest = parseOptionalEnvBoolean(env[CURSOR_CLOUD_SKIP_REVIEWER_REQUEST_ENV]);
 	const allowLocalState = parseOptionalEnvBoolean(env[CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV]);
 	const envNames = parseExplicitCursorCloudEnvNames(env[CURSOR_CLOUD_ENV_ENV], CURSOR_CLOUD_ENV_ENV);
 	const envFromFiles = parseOptionalEnvBoolean(env[CURSOR_CLOUD_ENV_FROM_FILES_ENV]);
@@ -561,6 +573,8 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 		branch !== undefined ||
 		isCursorCloudContextHandoff(contextHandoff) ||
 		directPush !== undefined ||
+		autoCreatePR !== undefined ||
+		skipReviewerRequest !== undefined ||
 		allowLocalState !== undefined ||
 		envNames !== undefined ||
 		envFromFiles !== undefined ||
@@ -572,6 +586,8 @@ export function cursorSdkConfigFromEnv(env: Record<string, string | undefined> =
 			...(branch !== undefined ? { branch } : {}),
 			...(isCursorCloudContextHandoff(contextHandoff) ? { contextHandoff } : {}),
 			...(directPush !== undefined ? { directPush } : {}),
+			...(autoCreatePR !== undefined ? { autoCreatePR } : {}),
+			...(skipReviewerRequest !== undefined ? { skipReviewerRequest } : {}),
 			...(allowLocalState !== undefined ? { allowLocalState } : {}),
 			...(envNames !== undefined ? { envNames } : {}),
 			...(envFromFiles !== undefined ? { envFromFiles } : {}),
@@ -659,6 +675,28 @@ export function resolveCursorSdkConfig(options: ResolveCursorSdkConfigOptions = 
 					session: session?.cloud?.directPush,
 					user: user?.cloud?.directPush,
 					builtin: builtIn.cloud.directPush,
+				},
+				(value) => (value ? 1 : 0),
+			),
+			autoCreatePR: resolveSafetyField(
+				CLOUD_ORDER,
+				{
+					cli: cli?.cloud?.autoCreatePR,
+					environment: env.cloud?.autoCreatePR,
+					session: session?.cloud?.autoCreatePR,
+					user: user?.cloud?.autoCreatePR,
+					builtin: builtIn.cloud.autoCreatePR,
+				},
+				(value) => (value ? 1 : 0),
+			),
+			skipReviewerRequest: resolveSafetyField(
+				CLOUD_ORDER,
+				{
+					cli: cli?.cloud?.skipReviewerRequest,
+					environment: env.cloud?.skipReviewerRequest,
+					session: session?.cloud?.skipReviewerRequest,
+					user: user?.cloud?.skipReviewerRequest,
+					builtin: builtIn.cloud.skipReviewerRequest,
 				},
 				(value) => (value ? 1 : 0),
 			),

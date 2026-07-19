@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add strictly opt-in Cursor Cloud pull-request controls: `--cursor-cloud-auto-create-pr` / `PI_CURSOR_CLOUD_AUTO_CREATE_PR` / `cloud.autoCreatePR` and `--cursor-cloud-skip-reviewer-request` / `PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST` / `cloud.skipReviewerRequest`. Unset controls remain omitted from SDK options, project config is excluded, and local runtime behavior is unchanged.
+
 ## 0.1.60 - 2026-07-17
 
 ### Fixed

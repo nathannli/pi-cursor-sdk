@@ -340,7 +340,39 @@ On first interactive use, `/cursor-runtime cloud` shows one confirmation coverin
 
 Use `/cursor-runtime cloud --save-user` for a persistent personal acknowledgement or `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` for non-interactive runs; acknowledged CLI, environment, session, or user state is not prompted again.
 
-Project config may save a cloud runtime default but not first-use acknowledgement or repo/branch/env/context/direct-push/local-state preferences.
+Project config may save a cloud runtime default but not first-use acknowledgement or repo/branch/env/context/direct-push/PR-control/local-state preferences.
+
+### Cloud pull-request controls
+
+Cursor Cloud pull-request controls are strictly opt-in. Omit them to preserve the Cursor SDK's default behavior; when omitted, the extension sends neither SDK field.
+
+```bash
+pi --model cursor/composer-2-5 --cursor-runtime cloud --cursor-cloud-ack \
+  --cursor-cloud-repo https://github.com/your-org/your-repo \
+  --cursor-cloud-branch main \
+  --cursor-cloud-auto-create-pr --cursor-cloud-skip-reviewer-request
+
+PI_CURSOR_CLOUD_ACK=1 \
+PI_CURSOR_CLOUD_REPO=https://github.com/your-org/your-repo \
+PI_CURSOR_CLOUD_BRANCH=main \
+PI_CURSOR_CLOUD_AUTO_CREATE_PR=1 \
+PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST=1 \
+pi --model cursor/composer-2-5 --cursor-runtime cloud
+```
+
+User config uses `cloud.autoCreatePR` and `cloud.skipReviewerRequest`:
+
+```json
+{
+  "runtime": "cloud",
+  "cloud": {
+    "autoCreatePR": true,
+    "skipReviewerRequest": true
+  }
+}
+```
+
+The resolver follows cloud precedence (CLI, environment, session, then user) with user safety denials; project config is excluded. The current public inputs are CLI/environment one-shot controls and user config—there is no PR-control session command.
 
 ### Cloud repository and local-state validation
 

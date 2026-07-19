@@ -7,6 +7,7 @@ import {
 	CURSOR_AUTO_REVIEW_ENV,
 	CURSOR_CLOUD_ACK_ENV,
 	CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV,
+	CURSOR_CLOUD_AUTO_CREATE_PR_ENV,
 	CURSOR_CLOUD_BRANCH_ENV,
 	CURSOR_CLOUD_CONTEXT_ENV,
 	CURSOR_CLOUD_DIRECT_PUSH_ENV,
@@ -15,6 +16,7 @@ import {
 	CURSOR_CLOUD_ENV_NAME_ENV,
 	CURSOR_CLOUD_ENV_TYPE_ENV,
 	CURSOR_CLOUD_REPO_ENV,
+	CURSOR_CLOUD_SKIP_REVIEWER_REQUEST_ENV,
 	CURSOR_LOCAL_FORCE_ENV,
 	CURSOR_LOCAL_RESUME_ENV,
 	CURSOR_RUNTIME_ENV,
@@ -73,6 +75,8 @@ let cliCursorCloudRepo: string | undefined;
 let cliCursorCloudBranch: string | undefined;
 let cliCursorCloudContext: string | undefined;
 let cliCursorCloudDirectPush = false;
+let cliCursorCloudAutoCreatePR = false;
+let cliCursorCloudSkipReviewerRequest = false;
 let cliCursorCloudAllowLocalState = false;
 let cliCursorCloudEnv: string | undefined;
 let cliCursorCloudEnvFromFiles = false;
@@ -99,6 +103,8 @@ export function getCursorCliConfig(): CursorExplicitSdkConfig {
 			repo: cliCursorCloudRepo,
 			branch: cliCursorCloudBranch,
 			...(cliCursorCloudDirectPush ? { directPush: true } : {}),
+			...(cliCursorCloudAutoCreatePR ? { autoCreatePR: true } : {}),
+			...(cliCursorCloudSkipReviewerRequest ? { skipReviewerRequest: true } : {}),
 			...(cliCursorCloudAllowLocalState ? { allowLocalState: true } : {}),
 			envNames: parseExplicitCursorCloudEnvNames(cliCursorCloudEnv, "--cursor-cloud-env"),
 			...(cliCursorCloudEnvFromFiles ? { envFromFiles: true } : {}),
@@ -220,6 +226,8 @@ export function restoreCursorCliState(pi: Pick<ExtensionAPI, "getFlag">): void {
 	cliCursorCloudBranch = stringFlagValue(pi.getFlag("cursor-cloud-branch"));
 	cliCursorCloudContext = stringFlagValue(pi.getFlag("cursor-cloud-context"));
 	cliCursorCloudDirectPush = pi.getFlag("cursor-cloud-direct-push") === true;
+	cliCursorCloudAutoCreatePR = pi.getFlag("cursor-cloud-auto-create-pr") === true;
+	cliCursorCloudSkipReviewerRequest = pi.getFlag("cursor-cloud-skip-reviewer-request") === true;
 	cliCursorCloudAllowLocalState = pi.getFlag("cursor-cloud-allow-local-state") === true;
 	cliCursorCloudEnv = stringFlagValue(pi.getFlag("cursor-cloud-env"));
 	cliCursorCloudEnvFromFiles = pi.getFlag("cursor-cloud-env-from-files") === true;
@@ -265,6 +273,16 @@ function registerCursorRuntimeFlags(pi: Pick<ExtensionAPI, "registerFlag">): voi
 	});
 	pi.registerFlag("cursor-cloud-direct-push", {
 		description: `Allow Cursor cloud direct push for this run (or set ${CURSOR_CLOUD_DIRECT_PUSH_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+	pi.registerFlag("cursor-cloud-auto-create-pr", {
+		description: `Ask Cursor cloud to create a pull request for this run (or set ${CURSOR_CLOUD_AUTO_CREATE_PR_ENV}=1)`,
+		type: "boolean",
+		default: false,
+	});
+	pi.registerFlag("cursor-cloud-skip-reviewer-request", {
+		description: `Ask Cursor cloud not to request you as a reviewer for this run (or set ${CURSOR_CLOUD_SKIP_REVIEWER_REQUEST_ENV}=1)`,
 		type: "boolean",
 		default: false,
 	});
@@ -482,6 +500,8 @@ export function resetCursorRuntimeStateForTests(): void {
 	cliCursorCloudBranch = undefined;
 	cliCursorCloudContext = undefined;
 	cliCursorCloudDirectPush = false;
+	cliCursorCloudAutoCreatePR = false;
+	cliCursorCloudSkipReviewerRequest = false;
 	cliCursorCloudAllowLocalState = false;
 	cliCursorCloudEnv = undefined;
 	cliCursorCloudEnvFromFiles = false;

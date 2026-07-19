@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { resolveCursorSdkConfig } from "../src/cursor-config.js";
 import {
@@ -9,6 +10,26 @@ import {
 const OUTSIDE_GIT = { insideGitRepo: false } as const;
 
 describe("Cursor cloud options", () => {
+	it("tracks the installed SDK PR-control contract", () => {
+		const sdkDist = new URL("../node_modules/@cursor/sdk/dist/esm/", import.meta.url);
+		const options = readFileSync(new URL("options.d.ts", sdkDist), "utf8");
+		const runtime = readdirSync(sdkDist)
+			.filter((name) => name.endsWith(".js"))
+			.map((name) => readFileSync(new URL(name, sdkDist), "utf8"))
+			.find((source) => source.includes("autoCreatePR:") && source.includes("skipReviewerRequest:"));
+
+		expect(options).toMatch(/autoCreatePR\?: boolean;\s+skipReviewerRequest\?: boolean;/);
+		expect(runtime).toBeDefined();
+		if (!runtime) return;
+		const autoCreatePrIndex = runtime.indexOf("autoCreatePR:");
+		const projection = runtime.slice(
+			runtime.lastIndexOf("createAgent(", autoCreatePrIndex),
+			runtime.indexOf("idempotencyKey:", autoCreatePrIndex),
+		);
+		expect(projection).toMatch(/autoCreatePR:[^,}]*\.autoCreatePR/);
+		expect(projection).toMatch(/skipReviewerRequest:[^,}]*\.skipReviewerRequest/);
+	});
+
 	it("builds cloud Agent options without local tools, MCP servers, or agent ids", () => {
 		const resolvedConfig = resolveCursorSdkConfig({
 			cli: {
@@ -17,6 +38,8 @@ describe("Cursor cloud options", () => {
 					repo: "https://github.com/example/repo.git",
 					branch: "feature/demo",
 					directPush: true,
+					autoCreatePR: true,
+					skipReviewerRequest: true,
 					environment: { type: "pool", name: "large-linux" },
 				},
 			},
@@ -39,11 +62,37 @@ describe("Cursor cloud options", () => {
 				env: { type: "pool", name: "large-linux" },
 				repos: [{ url: "https://github.com/example/repo.git", startingRef: "feature/demo" }],
 				workOnCurrentBranch: true,
+				autoCreatePR: true,
+				skipReviewerRequest: true,
 			},
 		});
 		expect(result).not.toHaveProperty("local");
 		expect(result).not.toHaveProperty("mcpServers");
 		expect(result).not.toHaveProperty("agentId");
+	});
+
+	it("omits PR controls when unset and maps explicitly configured false values", () => {
+		const unset = buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig: resolveCursorSdkConfig({ env: {} }),
+		});
+		const configured = buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig: resolveCursorSdkConfig({
+				env: {
+					PI_CURSOR_CLOUD_AUTO_CREATE_PR: "0",
+					PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST: "false",
+				},
+			}),
+		});
+
+		expect(unset.cloud).not.toHaveProperty("autoCreatePR");
+		expect(unset.cloud).not.toHaveProperty("skipReviewerRequest");
+		expect(configured.cloud).toMatchObject({ autoCreatePR: false, skipReviewerRequest: false });
 	});
 
 	it("normalizes refs/heads starting refs for SDK options", () => {

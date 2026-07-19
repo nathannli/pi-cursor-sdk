@@ -79,6 +79,12 @@ export function buildCursorCloudAgentOptions(options: {
 				}
 			: {}),
 		...(resolvedConfig.cloud.directPush.value ? { workOnCurrentBranch: true } : {}),
+		...(resolvedConfig.cloud.autoCreatePR.source !== "builtin"
+			? { autoCreatePR: resolvedConfig.cloud.autoCreatePR.value }
+			: {}),
+		...(resolvedConfig.cloud.skipReviewerRequest.source !== "builtin"
+			? { skipReviewerRequest: resolvedConfig.cloud.skipReviewerRequest.value }
+			: {}),
 	};
 	return {
 		apiKey: options.apiKey,

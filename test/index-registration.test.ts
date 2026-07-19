@@ -105,6 +105,14 @@ describe("extension registration and discovery", () => {
 			expect.objectContaining({ type: "boolean", default: false }),
 		);
 		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-auto-create-pr",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
+			"cursor-cloud-skip-reviewer-request",
+			expect.objectContaining({ type: "boolean", default: false }),
+		);
+		expect(pi.registerFlag).toHaveBeenCalledWith(
 			"cursor-cloud-allow-local-state",
 			expect.objectContaining({ type: "boolean", default: false }),
 		);

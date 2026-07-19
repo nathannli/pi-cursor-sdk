@@ -32,6 +32,8 @@ import { streamCursor } from "../src/cursor-provider.js";
 const CLOUD_ENV_NAMES = [
 	"PI_CURSOR_RUNTIME",
 	"PI_CURSOR_CLOUD_CONTEXT",
+	"PI_CURSOR_CLOUD_AUTO_CREATE_PR",
+	"PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST",
 	"PI_CURSOR_CLOUD_ACK",
 ] as const;
 
