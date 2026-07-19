@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
 	CONFIG_DIR_NAME,
@@ -292,15 +292,10 @@ export function isCursorSdkProjectConfigTrusted(cwd: string, projectTrusted: boo
 	return projectTrusted && hasTrustRequiringProjectResources(cwd);
 }
 
-export function loadCursorSdkProjectConfigForUpdate(cwd: string): CursorSdkConfig | undefined {
+export function loadCursorSdkProjectConfig(cwd: string, projectTrusted: boolean): CursorSdkConfig | undefined {
+	if (!projectTrusted) return undefined;
 	const path = getCursorSdkProjectConfigPath(cwd);
 	return existsSync(path) ? readCursorSdkConfigFile(path) : undefined;
-}
-
-export function loadCursorSdkProjectConfig(cwd: string, projectTrusted: boolean): CursorSdkConfig | undefined {
-	return isCursorSdkProjectConfigTrusted(cwd, projectTrusted)
-		? loadCursorSdkProjectConfigForUpdate(cwd)
-		: undefined;
 }
 
 export function loadCursorSdkConfig(options: LoadCursorSdkConfigOptions = {}): { user: CursorSdkConfig; project?: CursorSdkConfig } {
@@ -338,38 +333,10 @@ export function saveCursorSdkUserConfig(config: CursorSdkConfig, path = getCurso
 	replaceJsonFile(path, config, mode);
 }
 
-function hasRegularProjectSettings(path: string): boolean {
-	try {
-		if (!lstatSync(path).isFile()) throw new Error(`Project settings path must be a regular file: ${path}`);
-		return true;
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-		throw error;
-	}
-}
-
 export function saveCursorSdkProjectConfig(cwd: string, config: CursorSdkConfig, configDirName = CONFIG_DIR_NAME): void {
-	const configDir = join(cwd, configDirName);
-	mkdirSync(configDir, { recursive: true });
-	const settingsPath = join(configDir, "settings.json");
-	const settingsExisted = hasRegularProjectSettings(settingsPath);
 	const path = getCursorSdkProjectConfigPath(cwd, configDirName);
 	const mode = existsSync(path) ? statSync(path).mode & 0o777 : undefined;
 	replaceJsonFile(path, config, mode);
-	if (settingsExisted) {
-		if (!hasRegularProjectSettings(settingsPath)) {
-			throw new Error(`Project settings path disappeared during save: ${settingsPath}`);
-		}
-		return;
-	}
-	try {
-		writeFileSync(settingsPath, "{}\n", { encoding: "utf8", flag: "wx" });
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-		if (!hasRegularProjectSettings(settingsPath)) {
-			throw new Error(`Project settings path disappeared during save: ${settingsPath}`);
-		}
-	}
 }
 
 export function mergeCursorSdkConfig(base: CursorSdkConfig, patch: CursorSdkConfig): CursorSdkConfig {

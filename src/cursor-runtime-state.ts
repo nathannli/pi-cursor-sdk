@@ -20,7 +20,7 @@ import {
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
 	loadCursorSdkConfig,
-	loadCursorSdkProjectConfigForUpdate,
+	loadCursorSdkProjectConfig,
 	loadCursorSdkUserConfig,
 	mergeCursorSdkConfig,
 	parseCursorSdkConfig,
@@ -374,6 +374,13 @@ function registerCursorRuntimeCommand(
 				ctx.ui.notify(`${currentResolution.message} Fix the explicit override before changing the session runtime.`, "error");
 				return;
 			}
+			if (saveProject && (getCursorSessionCwd() !== ctx.cwd || !getCursorSessionProjectTrusted())) {
+				ctx.ui.notify(
+					"Cannot save Cursor project config until Pi recognizes a trust-requiring project resource and the project is trusted. Ensure .pi/settings.json or another Pi project resource exists, trust the project, then restart pi.",
+					"error",
+				);
+				return;
+			}
 			const cloudAcknowledged = raw === "cloud" && await confirmCloudAcknowledgement(
 				ctx,
 				resolveEffectiveCursorConfigForContext(ctx).cloud.acknowledged.value,
@@ -388,7 +395,7 @@ function registerCursorRuntimeCommand(
 							...(cloudAcknowledged ? { cloud: { acknowledged: true } } : {}),
 						}));
 					} else {
-						const current = loadCursorSdkProjectConfigForUpdate(ctx.cwd) ?? {};
+						const current = loadCursorSdkProjectConfig(ctx.cwd, getCursorSessionProjectTrusted()) ?? {};
 						saveCursorSdkProjectConfig(ctx.cwd, mergeCursorSdkConfig(current, { runtime: raw }));
 					}
 				} catch (error) {
