@@ -90,7 +90,7 @@ Automatic provider startup in print/JSON/RPC does not prompt and fails closed wh
 | Agent/run URL display | **Intentionally deferred/rejected** | Public `SDKAgentInfo` exposes no URL. Current reporting shows IDs and PR URL; do not depend on private raw shapes. |
 | Remote Pi bridge | **Intentionally deferred/rejected** | No approved public endpoint, per-run auth, tool allowlist, trust model, cancellation, redaction, or cleanup contract exists. Cloud must not depend on it. |
 | Cloud-specific auth/integration remediation | **Implemented** | `src/cursor-provider-errors.ts` preserves scrubbed HTTPS integration remediation and distinguishes Cloud API authentication while retaining local handling; runtime provenance is threaded by the turn runner/finalization path. Coverage: `test/cursor-provider-errors.test.ts`, `test/cursor-provider-stream-auth.test.ts`, `test/cursor-provider-run-outcome.test.ts`. |
-| PR controls beyond direct push (`autoCreatePR`, `skipReviewerRequest`) | **Still open** | Installed SDK supports both; Pi config/flags do not. P1.4 requires either complete exposure or an explicit product rejection. |
+| PR controls beyond direct push (`autoCreatePR`, `skipReviewerRequest`) | **Implemented** | Strictly opt-in CLI/environment/user inputs resolve through the CLI/environment/session/user source order and map to SDK cloud options only when explicitly set; no PR-control session command is exposed, project config is excluded, and unset options remain omitted. Anchors: `src/cursor-config.ts`, `src/cursor-runtime-state.ts`, `src/cursor-cloud-options.ts`, focused config/option/provider/registration tests, and `docs/evidence/cursor-cloud-pr-controls-2026-07-19.md`. |
 | Minimal cloud runtime and fresh/bootstrap smoke scripts | **Implemented** | `scripts/cloud-runtime-smoke.mjs`, `package.json`, and `docs/platform-smoke.md` define `smoke:cloud` and `smoke:cloud:context`, assertions, and archival verification. There is no retained tracked cloud smoke report at the reconciled baseline. |
 | Expanded repo/ref/direct-push/missing-branch/cancel/delete/artifact/usage smoke matrix | **Still open** | P2.6 defines durable release-evidence acceptance. |
 | Cloud activity-card fixture and visual contract | **Still open** | Shared coordinator wiring exists, but no cloud-specific retained tool/activity fixture or visual assertion exists. P2.7 defines acceptance. |
@@ -133,16 +133,15 @@ Test anchors: `test/cursor-provider-errors.test.ts` uses installed `Authenticati
 
 ### P1.4 — PR-control scope
 
-**Status: Still open.**
+**Status: Implemented.**
 
-Acceptance criteria if implemented:
+`cloud.autoCreatePR` and `cloud.skipReviewerRequest` now accept CLI/environment/user inputs through the cloud CLI/environment/session/user source order with user safety denials and explicit project exclusion; no PR-control session command is exposed. The corresponding `--cursor-cloud-auto-create-pr` / `PI_CURSOR_CLOUD_AUTO_CREATE_PR` and `--cursor-cloud-skip-reviewer-request` / `PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST` controls are off unless explicitly set. `buildCursorCloudAgentOptions()` omits both SDK fields for the built-in unset state, preserving prior SDK behavior, and maps explicit boolean values to the installed `@cursor/sdk@1.0.23` `AgentOptions.cloud` fields.
 
-- Add `autoCreatePR` and `skipReviewerRequest` to typed config, CLI/environment/user precedence, project exclusion/safety rules, cloud option building, docs, and focused tests. Add session precedence only if the deferred status for non-acknowledgement session-scoped cloud choices is explicitly revisited.
-- Run a throwaway-repo live probe and retain sanitized results.
+Source anchors: `src/cursor-config.ts`, `src/cursor-runtime-state.ts`, and `src/cursor-cloud-options.ts`; installed contract: `node_modules/@cursor/sdk/dist/esm/options.d.ts:181-188`.
 
-Decision acceptance if not implemented: change this capability to **Intentionally deferred/rejected** with the product reason. Do not leave partial flags or config.
+Test anchors: `test/cursor-config.test.ts`, `test/cursor-cloud-options.test.ts`, `test/cursor-provider-stream-config.test.ts`, and `test/index-registration.test.ts` cover precedence, project exclusion, unset omission, option mapping, and CLI/env integration.
 
-Likely anchors: `src/cursor-config.ts`, `src/cursor-runtime-state.ts`, `src/cursor-cloud-options.ts`; installed `options.d.ts`.
+Live evidence: `docs/evidence/cursor-cloud-pr-controls-2026-07-19.md` records the one-run throwaway-repository probe and exact agent cleanup verification.
 
 ### P1.5 — Model availability UX
 

@@ -227,6 +227,8 @@ describe("streamCursor prompt and model config", () => {
 		process.env.PI_CURSOR_CLOUD_ACK = "1";
 		process.env.PI_CURSOR_CLOUD_ENV_TYPE = "machine";
 		process.env.PI_CURSOR_CLOUD_ENV_NAME = "large-runner";
+		process.env.PI_CURSOR_CLOUD_AUTO_CREATE_PR = "1";
+		process.env.PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST = "1";
 		mockCreatedAgent({
 			agentId: "bc-00000000-0000-0000-0000-000000000001",
 			send: vi.fn().mockResolvedValue({
@@ -242,7 +244,13 @@ describe("streamCursor prompt and model config", () => {
 
 		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 
-		expect(mockedCreate.mock.calls[0][0]).toMatchObject({ cloud: { env: { type: "machine", name: "large-runner" } } });
+		expect(mockedCreate.mock.calls[0][0]).toMatchObject({
+			cloud: {
+				env: { type: "machine", name: "large-runner" },
+				autoCreatePR: true,
+				skipReviewerRequest: true,
+			},
+		});
 	});
 
 	it("passes CLI cloud environment selection into Agent.create", async () => {
@@ -253,6 +261,8 @@ describe("streamCursor prompt and model config", () => {
 				"cursor-cloud-ack": true,
 				"cursor-cloud-env-type": "pool",
 				"cursor-cloud-env-name": "gpu-pool",
+				"cursor-cloud-auto-create-pr": true,
+				"cursor-cloud-skip-reviewer-request": true,
 			},
 		});
 		registerCursorRuntimeControls(pi);
@@ -272,7 +282,13 @@ describe("streamCursor prompt and model config", () => {
 
 		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
 
-		expect(mockedCreate.mock.calls[0][0]).toMatchObject({ cloud: { env: { type: "pool", name: "gpu-pool" } } });
+		expect(mockedCreate.mock.calls[0][0]).toMatchObject({
+			cloud: {
+				env: { type: "pool", name: "gpu-pool" },
+				autoCreatePR: true,
+				skipReviewerRequest: true,
+			},
+		});
 	});
 
 	it("names cloud agents from the normalized current pi session", async () => {
