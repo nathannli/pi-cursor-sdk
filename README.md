@@ -91,7 +91,7 @@ pi --approve -e . --model cursor/composer-2-5
 
 `pi-cursor-sdk` passes an explicit API key to the Cursor SDK. It does **not** reuse Cursor Agent CLI login, Cursor Desktop login, or Cursor subscription/OAuth state shown by `agent status`.
 
-Use either a user API key from Cursor Dashboard → Integrations or a service account API key from Team settings. Team Admin API keys are not supported by the Cursor SDK. Then configure the key with one of the methods below.
+Use either a user API key from Cursor Dashboard → API Keys or a service account API key from Team settings. Team Admin API keys are not supported by the Cursor SDK. Then configure the key with one of the methods below.
 
 Preferred setup:
 

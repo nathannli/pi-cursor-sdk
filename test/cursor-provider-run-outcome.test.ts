@@ -20,6 +20,7 @@ describe("cursor-provider-run-outcome", () => {
 	it("normalizes signal-aborted finished waits to cancelled outcomes", () => {
 		const outcome = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("finished", "hello"),
+			runtimeTarget: "local",
 			signalAborted: true,
 			textDeltas: ["hello"],
 			emittedText: "",
@@ -32,6 +33,7 @@ describe("cursor-provider-run-outcome", () => {
 	it("normalizes signal-aborted error waits to cancelled outcomes", () => {
 		const outcome = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("error", "boom"),
+			runtimeTarget: "local",
 			signalAborted: true,
 			textDeltas: [],
 			emittedText: "",
@@ -43,6 +45,7 @@ describe("cursor-provider-run-outcome", () => {
 	it("never produces finished outcomes with signalAborted", () => {
 		const outcome = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("finished", "hello"),
+			runtimeTarget: "local",
 			signalAborted: true,
 			textDeltas: [],
 			emittedText: "",
@@ -55,6 +58,7 @@ describe("cursor-provider-run-outcome", () => {
 	it("classifies SDK cancelled and error statuses for both emission strategies", () => {
 		const cancelled = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("cancelled"),
+			runtimeTarget: "local",
 			textDeltas: [],
 			emittedText: "",
 		});
@@ -62,15 +66,35 @@ describe("cursor-provider-run-outcome", () => {
 
 		const failed = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("error", "boom"),
+			runtimeTarget: "local",
 			textDeltas: [],
 			emittedText: "",
 		});
 		expect(classifyCursorRunEmission(failed)).toBe("failed");
 	});
 
+	it("uses the runtime target for terminal auth guidance", () => {
+		const cloud = resolveCursorRunOutcome({
+			waitResult: makeWaitResult("error", "Unauthorized"),
+			textDeltas: [],
+			emittedText: "",
+			runtimeTarget: "cloud",
+		});
+		const local = resolveCursorRunOutcome({
+			waitResult: makeWaitResult("error", "Unauthorized"),
+			textDeltas: [],
+			emittedText: "",
+			runtimeTarget: "local",
+		});
+
+		expect(cloud.kind === "error" && cloud.errorMessage).toContain("Cloud API authentication");
+		expect(local.kind === "error" && local.errorMessage).toContain("Cursor SDK API key may be invalid or unauthorized");
+	});
+
 	it("marks successful finished runs and selects final text", () => {
 		const outcome = resolveCursorRunOutcome({
 			waitResult: makeWaitResult("finished", "final answer"),
+			runtimeTarget: "local",
 			textDeltas: ["final"],
 			emittedText: "",
 		});

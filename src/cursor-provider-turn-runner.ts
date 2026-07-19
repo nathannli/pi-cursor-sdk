@@ -3,6 +3,7 @@ import { drainExistingCursorLiveRunBeforeSend } from "./cursor-provider-live-run
 import { invalidateSessionAgent } from "./cursor-session-agent.js";
 import { getCursorSessionCwd, getCursorSessionScopeKey } from "./cursor-session-scope.js";
 import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
+import type { CursorRuntime } from "./cursor-config.js";
 import { CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import { awaitFinalizeCursorRunOutcome } from "./cursor-provider-turn-finalize.js";
 import {
@@ -38,6 +39,7 @@ function requireLocalLivePreparedTurn(prepared: CursorProviderTurnPrepareResult)
 export class CursorProviderTurnRunner {
 	private sdkEventDebug: CursorSdkEventDebugSink | undefined;
 	private resolvedApiKey: string | undefined;
+	private runtimeTarget: CursorRuntime | undefined;
 
 	constructor(private readonly params: CursorProviderTurnRunnerParams) {}
 
@@ -59,6 +61,7 @@ export class CursorProviderTurnRunner {
 			sdkEventDebug: () => this.sdkEventDebug,
 			sdkProcessErrorGuard,
 			resolvedApiKey: () => this.resolvedApiKey,
+			runtimeTarget: () => this.runtimeTarget,
 		});
 
 		try {
@@ -74,6 +77,7 @@ export class CursorProviderTurnRunner {
 			// Resolved once here, before any drain await, so the drain decision and the
 			// prepare dispatch below always act on the same config snapshot.
 			const resolvedConfig = resolveCursorProviderTurnConfig(cwd);
+			this.runtimeTarget = resolvedConfig.runtime.value;
 			if (resolvedConfig.runtime.value === "local") {
 				// The observed local-executor closed-pipe EPIPE is contained only from this
 				// turn's pre-send live-run drain through run completion; for live runs the
@@ -163,6 +167,7 @@ export class CursorProviderTurnRunner {
 			sdkEventDebug: () => this.sdkEventDebug,
 			sdkProcessErrorGuard: installCursorSdkProcessErrorGuard(),
 			resolvedApiKey: () => this.resolvedApiKey,
+			runtimeTarget: () => this.runtimeTarget,
 		});
 		await runFinalizer.applyTerminalEvent({ kind: "error", prepared: undefined, error });
 		await runFinalizer.cleanup(undefined, undefined, undefined);

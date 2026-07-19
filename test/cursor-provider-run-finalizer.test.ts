@@ -107,6 +107,7 @@ describe("CursorRunFinalizer", () => {
 			sdkEventDebug: () => debugSink,
 			sdkProcessErrorGuard,
 			resolvedApiKey: () => "test-key",
+			runtimeTarget: () => prepared.runtimeTarget,
 		});
 		finalizer.startLiveRunCompletion({
 			send: {
@@ -203,6 +204,7 @@ describe("CursorRunFinalizer", () => {
 			sdkEventDebug: () => debugSink,
 			sdkProcessErrorGuard,
 			resolvedApiKey: () => undefined,
+			runtimeTarget: () => prepared.runtimeTarget,
 		});
 
 		await expect(
@@ -307,6 +309,7 @@ describe("CursorRunFinalizer", () => {
 			sdkEventDebug: () => debugSink,
 			sdkProcessErrorGuard,
 			resolvedApiKey: () => undefined,
+			runtimeTarget: () => prepared.runtimeTarget,
 		});
 
 		await finalizer.applyTerminalEvent({

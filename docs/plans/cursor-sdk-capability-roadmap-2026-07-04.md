@@ -53,14 +53,14 @@ Safety-sensitive cloud fields preserve explicit one-shot CLI intent. Below CLI, 
 | Local resume | Default-on branch-scoped resume with strict session/tree/compaction/tool-surface identity and explicit cleanup. | **Implemented** |
 | Cloud resume | Every cloud turn creates a new cloud agent. | **Intentionally deferred/rejected** — lifecycle, privacy, compaction, and broader live evidence decisions remain unresolved. |
 
-Automatic provider startup in print/JSON/RPC does not prompt and fails closed when acknowledgement or required Pi-owned safety choices are absent. The `/cursor-runtime cloud` command is separate: it may request confirmation whenever the host exposes UI (`ctx.hasUI`), including an RPC host with UI. The unit-tested trust gate is implemented; the exact packed `--no-approve` automatic-startup acceptance proof remains P0.2 below.
+Automatic provider startup in print/JSON/RPC does not prompt and fails closed when acknowledgement or required Pi-owned safety choices are absent. The `/cursor-runtime cloud` command is separate: it may request confirmation whenever the host exposes UI (`ctx.hasUI`), including an RPC host with UI. The trust gate and explicit `--approve` / `--no-approve` CLI-to-provider contract are covered in `test/cursor-project-trust-contract.test.ts`.
 
 ## Capability ledger
 
 | Capability | Status | Current evidence, acceptance, or reason |
 | --- | --- | --- |
 | One runtime-aware `cursor/*` provider; local default; explicit cloud opt-in | **Implemented** | Defaults: `src/cursor-config.ts`; dispatch: `src/cursor-provider-turn-prepare.ts`; coverage: `test/cursor-config.test.ts`, `test/cursor-provider-stream-config.test.ts`. |
-| Field-specific runtime/cloud/local precedence, user safety caps, trust-gated project loading, cloud project saves limited to runtime | **Implemented** | `src/cursor-config.ts`; `test/cursor-config.test.ts`. P0.2 adds a non-interactive contract proof without changing the landed policy. |
+| Field-specific runtime/cloud/local precedence, user safety caps, trust-gated project loading, cloud project saves limited to runtime | **Implemented** | `src/cursor-config.ts`; `test/cursor-config.test.ts`, `test/cursor-project-trust-contract.test.ts`. |
 | First-use disclosure and acknowledgement, including remote execution, tools/context, branching/retention, and Max Mode cost | **Implemented** | `src/cursor-runtime-state.ts`; `test/cursor-runtime-state.test.ts`. |
 | Project config cannot acknowledge cloud or set cloud safety/repo/environment choices | **Implemented** | Project source is omitted for those fields in `src/cursor-config.ts`; covered by `test/cursor-config.test.ts`. |
 | Fresh cloud context by default; explicit, consented bootstrap; original Pi project instructions preserved | **Implemented** | Bootstrap is cloud-bound and sends prior Pi context, which may include file contents, tool outputs, paths or skill references, environment values, or secrets. Anchors: `src/cursor-provider-turn-prepare.ts`, `src/cursor-agents-context.ts`; `test/cursor-provider-stream-config.test.ts`, `test/cursor-agents-context.test.ts`. |
@@ -89,7 +89,7 @@ Automatic provider startup in print/JSON/RPC does not prompt and fails closed wh
 | Cloud resume/default-on | **Intentionally deferred/rejected** | Local remains default. Cloud resume needs explicit lifecycle/privacy/compaction policy and broader live evidence before reconsideration. |
 | Agent/run URL display | **Intentionally deferred/rejected** | Public `SDKAgentInfo` exposes no URL. Current reporting shows IDs and PR URL; do not depend on private raw shapes. |
 | Remote Pi bridge | **Intentionally deferred/rejected** | No approved public endpoint, per-run auth, tool allowlist, trust model, cancellation, redaction, or cleanup contract exists. Cloud must not depend on it. |
-| Cloud-specific auth/integration remediation | **Still open** | Generic sanitization does not preserve `IntegrationNotConnectedError.helpUrl`/`provider` or distinguish Cloud API operational auth. P1.3 defines acceptance. |
+| Cloud-specific auth/integration remediation | **Implemented** | `src/cursor-provider-errors.ts` preserves scrubbed HTTPS integration remediation and distinguishes Cloud API authentication while retaining local handling; runtime provenance is threaded by the turn runner/finalization path. Coverage: `test/cursor-provider-errors.test.ts`, `test/cursor-provider-stream-auth.test.ts`, `test/cursor-provider-run-outcome.test.ts`. |
 | PR controls beyond direct push (`autoCreatePR`, `skipReviewerRequest`) | **Still open** | Installed SDK supports both; Pi config/flags do not. P1.4 requires either complete exposure or an explicit product rejection. |
 | Minimal cloud runtime and fresh/bootstrap smoke scripts | **Implemented** | `scripts/cloud-runtime-smoke.mjs`, `package.json`, and `docs/platform-smoke.md` define `smoke:cloud` and `smoke:cloud:context`, assertions, and archival verification. There is no retained tracked cloud smoke report at the reconciled baseline. |
 | Expanded repo/ref/direct-push/missing-branch/cancel/delete/artifact/usage smoke matrix | **Still open** | P2.6 defines durable release-evidence acceptance. |
@@ -115,34 +115,21 @@ Test anchors: `test/cursor-cloud-local-state.test.ts` covers starting-ref normal
 
 ### P0.2 — Non-interactive project-trust proof
 
-**Status: Still open.**
+**Status: Implemented.**
 
-Current limitation: trust gating is unit-tested, but the exact packed/CLI `--no-approve` automatic provider-startup behavior in print/JSON/RPC is not retained as a contract proof.
+`test/cursor-project-trust-contract.test.ts` packs and extracts the extension, then launches the installed Pi CLI against that isolated provider with isolated agent/project directories and a project `.pi/cursor-sdk.json` in print, JSON, and RPC modes. A test-only wrapper in the extracted package records the canonical `session_start` scope and `resolveCursorProviderTurnConfig()` result. The matrix proves `--no-approve` keeps the provider on the built-in local runtime, explicit approval allows the project runtime to select cloud but not acknowledge it, automatic provider startup never calls UI confirmation, and each mode returns its documented process status. Its mocked provider assertion proves missing cloud acknowledgement fails before SDK create, resume, or send. No live cloud call is made.
 
-Acceptance criteria:
-
-- A project `.pi/cursor-sdk.json` selecting cloud is ignored under `--no-approve`.
-- Trusted/approved project runtime still cannot supply cloud acknowledgement.
-- No UI confirmation is attempted during automatic provider startup under `--no-approve` in print/JSON/RPC.
-- SDK create/send is not reached when required choices are absent.
-- Slash-command RPC behavior is outside this proof: `/cursor-runtime cloud` currently follows `ctx.hasUI` and may confirm when an RPC host exposes UI.
-- Use an isolated CLI/provider contract test; do not make a live cloud call.
-
-Likely anchors: `src/cursor-session-scope.ts`, `src/cursor-config.ts`, config/provider tests.
+Source anchors: `src/cursor-session-scope.ts`, `src/cursor-config.ts`, `src/cursor-runtime-state.ts`, and cloud preflight in `src/cursor-provider-turn-prepare.ts` / `src/cursor-cloud-options.ts`.
 
 ### P1.3 — Cloud auth/integration remediation
 
-**Status: Still open.**
+**Status: Implemented.**
 
-Acceptance criteria:
+`sanitizeCursorProviderError()` now recognizes the installed SDK's verified `IntegrationNotConnectedError` shape without eagerly importing the SDK, retains the scrubbed provider, and includes only a parsed HTTPS help URL after removing URL userinfo and applying canonical sensitive-text scrubbing. Cloud runtime authentication failures identify Cloud API authentication, direct operators to user or service-account operational keys, and reject Team Admin API keys as Cloud Agents credentials. Local and unknown-runtime handling remains unchanged. The runner retains its resolved runtime before cloud `Agent.create()`, while wait/finalization paths use the prepared runtime discriminator.
 
-- Preserve a scrubbed HTTPS `helpUrl` and provider from installed `IntegrationNotConnectedError`.
-- Identify Cloud API auth separately from local SDK auth and name accepted user/service-account operational key classes.
-- Do not present Enterprise Admin API keys as Cloud Agents operational credentials.
-- Preserve local error behavior and scrub API keys, URL userinfo, tokens, cookies, and headers.
-- Test with installed SDK error classes.
+Source anchors: `src/cursor-provider-errors.ts`, `src/cursor-provider-turn-runner.ts`, `src/cursor-provider-run-finalizer.ts`, `src/cursor-provider-turn-finalize.ts`, and `src/cursor-provider-run-outcome.ts`.
 
-Likely anchors: `src/cursor-provider-errors.ts`, provider-error tests, installed `errors.d.ts`.
+Test anchors: `test/cursor-provider-errors.test.ts` uses installed `AuthenticationError` and `IntegrationNotConnectedError`; `test/cursor-provider-stream-auth.test.ts` covers cloud create-time failures before prepare completes; `test/cursor-provider-run-outcome.test.ts` covers terminal cloud/local classification.
 
 ### P1.4 — PR-control scope
 
@@ -228,17 +215,19 @@ Retained local evidence remains current only for its named local contracts, incl
 - `src/cursor-session-agent.ts` and local resume/lifecycle/cleanup modules — local pooling and guarded resume.
 - `src/cursor-pi-tool-bridge-run.ts` and `src/cursor-pi-tool-bridge-snapshot.ts` — canonical local Pi-tool transport.
 - `src/cursor-skill-tool.ts` — removes Pi skill metadata from the cloud system prompt.
-- `src/cursor-provider-errors.ts` — current generic sanitized provider errors; P1.3 target.
+- `src/cursor-provider-errors.ts` — runtime-aware scrubbed provider authentication and integration remediation.
 
 Primary focused coverage:
 
 - `test/cursor-config.test.ts`
+- `test/cursor-project-trust-contract.test.ts`
 - `test/cursor-runtime-state.test.ts`
 - `test/cursor-cloud-options.test.ts`
 - `test/cursor-cloud-local-state.test.ts`
 - `test/cursor-provider-stream-config.test.ts`
 - `test/cursor-provider-cloud-env-validation.test.ts`
 - `test/cursor-provider-cloud-reporting.test.ts`
+- `test/cursor-provider-errors.test.ts`
 - `test/cursor-cloud-reporting.test.ts`
 - `test/cursor-cloud-lifecycle.test.ts`
 - local resume, usage-accounting, bridge, and provider turn suites
