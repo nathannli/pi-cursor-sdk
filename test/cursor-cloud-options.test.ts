@@ -1,31 +1,14 @@
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { execFileSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { resolveCursorSdkConfig } from "../src/cursor-config.js";
 import {
 	buildCursorCloudAgentOptions,
 	formatCursorCloudPreflightError,
-	inspectCursorCloudLocalState,
 	preflightCursorCloudRuntime,
 } from "../src/cursor-cloud-options.js";
 
-function git(cwd: string, args: string[]): void {
-	execFileSync("git", args, { cwd, stdio: "ignore" });
-}
+const OUTSIDE_GIT = { insideGitRepo: false } as const;
 
 describe("Cursor cloud options", () => {
-	let root: string;
-
-	beforeEach(() => {
-		root = mkdtempSync(join(tmpdir(), "pi-cursor-cloud-options-"));
-	});
-
-	afterEach(() => {
-		rmSync(root, { recursive: true, force: true });
-	});
-
 	it("builds cloud Agent options without local tools, MCP servers, or agent ids", () => {
 		const resolvedConfig = resolveCursorSdkConfig({
 			cli: {
@@ -63,11 +46,93 @@ describe("Cursor cloud options", () => {
 		expect(result).not.toHaveProperty("agentId");
 	});
 
+	it("normalizes refs/heads starting refs for SDK options", () => {
+		const resolvedConfig = resolveCursorSdkConfig({
+			cli: {
+				runtime: "cloud",
+				cloud: { acknowledged: true, repo: "https://github.com/example/repo.git", branch: "refs/heads/main" },
+			},
+		});
+
+		expect(buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig,
+		}).cloud?.repos).toEqual([{ url: "https://github.com/example/repo.git", startingRef: "main" }]);
+	});
+
+	it("rejects unsupported refs in preflight and SDK options", () => {
+		const resolvedConfig = resolveCursorSdkConfig({
+			cli: {
+				runtime: "cloud",
+				cloud: { acknowledged: true, repo: "https://github.com/example/repo.git", branch: "refs/tags/release" },
+			},
+		});
+		expect(preflightCursorCloudRuntime({ resolvedConfig, localState: OUTSIDE_GIT }).issues.map((issue) => issue.code)).toEqual(["cloud_branch_invalid"]);
+		expect(() => buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig,
+		})).toThrow("other refs/* are unsupported");
+	});
+
+	it("rejects an invalid Git branch before SDK creation", () => {
+		const resolvedConfig = resolveCursorSdkConfig({
+			cli: {
+				runtime: "cloud",
+				cloud: { acknowledged: true, repo: "https://github.com/example/repo.git", branch: "HEAD" },
+			},
+		});
+		expect(preflightCursorCloudRuntime({ resolvedConfig, localState: OUTSIDE_GIT }).issues.map((issue) => issue.code)).toEqual(["cloud_branch_invalid"]);
+		expect(() => buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig,
+		})).toThrow("valid Git branch name");
+	});
+
+	it("passes a valid Git branch name to the SDK", () => {
+		const branch = "feature/demo";
+		const resolvedConfig = resolveCursorSdkConfig({
+			cli: {
+				runtime: "cloud",
+				cloud: { acknowledged: true, repo: "https://github.com/example/repo.git", branch },
+			},
+		});
+		expect(buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig,
+		}).cloud?.repos).toEqual([{ url: "https://github.com/example/repo.git", startingRef: branch }]);
+	});
+
+	it("passes a full commit SHA to the SDK", () => {
+		const sha = "a".repeat(40);
+		const resolvedConfig = resolveCursorSdkConfig({
+			cli: {
+				runtime: "cloud",
+				cloud: { acknowledged: true, repo: "https://github.com/example/repo.git", branch: sha },
+			},
+		});
+
+		expect(buildCursorCloudAgentOptions({
+			apiKey: "test-key",
+			modelSelection: { id: "composer-2.5" },
+			agentMode: "agent",
+			resolvedConfig,
+		}).cloud?.repos).toEqual([{ url: "https://github.com/example/repo.git", startingRef: sha }]);
+	});
+
 	it.each([
 		{ directPush: false, label: "branch-only" },
 		{ directPush: true, label: "branch plus direct push" },
 	])("fails closed for $label config without a repo", ({ directPush }) => {
 		const result = preflightCursorCloudRuntime({
+			localState: OUTSIDE_GIT,
 			resolvedConfig: resolveCursorSdkConfig({
 				cli: {
 					runtime: "cloud",
@@ -83,6 +148,7 @@ describe("Cursor cloud options", () => {
 
 	it("accepts a branch when its repo is configured", () => {
 		const result = preflightCursorCloudRuntime({
+			localState: OUTSIDE_GIT,
 			resolvedConfig: resolveCursorSdkConfig({
 				cli: {
 					runtime: "cloud",
@@ -99,15 +165,24 @@ describe("Cursor cloud options", () => {
 	});
 
 	it.each([
-		"https://user:secret@example.com/org/repo.git",
-		"http://example.com/org/repo.git",
-		"https://example.com/org/repo.git?token=secret",
-		"git@example.com:org/repo.git",
-	])("rejects unsafe cloud repository URL %s without echoing it", (repo) => {
+		["embedded credentials", "https://user:secret@example.com/org/repo.git"],
+		["insecure scheme", "http://example.com/org/repo.git"],
+		["query credentials", "https://example.com/org/repo.git?token=secret"],
+		["backslashes", "https:\\github.com\\example\\repo.git"],
+		["path whitespace", "https://example.com/org/repo git"],
+		["encoded parent segment", "https://github.com/a/%2e%2e/repo.git"],
+		["encoded parent and slash", "https://github.com/a/%2e%2e%2f/repo.git"],
+		["encoded backslash", "https://github.com/a/%5c/repo.git"],
+		["encoded space", "https://github.com/a/%20/repo.git"],
+		["encoded newline", "https://github.com/a/%0a/repo.git"],
+		["empty userinfo", "https://@github.com/repo.git"],
+		["empty userinfo delimiter", "https://:@github.com/repo.git"],
+		["scp transport", "git@example.com:org/repo.git"],
+	])("rejects unsafe cloud repository URL with %s without echoing it", (_label, repo) => {
 		const resolvedConfig = resolveCursorSdkConfig({
 			cli: { runtime: "cloud", cloud: { acknowledged: true, repo } },
 		});
-		const result = preflightCursorCloudRuntime({ resolvedConfig });
+		const result = preflightCursorCloudRuntime({ resolvedConfig, localState: OUTSIDE_GIT });
 		const message = formatCursorCloudPreflightError(result);
 
 		expect(result.issues.map((issue) => issue.code)).toEqual(["cloud_repo_invalid"]);
@@ -128,7 +203,7 @@ describe("Cursor cloud options", () => {
 				user: { cloud: { contextHandoff: "never" } },
 			}),
 			hasPriorContext: true,
-			localState: { insideGitRepo: true, dirty: true, unpushed: true },
+			localState: { insideGitRepo: true, dirty: true, comparison: "unpushed" },
 		});
 
 		expect(result.ok).toBe(false);
@@ -144,6 +219,7 @@ describe("Cursor cloud options", () => {
 
 	it("fails closed when a cloud environment name is supplied without a type", () => {
 		const result = preflightCursorCloudRuntime({
+			localState: OUTSIDE_GIT,
 			resolvedConfig: resolveCursorSdkConfig({
 				cli: { runtime: "cloud", cloud: { acknowledged: true, allowLocalState: true, environment: { name: "gpu-pool" } } },
 			}),
@@ -156,6 +232,7 @@ describe("Cursor cloud options", () => {
 
 	it("fails closed when a named Cursor cloud environment is combined with an explicit repo", () => {
 		const result = preflightCursorCloudRuntime({
+			localState: OUTSIDE_GIT,
 			resolvedConfig: resolveCursorSdkConfig({
 				cli: {
 					runtime: "cloud",
@@ -176,6 +253,7 @@ describe("Cursor cloud options", () => {
 
 	it("fails closed when a cloud environment type is invalid", () => {
 		const result = preflightCursorCloudRuntime({
+			localState: OUTSIDE_GIT,
 			resolvedConfig: resolveCursorSdkConfig({
 				env: { PI_CURSOR_CLOUD_ENV_TYPE: " poll " },
 				cli: { runtime: "cloud", cloud: { acknowledged: true, allowLocalState: true } },
@@ -187,41 +265,6 @@ describe("Cursor cloud options", () => {
 		expect(formatCursorCloudPreflightError(result)).toContain('Invalid Cursor cloud environment type "poll"');
 	});
 
-	it("treats no-upstream commits and dirty files as local-only cloud state", () => {
-		git(root, ["init"]);
-		git(root, ["config", "user.email", "test@example.com"]);
-		git(root, ["config", "user.name", "Test User"]);
-		mkdirSync(join(root, "src"));
-		writeFileSync(join(root, "src", "file.txt"), "base");
-		git(root, ["add", "."]);
-		git(root, ["commit", "-m", "base"]);
-		appendFileSync(join(root, "src", "file.txt"), "dirty");
-
-		expect(inspectCursorCloudLocalState(root)).toMatchObject({ insideGitRepo: true, dirty: true, unpushed: true });
-	});
-
-	it("fails closed when git state inside a repo is unknown", () => {
-		const result = inspectCursorCloudLocalState(root, (_cwd, args) => {
-			const key = args.join(" ");
-			if (key === "rev-parse --is-inside-work-tree") return "true";
-			if (key === "rev-parse --verify HEAD") return "abc123";
-			if (key === "rev-parse --abbrev-ref --symbolic-full-name @{upstream}") return "origin/main";
-			return undefined;
-		});
-
-		expect(result).toEqual({ insideGitRepo: true, dirty: true, unpushed: true });
-	});
-
-	it("fails closed when git metadata exists but the root git probe fails", () => {
-		mkdirSync(join(root, ".git"));
-
-		expect(inspectCursorCloudLocalState(root, () => undefined)).toEqual({
-			insideGitRepo: true,
-			dirty: true,
-			unpushed: true,
-		});
-	});
-
 	it("does not require context handoff for a first cloud user prompt", () => {
 		const result = preflightCursorCloudRuntime({
 			resolvedConfig: resolveCursorSdkConfig({
@@ -231,7 +274,7 @@ describe("Cursor cloud options", () => {
 				},
 			}),
 			hasPriorContext: false,
-			localState: { insideGitRepo: true, dirty: true, unpushed: true },
+			localState: { insideGitRepo: true, dirty: true, comparison: "unpushed" },
 		});
 
 		expect(result).toEqual({ ok: true, issues: [] });

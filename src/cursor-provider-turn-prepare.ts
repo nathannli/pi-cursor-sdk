@@ -32,9 +32,9 @@ import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
 import {
 	formatCursorCloudPreflightError,
 	buildCursorCloudAgentOptions,
-	inspectCursorCloudLocalState,
 	preflightCursorCloudRuntime,
 } from "./cursor-cloud-options.js";
+import { inspectCursorCloudLocalState } from "./cursor-cloud-local-state.js";
 import { getCursorSessionName, getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-env.js";
 import {
@@ -127,7 +127,12 @@ async function prepareCursorCloudProviderTurn(
 	try {
 		const preflight = preflightCursorCloudRuntime({
 			resolvedConfig,
-			localState: inspectCursorCloudLocalState(cwd),
+			localState: resolvedConfig.cloud.allowLocalState.value
+				? { insideGitRepo: false }
+				: inspectCursorCloudLocalState(cwd, {
+					repo: resolvedConfig.cloud.repo.value,
+					branch: resolvedConfig.cloud.branch.value,
+				}),
 			hasPriorContext: context.messages.length > 1,
 		});
 		if (!preflight.ok) throw new Error(formatCursorCloudPreflightError(preflight));

@@ -322,7 +322,59 @@ Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trus
 }
 ```
 
-Cloud/runtime keys are minimal and explicit. Defaults stay local runtime with the loopback MCP bridge as the sole Pi-tool transport, no inline cloud MCP, and no local-state/env-file forwarding. SDK `customTools` remains deferred pending SDK cancellation/deadline support. Invalid non-empty `--cursor-runtime`, `--cursor-cloud-context`, `PI_CURSOR_RUNTIME`, or `PI_CURSOR_CLOUD_CONTEXT` values fail closed instead of falling through to lower-precedence config. If `runtime` is explicitly set to `cloud` with `--cursor-runtime cloud`, `PI_CURSOR_RUNTIME=cloud`, `/cursor-runtime cloud`, or config, the provider starts a Cursor cloud agent after preflight instead of silently running local. On first interactive use, `/cursor-runtime cloud` shows one confirmation covering remote execution, fresh context by default (explicit bootstrap opt-in), unavailable Pi-local tools/bridge and Pi env forwarding, Cursor's ability to branch/commit/push/open PRs, retained cloud agents, and Max Mode billing at Cursor API pricing (including possible spend-limit setup). Cancelling that first-use confirmation writes no session or config state. Use `/cursor-runtime cloud --save-user` for a persistent personal acknowledgement or `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` for non-interactive runs; acknowledged CLI, environment, session, or user state is not prompted again. Project config may save a cloud runtime default but not first-use acknowledgement or repo/branch/env/context/direct-push/local-state preferences. An explicit `--cursor-cloud-branch` / `PI_CURSOR_CLOUD_BRANCH` requires an explicit `--cursor-cloud-repo` / `PI_CURSOR_CLOUD_REPO` because the SDK exposes `startingRef` only on `cloud.repos` entries. Repository values must be HTTPS repository URLs without userinfo, query parameters, or fragments; invalid values fail before `Agent.create()`, and error scrubbing removes URL/SCP-style userinfo. Cloud runs use fresh context by default; pass `--cursor-cloud-context=bootstrap` / `PI_CURSOR_CLOUD_CONTEXT=bootstrap` to include prior pi context. Pass `--cursor-cloud-env-type=cloud|pool|machine` plus optional `--cursor-cloud-env-name=<name>` (or `PI_CURSOR_CLOUD_ENV_TYPE` / `PI_CURSOR_CLOUD_ENV_NAME`) to select a Cursor-managed cloud environment without forwarding local env values. Named `cloud` environments fail closed when combined with `--cursor-cloud-repo`; omit the repo or use a pool/machine environment. When a pi session has a title, cloud agents are created with that title for easier dashboard/list matching. At cloud run completion, pi streams display-only cloud telemetry when Cursor reports it: agent/run IDs, pushed branch, repository and PR URL, passive artifact paths, and raw cloud usage. Cloud runtime requires a persisted pi session and rejects `--no-session` before `Agent.send()`. Immediately after `Agent.create()` returns—and before debug work or abort checks—Pi appends a branch-local lifecycle entry, fsyncs the existing Pi session JSONL anchor through a read-write descriptor, and then fsyncs a newline-framed sidecar keyed by the stable pi session ID (POSIX mode `0600`; Windows inherits the user session directory ACL) in the session directory. Existing session files use the exact lifecycle entry ID as the branch anchor; a fileless first turn uses an orphan marker so a restart with the same session ID can claim the record onto exactly one matching or replacement branch after its new timestamped JSONL is created. That durable claim then restores normal sibling-branch isolation. It adds the returned run ID before post-send abort handling or waiting and enriches successful runs with branch/PR metadata. Readers skip individually truncated records so one interrupted append cannot hide later valid cleanup IDs. If the agent intent cannot be persisted, pi does not send; if the returned run cannot be persisted, pi requests bounded cancellation. Both paths fail closed and direct you to the Cursor Cloud dashboard for manual cleanup. `/cursor-cloud list`, `/cursor-cloud archive <bc-agentId>`, and `/cursor-cloud delete <bc-agentId> --yes` only accept exact recorded `bc-` cloud IDs. Archive/delete require resolved Cursor auth, fsync a durable intent before the SDK mutation, and fsync a durable success result afterward; an unresolved intent blocks retries and directs manual dashboard inspection instead of guessing whether an irreversible request completed. Raw cloud usage is not copied into pi message usage, context occupancy, compaction, or cost totals. The pi bridge is local-only, and pi env forwarding is not implemented yet, so `--cursor-cloud-env` forwarding-name config fails closed with Cursor-native environment setup guidance.
+### Cloud runtime and acknowledgement
+
+Cloud/runtime keys are minimal and explicit. Defaults stay local runtime with the loopback MCP bridge as the sole Pi-tool transport, no inline cloud MCP, and no local-state/env-file forwarding. SDK `customTools` remains deferred pending SDK cancellation/deadline support. Invalid non-empty `--cursor-runtime`, `--cursor-cloud-context`, `PI_CURSOR_RUNTIME`, or `PI_CURSOR_CLOUD_CONTEXT` values fail closed instead of falling through to lower-precedence config.
+
+If `runtime` is explicitly set to `cloud` with `--cursor-runtime cloud`, `PI_CURSOR_RUNTIME=cloud`, `/cursor-runtime cloud`, or config, the provider starts a Cursor cloud agent after preflight instead of silently running local.
+
+On first interactive use, `/cursor-runtime cloud` shows one confirmation covering remote execution, fresh context by default (explicit bootstrap opt-in), unavailable Pi-local tools/bridge and Pi env forwarding, Cursor's ability to branch/commit/push/open PRs, retained cloud agents, and Max Mode billing at Cursor API pricing (including possible spend-limit setup). Cancelling that first-use confirmation writes no session or config state.
+
+Use `/cursor-runtime cloud --save-user` for a persistent personal acknowledgement or `--cursor-cloud-ack` / `PI_CURSOR_CLOUD_ACK=1` for non-interactive runs; acknowledged CLI, environment, session, or user state is not prompted again.
+
+Project config may save a cloud runtime default but not first-use acknowledgement or repo/branch/env/context/direct-push/local-state preferences.
+
+### Cloud repository and local-state validation
+
+An explicit `--cursor-cloud-branch` / `PI_CURSOR_CLOUD_BRANCH` requires an explicit `--cursor-cloud-repo` / `PI_CURSOR_CLOUD_REPO` because the SDK exposes `startingRef` only on `cloud.repos` entries. Repository values must be HTTPS repository URLs without userinfo, query parameters, or fragments; invalid values fail before `Agent.create()`, and error scrubbing removes URL/SCP-style userinfo.
+
+When an explicit cloud repo matches local Git state, preflight requires exactly one remote whose effective fetch and push URLs identify that target plus a locally observable, non-symbolic remote-tracking ref uniquely covered by that remote's fetch refspec for the requested branch. Local HTTPS remotes can match the same HTTPS identity; equivalent GitHub SSH and scp-style remotes can also match. Other hosts retain transport-specific identity, and host/path matching remains conservative with GitHub-specific case and lowercase `.git` normalization.
+
+`refs/heads/<branch>` is normalized to `<branch>` for both inspection and SDK options; invalid Git branch names and other `refs/*` forms are rejected. An explicit repo without `startingRef` is unverifiable locally because the server default is unknown. Inside a Git worktree, full commit SHAs remain unverified and require the explicit local-state override because local tracking refs do not prove which matching remote contains that commit.
+
+Mismatch, ambiguity, missing refs, or Git errors fail closed. This is local tracking evidence rather than a fetch, so fetch before starting cloud work when remote state may have changed.
+
+Inspection ignores ambient Git repository/index/config environment redirection; ordinary user/system URL and refspec config may veto, but never authorize, a target match. It disables replacement-object ancestry and fails closed when local replacement or graft metadata makes ancestry ambiguous. File-mode forcing is POSIX-only. Sparse checkouts intentionally fail closed because skip-worktree entries require `--cursor-cloud-allow-local-state`. Stashes are intentionally outside validation because they are not active worktree, index, or `HEAD` state.
+
+Without an explicit repo, the current branch's locally observable remote-tracking upstream remains the comparison ref only when that remote's effective fetch and push URLs identify one repository and its fetch refspec uniquely owns that tracking ref. `--cursor-cloud-allow-local-state` / `PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE=1` is the explicit override for accepting unverifiable, dirty, or unpushed local state; when active, launch skips local Git inspection while still validating the configured cloud repo/ref.
+
+### Cloud context and managed environments
+
+Cloud runs use fresh context by default; pass `--cursor-cloud-context=bootstrap` / `PI_CURSOR_CLOUD_CONTEXT=bootstrap` to include prior pi context.
+
+Pass `--cursor-cloud-env-type=cloud|pool|machine` plus optional `--cursor-cloud-env-name=<name>` (or `PI_CURSOR_CLOUD_ENV_TYPE` / `PI_CURSOR_CLOUD_ENV_NAME`) to select a Cursor-managed cloud environment without forwarding local env values. Named `cloud` environments fail closed when combined with `--cursor-cloud-repo`; omit the repo or use a pool/machine environment.
+
+### Cloud reporting and durable lifecycle
+
+When a pi session has a title, cloud agents are created with that title for easier dashboard/list matching.
+
+At cloud run completion, pi streams display-only cloud telemetry when Cursor reports it: agent/run IDs, pushed branch, repository and PR URL, passive artifact paths, and raw cloud usage.
+
+Cloud runtime requires a persisted pi session and rejects `--no-session` before `Agent.send()`.
+
+Immediately after `Agent.create()` returns—and before debug work or abort checks—Pi appends a branch-local lifecycle entry, fsyncs the existing Pi session JSONL anchor through a read-write descriptor, and then fsyncs a newline-framed sidecar keyed by the stable pi session ID (POSIX mode `0600`; Windows inherits the user session directory ACL) in the session directory.
+
+Existing session files use the exact lifecycle entry ID as the branch anchor; a fileless first turn uses an orphan marker so a restart with the same session ID can claim the record onto exactly one matching or replacement branch after its new timestamped JSONL is created. That durable claim then restores normal sibling-branch isolation. It adds the returned run ID before post-send abort handling or waiting and enriches successful runs with branch/PR metadata. Readers skip individually truncated records so one interrupted append cannot hide later valid cleanup IDs.
+
+If the agent intent cannot be persisted, pi does not send; if the returned run cannot be persisted, pi requests bounded cancellation. Both paths fail closed and direct you to the Cursor Cloud dashboard for manual cleanup.
+
+`/cursor-cloud list`, `/cursor-cloud archive <bc-agentId>`, and `/cursor-cloud delete <bc-agentId> --yes` only accept exact recorded `bc-` cloud IDs.
+
+Archive/delete require resolved Cursor auth, fsync a durable intent before the SDK mutation, and fsync a durable success result afterward; an unresolved intent blocks retries and directs manual dashboard inspection instead of guessing whether an irreversible request completed.
+
+### Cloud boundaries
+
+Raw cloud usage is not copied into pi message usage, context occupancy, compaction, or cost totals. The pi bridge is local-only, and pi env forwarding is not implemented yet, so `--cursor-cloud-env` forwarding-name config fails closed with Cursor-native environment setup guidance.
 
 Cloud lifecycle commands are explicit and session-branch scoped:
 

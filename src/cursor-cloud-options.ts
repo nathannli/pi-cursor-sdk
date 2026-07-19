@@ -1,14 +1,11 @@
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { AgentModeOption, AgentOptions, ModelSelection } from "@cursor/sdk";
 import { isCursorCloudEnvironmentType, type CursorResolvedSdkConfig } from "./cursor-config.js";
-
-export interface CursorCloudLocalState {
-	insideGitRepo: boolean;
-	dirty: boolean;
-	unpushed: boolean;
-}
+import {
+	normalizeCursorCloudStartingRef,
+	parseCursorCloudRepositoryUrl,
+	type CursorCloudLocalState,
+	type CursorCloudLocalStateUnknownReason,
+} from "./cursor-cloud-local-state.js";
 
 export interface CursorCloudPreflightIssue {
 	code:
@@ -20,6 +17,7 @@ export interface CursorCloudPreflightIssue {
 		| "cloud_environment_type_required"
 		| "cloud_environment_repo_conflict"
 		| "cloud_branch_repo_required"
+		| "cloud_branch_invalid"
 		| "cloud_repo_invalid";
 	message: string;
 }
@@ -29,63 +27,21 @@ export interface CursorCloudPreflightResult {
 	issues: CursorCloudPreflightIssue[];
 }
 
-type GitRunner = (cwd: string, args: string[]) => string | undefined;
-
 const CLOUD_REPO_URL_MESSAGE = "Cursor cloud repository must be an HTTPS repository URL without embedded credentials, query parameters, or fragments.";
-
-export function parseCursorCloudRepositoryUrl(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	if (!trimmed) return undefined;
-	try {
-		const url = new URL(trimmed);
-		if (
-			url.protocol !== "https:" ||
-			url.username !== "" ||
-			url.password !== "" ||
-			url.search !== "" ||
-			url.hash !== "" ||
-			url.pathname === "/"
-		) return undefined;
-		return trimmed;
-	} catch {
-		return undefined;
-	}
-}
-
-function git(cwd: string, args: string[]): string | undefined {
-	try {
-		return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-	} catch {
-		return undefined;
-	}
-}
-
-function hasGitMetadata(cwd: string): boolean {
-	let current = cwd;
-	while (true) {
-		if (existsSync(join(current, ".git"))) return true;
-		const parent = dirname(current);
-		if (parent === current) return false;
-		current = parent;
-	}
-}
-
-export function inspectCursorCloudLocalState(cwd: string, runGit: GitRunner = git): CursorCloudLocalState {
-	const insideGitRepo = runGit(cwd, ["rev-parse", "--is-inside-work-tree"]);
-	if (insideGitRepo !== "true") {
-		return hasGitMetadata(cwd)
-			? { insideGitRepo: true, dirty: true, unpushed: true }
-			: { insideGitRepo: false, dirty: false, unpushed: false };
-	}
-	const status = runGit(cwd, ["status", "--porcelain=v1"]);
-	const dirty = status === undefined || status.length > 0;
-	const hasHead = runGit(cwd, ["rev-parse", "--verify", "HEAD"]) !== undefined;
-	const upstream = runGit(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
-	const ahead = upstream ? runGit(cwd, ["rev-list", "--count", "@{upstream}..HEAD"]) : undefined;
-	const aheadCount = ahead === undefined ? Number.NaN : Number(ahead);
-	const unpushed = hasHead && (!upstream || !Number.isFinite(aheadCount) || aheadCount > 0);
-	return { insideGitRepo: true, dirty, unpushed };
-}
+const CLOUD_STARTING_REF_MESSAGE = "Cursor cloud branch/ref must be a valid Git branch name, refs/heads/<branch>, or full commit SHA; invalid branch names and other refs/* are unsupported.";
+const CLOUD_LOCAL_STATE_REASON_LABELS: Record<CursorCloudLocalStateUnknownReason["code"], string> = {
+	bare_repo: "the repository is bare",
+	repository_detection_failed: "Git could not determine whether the working directory is a repository",
+	status_failed: "Git could not determine whether the worktree or index is clean",
+	index_failed: "Git index inspection failed",
+	hidden_index_state: "the index hides worktree changes",
+	history_probe_failed: "Git could not inspect replacement or graft history overrides",
+	history_overrides: "replacement refs or graft metadata are present",
+	head_unavailable: "local HEAD is unavailable",
+	unverified_target: "the cloud target has no locally verified tracking ref",
+	target_probe_failed: "Git failed while resolving the cloud target",
+	comparison_failed: "the local HEAD comparison failed",
+};
 
 export function buildCursorCloudAgentOptions(options: {
 	apiKey: string;
@@ -101,6 +57,8 @@ export function buildCursorCloudAgentOptions(options: {
 	const configuredRepo = resolvedConfig.cloud.repo.value;
 	const repo = parseCursorCloudRepositoryUrl(configuredRepo);
 	if (configuredRepo && !repo) throw new Error(CLOUD_REPO_URL_MESSAGE);
+	const startingRef = normalizeCursorCloudStartingRef(resolvedConfig.cloud.branch.value);
+	if (startingRef.kind === "unsupported") throw new Error(CLOUD_STARTING_REF_MESSAGE);
 	const cloud = {
 		...(isCursorCloudEnvironmentType(environmentType)
 			? {
@@ -115,7 +73,7 @@ export function buildCursorCloudAgentOptions(options: {
 					repos: [
 						{
 							url: repo,
-							...(resolvedConfig.cloud.branch.value ? { startingRef: resolvedConfig.cloud.branch.value } : {}),
+							...(startingRef.kind === "branch" || startingRef.kind === "commit" ? { startingRef: startingRef.value } : {}),
 						},
 					],
 				}
@@ -133,7 +91,7 @@ export function buildCursorCloudAgentOptions(options: {
 
 export function preflightCursorCloudRuntime(options: {
 	resolvedConfig: CursorResolvedSdkConfig;
-	localState?: CursorCloudLocalState;
+	localState: CursorCloudLocalState;
 	hasPriorContext?: boolean;
 }): CursorCloudPreflightResult {
 	const { resolvedConfig } = options;
@@ -151,13 +109,22 @@ export function preflightCursorCloudRuntime(options: {
 		});
 	}
 	if (
-		options.localState?.insideGitRepo &&
-		(options.localState.dirty || options.localState.unpushed) &&
+		options.localState.insideGitRepo !== false &&
+		(options.localState.dirty !== false || options.localState.comparison !== "contains_head") &&
 		!resolvedConfig.cloud.allowLocalState.value
 	) {
+		const causes: string[] = [];
+		if (options.localState.dirty === true) causes.push("the worktree or index is dirty");
+		if (options.localState.dirty === "unknown") causes.push("Git could not determine whether the worktree or index is clean");
+		if (options.localState.comparison === "unpushed") causes.push("local HEAD contains unpushed commits");
+		if (options.localState.comparison === "unknown") {
+			causes.push(...options.localState.reasons
+				.filter((reason) => reason.code !== "status_failed")
+				.map((reason) => CLOUD_LOCAL_STATE_REASON_LABELS[reason.code]));
+		}
 		issues.push({
 			code: "local_state_not_allowed",
-			message: "Cursor cloud runtime cannot see dirty or unpushed local state; pass --cursor-cloud-allow-local-state only after accepting that risk.",
+			message: `Cursor cloud runtime cannot safely omit local state because ${causes.join("; ")}. Configure an explicit repository branch/ref with current local tracking evidence, or pass --cursor-cloud-allow-local-state only after accepting that risk.`,
 		});
 	}
 	if (resolvedConfig.cloud.envNames.value.length > 0 || resolvedConfig.cloud.envFromFiles.value) {
@@ -177,6 +144,9 @@ export function preflightCursorCloudRuntime(options: {
 			code: "cloud_branch_repo_required",
 			message: "Cursor cloud branch/ref requires --cursor-cloud-repo because the installed Cursor SDK supports startingRef only on cloud.repos entries.",
 		});
+	}
+	if (normalizeCursorCloudStartingRef(resolvedConfig.cloud.branch.value).kind === "unsupported") {
+		issues.push({ code: "cloud_branch_invalid", message: CLOUD_STARTING_REF_MESSAGE });
 	}
 	const environment = resolvedConfig.cloud.environment.value;
 	if (environment?.type && !isCursorCloudEnvironmentType(environment.type)) {
