@@ -1,6 +1,11 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { inspectCursorCloudLocalState } from "../src/cursor-cloud-local-state.js";
 import { registerCursorRuntimeControls } from "../src/cursor-state.js";
 import { streamCursor } from "../src/cursor-provider.js";
+import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
 import {
 	collectEvents,
 	createPiHarness,
@@ -12,9 +17,20 @@ import {
 	mockedResume,
 	resetCursorProviderTestState,
 } from "./helpers/cursor-provider-harness.js";
+import { initTrackedGitRepo } from "./helpers/git-repo.js";
 
-describe("streamCursor cloud env request validation", () => {
-	beforeEach(resetCursorProviderTestState);
+vi.mock("../src/cursor-cloud-local-state.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/cursor-cloud-local-state.js")>();
+	return { ...actual, inspectCursorCloudLocalState: vi.fn(actual.inspectCursorCloudLocalState) };
+});
+
+const mockedInspectCursorCloudLocalState = vi.mocked(inspectCursorCloudLocalState);
+
+describe("streamCursor cloud request validation", () => {
+	beforeEach(async () => {
+		await resetCursorProviderTestState();
+		mockedInspectCursorCloudLocalState.mockClear();
+	});
 
 	it("rejects an all-invalid PI_CURSOR_CLOUD_ENV request before SDK calls", async () => {
 		process.env.PI_CURSOR_CLOUD_ENV = "bad-name,CURSOR_SECRET,9INVALID";
@@ -43,6 +59,63 @@ describe("streamCursor cloud env request validation", () => {
 		expect(message).toContain("HTTPS repository URL without embedded credentials");
 		expect(message).not.toContain("repo-user");
 		expect(message).not.toContain("repo-secret");
+		expect(mockedCreate).not.toHaveBeenCalled();
+	});
+
+	it("blocks cloud agent creation when the explicit repo does not match the local remote", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-cursor-cloud-target-"));
+		initTrackedGitRepo(root, "https://github.com/example/local.git");
+		cursorSessionScopeTestUtils.set(root, join(root, "session.jsonl"), "test-session", true);
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		process.env.PI_CURSOR_CLOUD_REPO = "https://github.com/example/other.git";
+		process.env.PI_CURSOR_CLOUD_BRANCH = "main";
+
+		try {
+			const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+			expect(mockedInspectCursorCloudLocalState).toHaveBeenCalledOnce();
+			expect(getErrorEvent(events).error.errorMessage).toContain("cloud target has no locally verified tracking ref");
+			expect(mockedCreate).not.toHaveBeenCalled();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("skips local Git inspection when the explicit local-state override is active", async () => {
+		const missingRoot = join(tmpdir(), `pi-cursor-cloud-missing-${Date.now()}`);
+		cursorSessionScopeTestUtils.set(missingRoot, join(missingRoot, "session.jsonl"), "test-session", true);
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+		const send = vi.fn().mockResolvedValue({
+			id: "run-1",
+			agentId: "bc-00000000-0000-0000-0000-000000000001",
+			status: "finished",
+			wait: vi.fn().mockResolvedValue({ id: "run-1", status: "finished", result: "cloud done" }),
+			cancel: vi.fn(),
+			supports: () => true,
+			unsupportedReason: () => undefined,
+		});
+		mockCreatedAgent({ agentId: "bc-00000000-0000-0000-0000-000000000001", send });
+
+		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(mockedInspectCursorCloudLocalState).not.toHaveBeenCalled();
+		expect(mockedCreate).toHaveBeenCalledOnce();
+		expect(send).toHaveBeenCalledOnce();
+	});
+
+	it("rejects an invalid cloud branch before Agent.create", async () => {
+		process.env.PI_CURSOR_RUNTIME = "cloud";
+		process.env.PI_CURSOR_CLOUD_ACK = "1";
+		process.env.PI_CURSOR_CLOUD_ALLOW_LOCAL_STATE = "1";
+		process.env.PI_CURSOR_CLOUD_REPO = "https://github.com/example/repo.git";
+		process.env.PI_CURSOR_CLOUD_BRANCH = "foo..bar";
+
+		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), { apiKey: "test-key" }));
+
+		expect(getErrorEvent(events).error.errorMessage).toContain("valid Git branch name");
 		expect(mockedCreate).not.toHaveBeenCalled();
 	});
 

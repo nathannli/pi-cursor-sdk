@@ -75,6 +75,8 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-tool-transcript.ts` owns the raw `unknown toolCall -> transcript/display` façade; `src/cursor-transcript-tool-specs.ts`, `src/cursor-transcript-utils.ts`, and `src/cursor-transcript-tool-formatters.ts` implement spec dispatch and formatting.
 - `src/cursor-mcp-timeout-override.ts` owns Cursor SDK MCP timeout overrides: 3600s default for `callTool`, 10s default for verified initialize/listTools paths on first send, and SDK-default behavior for unknown MCP protocol stacks.
 - `src/cursor-config.ts` owns Cursor SDK config loading, parsing, source precedence, safety-cap resolution, cloud environment selection, and legacy fast-default config persistence.
+- `src/cursor-cloud-options.ts` owns cloud SDK option mapping and fail-closed preflight.
+- `src/cursor-cloud-local-state.ts` owns canonical cloud starting-ref normalization, hermetic Git probes, remote identity/refspec validation, and reasoned local-state inspection.
 - `src/cursor-cloud-lifecycle.ts` owns session-branch cloud lifecycle ledger entries and explicit `/cursor-cloud` list/archive/delete command behavior.
 - `src/cursor-durable-fs.ts` owns the canonical no-follow regular-file open (`openExistingRegularFileNoFollow`) and read-write fsync (`fsyncExistingRegularFile`) helpers used to durably fsync session/journal files without following an attacker-replaced symlink; `src/cursor-cloud-lifecycle.ts` and `src/cursor-session-agent-cleanup.ts` consume it instead of duplicating the identity-check logic.
 - `src/cursor-state.ts` owns Cursor fast/mode controls, `/cursor-tools`, local config refresh/cleanup wiring, and stable state re-exports.
