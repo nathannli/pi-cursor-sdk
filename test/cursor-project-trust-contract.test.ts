@@ -110,6 +110,10 @@ export default async function (pi: any) {
 	});
 }
 `);
+		const packageJsonPath = join(packedPackageRoot, "package.json");
+		const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as { pi?: { extensions?: string[] } };
+		packageJson.pi = { ...packageJson.pi, extensions: ["./src/project-trust-contract-probe.ts"] };
+		writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 	}, 120_000);
 
 	beforeEach(async () => {
@@ -138,6 +142,7 @@ export default async function (pi: any) {
 		mode: PiMode,
 		trusted?: boolean,
 		addTrustResourceAtSessionStart = false,
+		projectLocalPackage = false,
 	): { output: string; events: MarkerEvent[] } {
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(([name]) => name !== "CURSOR_API_KEY" && !name.startsWith("PI_CURSOR_")),
@@ -153,14 +158,13 @@ export default async function (pi: any) {
 		const args = [
 			piCli,
 			...(trusted === undefined ? [] : [trusted ? "--approve" : "--no-approve"]),
-			"-e",
-			probeExtensionPath,
+			...(projectLocalPackage ? [] : ["-e", probeExtensionPath]),
 			"--model",
 			"cursor/composer-2-5",
 			"--cursor-no-fast",
 			"--no-tools",
 			"--no-session",
-			"--no-extensions",
+			...(projectLocalPackage ? [] : ["--no-extensions"]),
 			"--offline",
 		];
 		let input: string | undefined;
@@ -309,6 +313,31 @@ export default async function (pi: any) {
 		expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ event: "ui_confirm" })]));
 		expect(output).toContain("Cursor SDK runs require a Cursor SDK API key");
 	}, 30_000);
+
+	it.each([
+		[undefined, "local", "builtin"],
+		[true, "cloud", "project"],
+	] as const)(
+		"requires explicit --approve=%s for project-local package config",
+		(trusted, runtime, runtimeSource) => {
+			writeFileSync(
+				join(projectDir, ".pi", "settings.json"),
+				JSON.stringify({ packages: [packedPackageRoot] }),
+			);
+			new ProjectTrustStore(agentDir).set(projectDir, true);
+
+			const { events } = runPi("print", trusted, false, true);
+
+			expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ event: "project_trust" })]));
+			expect(events).toContainEqual({ event: "session_start", mode: "print", hasUI: false, trusted: true });
+			expect(events).toContainEqual(expect.objectContaining({
+				event: "provider_config",
+				runtime,
+				runtimeSource,
+			}));
+		},
+		30_000,
+	);
 
 	it("fails cloud preflight before SDK create or send when project acknowledgement is the only acknowledgement", async () => {
 		writeFileSync(join(projectDir, ".pi", "settings.json"), "{}\n");

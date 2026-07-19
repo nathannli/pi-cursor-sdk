@@ -78,6 +78,14 @@ Use `-l` if you want the package recorded in the current project's `.pi/settings
 pi install -l npm:pi-cursor-sdk
 ```
 
+Pi 0.80.9 loads project-local extensions only after project trust is resolved, so this extension cannot observe that trust event. When a project-local install needs to read or write `.pi/cursor-sdk.json`, start every such run with explicit approval:
+
+```bash
+pi --approve --model cursor/composer-2-5
+```
+
+Without `--approve`, the project-local extension still runs after Pi trusts the project, but it ignores `.pi/cursor-sdk.json` and rejects `--save-project`; user config remains available.
+
 ### Try from a local checkout
 
 For development from this repository:
@@ -309,7 +317,7 @@ PI_CURSOR_LOCAL_RESUME=0 pi --model cursor/composer-2-5
 
 Resume is strict: the current pi session file/id, branch path prefix, cwd/repo root, model/API/tool-surface pool key, and compaction generation must match. A trailing user message already present at process startup is crash-ambiguous and invalidates the old handle; only a user message appended in the current process may span a recorded handle, preventing restart from resending an already-submitted prompt. A successful process reattachment bootstraps the current pi transcript once while retaining the resumed Cursor agent's native state; later in-process turns remain incremental. If `Agent.resume()` fails, pi bootstraps a new local Cursor agent from the current transcript and streams one display-only continuity note. Superseded local agents can be cleaned up explicitly with `/cursor-local-resume-cleanup --dry-run` and `/cursor-local-resume-cleanup --yes`; cleanup only deletes exact recorded `agent-*` IDs. Cloud resume remains disabled; `/cursor-cloud list|archive|delete` only manages recorded cloud agents.
 
-Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trusted `.pi/cursor-sdk.json`. Project config activates only when Pi's project-trust flow reached this extension and approved the project, or the run started with explicit `--approve`; Pi's implicit trust for a project with no recognized resources is not enough. A trust resource added after trust resolution requires restarting pi. `/cursor-runtime ... --save-project` requires the same trust provenance and does not create Pi trust resources automatically. Explicit runtime and fast-default saves preserve unrecognized fields, reject malformed or non-object JSON without rewriting it, and serialize concurrent writers. A fast-default write remains authoritative if Pi's subsequent session-journal append fails, because Pi may already have mutated the in-memory branch; the command reports that partial journal failure and keeps the new global value authoritative over stale branch entries until a later successful save or session restart. If a process is force-killed during the tiny update window, the next save reports the `.lock` path; remove it only after confirming no pi process is writing that config.
+Config can also set non-secret defaults in `~/.pi/agent/cursor-sdk.json` or trusted `.pi/cursor-sdk.json`. Project config activates only when Pi's project-trust flow reached this extension and approved the project, or the run started with explicit `--approve`; Pi's implicit trust for a project with no recognized resources is not enough. Because Pi 0.80.9 loads project-local package extensions after the trust event, `pi install -l` users must pass `--approve` on every run that reads or writes `.pi/cursor-sdk.json`. A trust resource added after trust resolution requires restarting pi. `/cursor-runtime ... --save-project` requires the same trust provenance and does not create Pi trust resources automatically. Explicit runtime and fast-default saves preserve unrecognized fields, reject malformed or non-object JSON without rewriting it, and serialize concurrent writers. A fast-default write remains authoritative if Pi's subsequent session-journal append fails, because Pi may already have mutated the in-memory branch; the command reports that partial journal failure and keeps the new global value authoritative over stale branch entries until a later successful save or session restart. If a process is force-killed during the tiny update window, the next save reports the `.lock` path; remove it only after confirming no pi process is writing that config.
 
 ```json
 {

@@ -469,7 +469,7 @@ describe("Cursor cloud runtime state", () => {
 		expect(harness.confirm).not.toHaveBeenCalled();
 		expect(harness.pi.appendEntry).not.toHaveBeenCalled();
 		expect(harness.ctx.ui.notify).toHaveBeenCalledWith(
-			expect.stringContaining("Cannot save Cursor project config without explicit project-trust provenance"),
+			expect.stringContaining("Project-local package installs must use --approve on every run"),
 			"error",
 		);
 	});

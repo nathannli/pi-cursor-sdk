@@ -375,7 +375,7 @@ function registerCursorRuntimeCommand(
 			}
 			if (saveProject && (getCursorSessionCwd() !== ctx.cwd || !getCursorSessionProjectTrusted())) {
 				ctx.ui.notify(
-					"Cannot save Cursor project config without explicit project-trust provenance. Ensure .pi/settings.json or another Pi project resource exists, trust the project, then restart pi; or restart with --approve.",
+					"Cannot save Cursor project config without explicit project-trust provenance. Ensure .pi/settings.json or another Pi project resource exists, trust the project, then restart pi; or restart with --approve. Project-local package installs must use --approve on every run that reads or writes .pi/cursor-sdk.json.",
 					"error",
 				);
 				return;
