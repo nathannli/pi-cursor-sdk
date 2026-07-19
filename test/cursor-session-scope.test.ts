@@ -34,7 +34,7 @@ describe("cursor-session-scope cwd", () => {
 		}
 	});
 
-	it("snapshots trust only when Pi recognizes a project resource", async () => {
+	it("snapshots trust only from Pi trust-resolution provenance", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "pi-cursor-session-trust-"));
 		try {
 			mkdirSync(join(cwd, ".pi"));
@@ -48,11 +48,21 @@ describe("cursor-session-scope cwd", () => {
 			writeFileSync(join(cwd, ".pi", "settings.json"), "{}\n");
 			expect(getCursorSessionProjectTrusted()).toBe(false);
 
+			cursorSessionScopeTestUtils.recordProjectTrustResolution(cwd);
 			await pi.runSessionStart({ cwd, isProjectTrusted: vi.fn(() => true) });
 			expect(getCursorSessionProjectTrusted()).toBe(true);
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
 		}
+	});
+
+	it("uses Pi argument-consumption semantics for explicit CLI trust", () => {
+		expect(cursorSessionScopeTestUtils.isCliProjectTrustApproved(["--approve"])).toBe(true);
+		expect(cursorSessionScopeTestUtils.isCliProjectTrustApproved(["-a", "--no-approve"])).toBe(false);
+		expect(cursorSessionScopeTestUtils.isCliProjectTrustApproved(["--no-approve", "-a"])).toBe(true);
+		expect(cursorSessionScopeTestUtils.isCliProjectTrustApproved(["--name", "-a"])).toBe(false);
+		expect(cursorSessionScopeTestUtils.isCliProjectTrustApproved(["--model", "--approve"])).toBe(false);
+		expect(cursorSessionScopeTestUtils.isCliProjectTrustApproved([])).toBe(false);
 	});
 
 	it("syncs the normalized session name from session_start", async () => {

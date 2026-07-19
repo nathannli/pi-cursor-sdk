@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import {
-	CONFIG_DIR_NAME,
-	getAgentDir,
-	hasTrustRequiringProjectResources,
-} from "@earendil-works/pi-coding-agent";
+	chmodSync,
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parseOptionalEnvBoolean } from "./cursor-env-boolean.js";
 import { asRecord } from "./cursor-record-utils.js";
 
@@ -284,12 +291,27 @@ function readCursorSdkConfigFile(path: string): CursorSdkConfig {
 	}
 }
 
-export function loadCursorSdkUserConfig(path = getCursorSdkUserConfigPath()): CursorSdkConfig {
-	return readCursorSdkConfigFile(path);
+export function loadCursorSdkConfigForUpdate(path: string): Record<string, unknown> {
+	if (!existsSync(path)) return {};
+	let source: string;
+	try {
+		source = readFileSync(path, "utf-8");
+	} catch (error) {
+		throw new Error(`Failed to read Cursor SDK config ${path}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(source);
+	} catch {
+		throw new Error(`Invalid JSON in Cursor SDK config ${path}`);
+	}
+	const record = asRecord(parsed);
+	if (!record) throw new Error(`Invalid Cursor SDK config ${path}: expected a JSON object`);
+	return record;
 }
 
-export function isCursorSdkProjectConfigTrusted(cwd: string, projectTrusted: boolean): boolean {
-	return projectTrusted && hasTrustRequiringProjectResources(cwd);
+export function loadCursorSdkUserConfig(path = getCursorSdkUserConfigPath()): CursorSdkConfig {
+	return readCursorSdkConfigFile(path);
 }
 
 export function loadCursorSdkProjectConfig(cwd: string, projectTrusted: boolean): CursorSdkConfig | undefined {
@@ -304,7 +326,39 @@ export function loadCursorSdkConfig(options: LoadCursorSdkConfigOptions = {}): {
 	return project ? { user, project } : { user };
 }
 
-function replaceJsonFile(path: string, config: CursorSdkConfig, mode?: number): void {
+const CONFIG_LOCK_RETRY_MS = 20;
+const CONFIG_LOCK_TIMEOUT_MS = 5_000;
+const configLockWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
+
+function sleepForConfigLock(): void {
+	Atomics.wait(configLockWaitBuffer, 0, 0, CONFIG_LOCK_RETRY_MS);
+}
+
+function acquireCursorSdkConfigLock(path: string): () => void {
+	mkdirSync(dirname(path), { recursive: true });
+	const lockPath = `${path}.lock`;
+	const deadline = Date.now() + CONFIG_LOCK_TIMEOUT_MS;
+	while (true) {
+		try {
+			const descriptor = openSync(lockPath, "wx", 0o600);
+			return () => {
+				try {
+					closeSync(descriptor);
+				} finally {
+					rmSync(lockPath, { force: true });
+				}
+			};
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+			if (Date.now() >= deadline) {
+				throw new Error(`Timed out waiting for Cursor SDK config lock ${lockPath}; remove it only if no pi process is writing this config`);
+			}
+			sleepForConfigLock();
+		}
+	}
+}
+
+function replaceJsonFile(path: string, config: object, mode?: number): void {
 	mkdirSync(dirname(path), { recursive: true });
 	const tempPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
 	let replaced = false;
@@ -328,31 +382,61 @@ function replaceJsonFile(path: string, config: CursorSdkConfig, mode?: number): 
 	}
 }
 
+function withCursorSdkConfigLock<T>(path: string, operation: () => T): T {
+	const release = acquireCursorSdkConfigLock(path);
+	try {
+		return operation();
+	} finally {
+		release();
+	}
+}
+
+export function updateCursorSdkConfig(
+	path: string,
+	update: (current: Record<string, unknown>) => Record<string, unknown>,
+	options: { newFileMode?: number } = {},
+): Record<string, unknown> {
+	return withCursorSdkConfigLock(path, () => {
+		const updated = update(loadCursorSdkConfigForUpdate(path));
+		const mode = existsSync(path) ? statSync(path).mode & 0o777 : options.newFileMode;
+		replaceJsonFile(path, updated, mode);
+		return updated;
+	});
+}
+
 export function saveCursorSdkUserConfig(config: CursorSdkConfig, path = getCursorSdkUserConfigPath()): void {
-	const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o600;
-	replaceJsonFile(path, config, mode);
+	updateCursorSdkConfig(path, () => ({ ...config }), { newFileMode: 0o600 });
 }
 
 export function saveCursorSdkProjectConfig(cwd: string, config: CursorSdkConfig, configDirName = CONFIG_DIR_NAME): void {
 	const path = getCursorSdkProjectConfigPath(cwd, configDirName);
-	const mode = existsSync(path) ? statSync(path).mode & 0o777 : undefined;
-	replaceJsonFile(path, config, mode);
+	updateCursorSdkConfig(path, () => ({ ...config }));
 }
 
 export function mergeCursorSdkConfig(base: CursorSdkConfig, patch: CursorSdkConfig): CursorSdkConfig {
+	return mergeCursorSdkConfigForUpdate({ ...base }, patch) as CursorSdkConfig;
+}
+
+export function mergeCursorSdkConfigForUpdate(
+	base: Record<string, unknown>,
+	patch: CursorSdkConfig,
+): Record<string, unknown> {
+	const baseCloud = asRecord(base.cloud);
+	const baseLocal = asRecord(base.local);
+	const baseSandboxOptions = asRecord(baseLocal?.sandboxOptions);
 	return {
 		...base,
 		...patch,
-		...(base.cloud || patch.cloud
-			? { cloud: { ...base.cloud, ...patch.cloud } }
+		...(baseCloud || patch.cloud
+			? { cloud: { ...baseCloud, ...patch.cloud } }
 			: {}),
-		...(base.local || patch.local
+		...(baseLocal || patch.local
 			? {
 					local: {
-						...base.local,
+						...baseLocal,
 						...patch.local,
-						...(base.local?.sandboxOptions || patch.local?.sandboxOptions
-							? { sandboxOptions: { ...base.local?.sandboxOptions, ...patch.local?.sandboxOptions } }
+						...(baseSandboxOptions || patch.local?.sandboxOptions
+							? { sandboxOptions: { ...baseSandboxOptions, ...patch.local?.sandboxOptions } }
 							: {}),
 					},
 				}
@@ -364,7 +448,10 @@ export function cursorFastDefaultsFromConfig(config: CursorSdkConfig | undefined
 	return new Map(Object.entries(config?.fastDefaults ?? {}));
 }
 
-export function withCursorFastDefaults(config: CursorSdkConfig, fastDefaults: Map<string, boolean>): CursorSdkConfig {
+export function withCursorFastDefaults<T extends object>(
+	config: T,
+	fastDefaults: Map<string, boolean>,
+): T & { fastDefaults: Record<string, boolean> } {
 	return {
 		...config,
 		fastDefaults: Object.fromEntries([...fastDefaults.entries()].sort(([a], [b]) => a.localeCompare(b))),

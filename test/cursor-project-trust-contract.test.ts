@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import {
 	collectEvents,
 	getErrorEvent,
@@ -75,12 +76,21 @@ describe("non-interactive project trust CLI/provider contract", () => {
 		expect(existsSync(join(packedPackageRoot, "src", "index.ts"))).toBe(true);
 		probeExtensionPath = join(packedPackageRoot, "src", "project-trust-contract-probe.ts");
 		writeFileSync(probeExtensionPath, `
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import cursorExtension from "./index.js";
 import { resolveCursorProviderTurnConfig } from "./cursor-provider-turn-prepare.js";
 const mark = (event: unknown) => appendFileSync(process.env.PI_CURSOR_CONTRACT_MARKER!, JSON.stringify(event) + "\\n");
 export default async function (pi: any) {
+	pi.on("project_trust", (event: any) => {
+		mark({ event: "project_trust", cwd: event.cwd });
+		return { trusted: "undecided" };
+	});
 	pi.on("session_start", (_event: unknown, ctx: any) => {
+		if (process.env.PI_CURSOR_CONTRACT_ADD_TRUST_RESOURCE_AT_SESSION_START === "1") {
+			mkdirSync(join(ctx.cwd, ".pi"), { recursive: true });
+			writeFileSync(join(ctx.cwd, ".pi", "settings.json"), "{}\\n");
+		}
 		mark({ event: "session_start", mode: ctx.mode, hasUI: ctx.hasUI, trusted: ctx.isProjectTrusted?.() === true });
 		ctx.ui.confirm = async (title: string) => {
 			mark({ event: "ui_confirm", title });
@@ -124,13 +134,18 @@ export default async function (pi: any) {
 		if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
 	});
 
-	function runPi(mode: PiMode, trusted?: boolean): { output: string; events: MarkerEvent[] } {
+	function runPi(
+		mode: PiMode,
+		trusted?: boolean,
+		addTrustResourceAtSessionStart = false,
+	): { output: string; events: MarkerEvent[] } {
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(([name]) => name !== "CURSOR_API_KEY" && !name.startsWith("PI_CURSOR_")),
 		);
 		Object.assign(env, {
 			PI_CODING_AGENT_DIR: agentDir,
 			PI_CURSOR_CONTRACT_MARKER: markerPath,
+			...(addTrustResourceAtSessionStart ? { PI_CURSOR_CONTRACT_ADD_TRUST_RESOURCE_AT_SESSION_START: "1" } : {}),
 			PI_CURSOR_NATIVE_TOOL_DISPLAY: "0",
 			PI_CURSOR_PI_TOOL_BRIDGE: "0",
 			PI_CURSOR_SETTING_SOURCES: "none",
@@ -216,6 +231,48 @@ export default async function (pi: any) {
 		["print", false],
 		["json", false],
 		["rpc", true],
+	] as const)("retains Pi project-trust event provenance in %s mode", (mode, hasUI) => {
+		writeFileSync(join(projectDir, ".pi", "settings.json"), "{}\n");
+		new ProjectTrustStore(agentDir).set(projectDir, true);
+		const { output, events } = runPi(mode);
+
+		expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ event: "project_trust" })]));
+		expect(events).toContainEqual({ event: "session_start", mode, hasUI, trusted: true });
+		expect(events).toContainEqual({
+			event: "provider_config",
+			runtime: "cloud",
+			runtimeSource: "project",
+			acknowledged: false,
+			acknowledgementSource: "builtin",
+		});
+		expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ event: "ui_confirm" })]));
+		expect(output).toContain("Cursor SDK runs require a Cursor SDK API key");
+	}, 30_000);
+
+	it.each([
+		["print", false],
+		["json", false],
+		["rpc", true],
+	] as const)("honors explicit approval for standalone project config in %s mode", (mode, hasUI) => {
+		writeFileSync(join(agentDir, "cursor-sdk.json"), JSON.stringify({ cloud: { acknowledged: true } }));
+		const { output, events } = runPi(mode, true);
+
+		expect(events).toContainEqual({ event: "session_start", mode, hasUI, trusted: true });
+		expect(events).toContainEqual({
+			event: "provider_config",
+			runtime: "cloud",
+			runtimeSource: "project",
+			acknowledged: true,
+			acknowledgementSource: "user",
+		});
+		expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ event: "ui_confirm" })]));
+		expect(output).toContain("Cursor SDK runs require a Cursor SDK API key");
+	}, 30_000);
+
+	it.each([
+		["print", false],
+		["json", false],
+		["rpc", true],
 	] as const)("ignores standalone project cloud runtime without a trust decision in %s mode", (mode, hasUI) => {
 		writeFileSync(join(agentDir, "cursor-sdk.json"), JSON.stringify({ cloud: { acknowledged: true } }));
 		const { output, events } = runPi(mode);
@@ -231,6 +288,26 @@ export default async function (pi: any) {
 		expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ event: "ui_confirm" })]));
 		expect(output).toContain("Cursor SDK runs require a Cursor SDK API key");
 		expect(output).not.toContain("Cursor cloud runtime requires first-use acknowledgement");
+	}, 30_000);
+
+	it.each([
+		["print", false],
+		["json", false],
+		["rpc", true],
+	] as const)("ignores a trust resource added after Pi trust resolution in %s mode", (mode, hasUI) => {
+		writeFileSync(join(agentDir, "cursor-sdk.json"), JSON.stringify({ cloud: { acknowledged: true } }));
+		const { output, events } = runPi(mode, undefined, true);
+
+		expect(events).toContainEqual({ event: "session_start", mode, hasUI, trusted: true });
+		expect(events).toContainEqual({
+			event: "provider_config",
+			runtime: "local",
+			runtimeSource: "builtin",
+			acknowledged: true,
+			acknowledgementSource: "user",
+		});
+		expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ event: "ui_confirm" })]));
+		expect(output).toContain("Cursor SDK runs require a Cursor SDK API key");
 	}, 30_000);
 
 	it("fails cloud preflight before SDK create or send when project acknowledgement is the only acknowledgement", async () => {

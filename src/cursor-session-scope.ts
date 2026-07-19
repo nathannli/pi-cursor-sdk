@@ -1,8 +1,10 @@
-import type { ExtensionHandler, SessionInfoChangedEvent, SessionStartEvent } from "@earendil-works/pi-coding-agent";
-import { isCursorSdkProjectConfigTrusted } from "./cursor-config.js";
+import { resolve } from "node:path";
+import { parseArgs } from "@earendil-works/pi-coding-agent";
+import type { ExtensionHandler, ProjectTrustHandler, SessionInfoChangedEvent, SessionStartEvent } from "@earendil-works/pi-coding-agent";
 import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 
 interface CursorSessionScopeExtensionApi {
+	on(event: "project_trust", handler: ProjectTrustHandler): void;
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): void;
 	on(event: "session_info_changed", handler: ExtensionHandler<SessionInfoChangedEvent>): void;
 }
@@ -23,6 +25,7 @@ const state = {
 };
 
 const scopeGenerations = new Map<string, number>([[ANONYMOUS_SESSION_SCOPE_KEY, state.sessionGeneration]]);
+const projectTrustResolutionCwds = new Set<string>();
 let nextSessionGeneration = 1;
 let scopeChangeHandler: CursorSessionScopeChangeHandler | undefined;
 
@@ -86,6 +89,14 @@ function setCursorSessionScope(
 	scopeGenerations.set(getCursorSessionScopeKey(), state.sessionGeneration);
 }
 
+function recordProjectTrustResolution(cwd: string): void {
+	projectTrustResolutionCwds.add(resolve(cwd));
+}
+
+function isCliProjectTrustApproved(args = process.argv.slice(2)): boolean {
+	return parseArgs(args).projectTrustOverride === true;
+}
+
 function resetCursorSessionScope(): void {
 	state.sessionCwd = process.cwd();
 	state.sessionFile = undefined;
@@ -96,6 +107,7 @@ function resetCursorSessionScope(): void {
 	nextSessionGeneration = 1;
 	scopeGenerations.clear();
 	scopeGenerations.set(ANONYMOUS_SESSION_SCOPE_KEY, state.sessionGeneration);
+	projectTrustResolutionCwds.clear();
 }
 
 export function onCursorSessionScopeKeyChange(handler: CursorSessionScopeChangeHandler): void {
@@ -103,13 +115,18 @@ export function onCursorSessionScopeKeyChange(handler: CursorSessionScopeChangeH
 }
 
 export function registerCursorSessionScope(pi: CursorSessionScopeExtensionApi): void {
+	pi.on("project_trust", (event) => {
+		recordProjectTrustResolution(event.cwd);
+		return { trusted: "undecided" };
+	});
 	pi.on("session_start", async (_event, ctx) => {
 		const previousScopeKey = getCursorSessionScopeKey();
 		setCursorSessionScope(
 			ctx.cwd,
 			ctx.sessionManager?.getSessionFile?.() ?? undefined,
 			ctx.sessionManager?.getSessionId?.() ?? undefined,
-			isCursorSdkProjectConfigTrusted(ctx.cwd, ctx.isProjectTrusted?.() === true),
+			ctx.isProjectTrusted?.() === true
+				&& (projectTrustResolutionCwds.has(resolve(ctx.cwd)) || isCliProjectTrustApproved()),
 			ctx.sessionManager?.getSessionName?.() ?? undefined,
 		);
 		if (previousScopeKey !== getCursorSessionScopeKey()) {
@@ -125,5 +142,7 @@ export const __testUtils = {
 	ANONYMOUS_SESSION_SCOPE_KEY,
 	EPHEMERAL_SESSION_SCOPE_PREFIX,
 	set: setCursorSessionScope,
+	recordProjectTrustResolution,
+	isCliProjectTrustApproved,
 	reset: resetCursorSessionScope,
 };

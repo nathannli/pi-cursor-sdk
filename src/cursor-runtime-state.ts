@@ -19,15 +19,14 @@ import {
 	CURSOR_LOCAL_RESUME_ENV,
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
+	getCursorSdkProjectConfigPath,
+	getCursorSdkUserConfigPath,
 	loadCursorSdkConfig,
-	loadCursorSdkProjectConfig,
-	loadCursorSdkUserConfig,
-	mergeCursorSdkConfig,
+	mergeCursorSdkConfigForUpdate,
 	parseCursorSdkConfig,
 	parseExplicitCursorCloudEnvNames,
 	resolveCursorSdkConfig,
-	saveCursorSdkProjectConfig,
-	saveCursorSdkUserConfig,
+	updateCursorSdkConfig,
 	type CursorExplicitSdkConfig,
 	type CursorResolvedSdkConfig,
 	type CursorResolvedSetting,
@@ -376,7 +375,7 @@ function registerCursorRuntimeCommand(
 			}
 			if (saveProject && (getCursorSessionCwd() !== ctx.cwd || !getCursorSessionProjectTrusted())) {
 				ctx.ui.notify(
-					"Cannot save Cursor project config until Pi recognizes a trust-requiring project resource and the project is trusted. Ensure .pi/settings.json or another Pi project resource exists, trust the project, then restart pi.",
+					"Cannot save Cursor project config without explicit project-trust provenance. Ensure .pi/settings.json or another Pi project resource exists, trust the project, then restart pi; or restart with --approve.",
 					"error",
 				);
 				return;
@@ -389,14 +388,19 @@ function registerCursorRuntimeCommand(
 			if (saveUser || saveProject) {
 				try {
 					if (saveUser) {
-						const current = loadCursorSdkUserConfig();
-						saveCursorSdkUserConfig(mergeCursorSdkConfig(current, {
-							runtime: raw,
-							...(cloudAcknowledged ? { cloud: { acknowledged: true } } : {}),
-						}));
+						updateCursorSdkConfig(
+							getCursorSdkUserConfigPath(),
+							(current) => mergeCursorSdkConfigForUpdate(current, {
+								runtime: raw,
+								...(cloudAcknowledged ? { cloud: { acknowledged: true } } : {}),
+							}),
+							{ newFileMode: 0o600 },
+						);
 					} else {
-						const current = loadCursorSdkProjectConfig(ctx.cwd, getCursorSessionProjectTrusted()) ?? {};
-						saveCursorSdkProjectConfig(ctx.cwd, mergeCursorSdkConfig(current, { runtime: raw }));
+						updateCursorSdkConfig(
+							getCursorSdkProjectConfigPath(ctx.cwd),
+							(current) => mergeCursorSdkConfigForUpdate(current, { runtime: raw }),
+						);
 					}
 				} catch (error) {
 					const effectiveResolution = resolveCursorStatusRuntime(ctx);

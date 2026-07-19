@@ -27,9 +27,7 @@ import {
 	getCursorSdkUserConfigPath,
 	loadCursorSdkUserConfig,
 	resolveCursorFastDefault,
-	saveCursorSdkUserConfig,
-	withCursorFastDefaults,
-	type CursorSdkConfig,
+	updateCursorSdkConfig,
 } from "./cursor-config.js";
 import {
 	consumeCursorLocalForceOverride,
@@ -79,6 +77,7 @@ type CursorCliModeState =
 	| { kind: "invalid"; raw: string; message: string };
 
 const sessionFastPreferences = new Map<string, boolean>();
+const authoritativeGlobalFastPreferenceIds = new Set<string>();
 let globalFastPreferences = new Map<string, boolean>();
 let cliForceFast = false;
 let cliForceNoFast = false;
@@ -118,9 +117,20 @@ function loadGlobalFastPreferences(): Map<string, boolean> {
 	return cursorFastDefaultsFromConfig(loadCursorSdkUserConfig());
 }
 
-function saveGlobalFastPreferences(): void {
-	const currentConfig: CursorSdkConfig = loadCursorSdkUserConfig();
-	saveCursorSdkUserConfig(withCursorFastDefaults(currentConfig, globalFastPreferences));
+function saveGlobalFastPreference(modelId: string, fast: boolean): void {
+	updateCursorSdkConfig(
+		getConfigPath(),
+		(current) => {
+			const fastDefaults = { ...asRecord(current.fastDefaults), [modelId]: fast };
+			return {
+				...current,
+				fastDefaults: Object.fromEntries(
+					Object.entries(fastDefaults).sort(([a], [b]) => a.localeCompare(b)),
+				),
+			};
+		},
+		{ newFileMode: 0o600 },
+	);
 }
 
 function restoreSessionFastPreferences(branch: readonly SessionEntry[]): void {
@@ -174,7 +184,9 @@ function getEffectiveFast(modelId: string): boolean | undefined {
 		cliForceNoFast,
 		cliForceFast,
 		aliasOverride: metadata.fastOverride,
-		sessionValue: getMapFastPreference(sessionFastPreferences, metadata),
+		sessionValue: authoritativeGlobalFastPreferenceIds.has(getFastPreferenceModelId(metadata))
+			? undefined
+			: getMapFastPreference(sessionFastPreferences, metadata),
 		userValue: getMapFastPreference(globalFastPreferences, metadata),
 		modelDefault: metadata.defaultFast,
 	}).value;
@@ -243,27 +255,29 @@ function restoreMapValue(map: Map<string, boolean>, key: string, previous: boole
 	}
 }
 
-function persistFastPreference(pi: Pick<ExtensionAPI, "appendEntry">, modelId: string, fast: boolean): void {
+function persistFastPreference(
+	pi: Pick<ExtensionAPI, "appendEntry">,
+	modelId: string,
+	fast: boolean,
+): unknown | undefined {
 	const previousSession = sessionFastPreferences.get(modelId);
 	const previousGlobal = globalFastPreferences.get(modelId);
-	let savedGlobal = false;
 	sessionFastPreferences.set(modelId, fast);
 	globalFastPreferences.set(modelId, fast);
 	try {
-		saveGlobalFastPreferences();
-		savedGlobal = true;
-		pi.appendEntry<CursorFastEntryData>(FAST_ENTRY_TYPE, { modelId, fast });
+		saveGlobalFastPreference(modelId, fast);
 	} catch (error) {
 		restoreMapValue(sessionFastPreferences, modelId, previousSession);
 		restoreMapValue(globalFastPreferences, modelId, previousGlobal);
-		if (savedGlobal) {
-			try {
-				saveGlobalFastPreferences();
-			} catch {
-				// Preserve the original append failure reported to the user.
-			}
-		}
 		throw error;
+	}
+	try {
+		pi.appendEntry<CursorFastEntryData>(FAST_ENTRY_TYPE, { modelId, fast });
+		authoritativeGlobalFastPreferenceIds.delete(modelId);
+		return undefined;
+	} catch (error) {
+		authoritativeGlobalFastPreferenceIds.add(modelId);
+		return error;
 	}
 }
 
@@ -399,14 +413,22 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 			const preferenceModelId = getFastPreferenceModelId(metadata);
 			const current = getEffectiveFast(metadata.piModelId) ?? false;
 			const next = !current;
+			let appendError: unknown;
 			try {
-				persistFastPreference(pi, preferenceModelId, next);
+				appendError = persistFastPreference(pi, preferenceModelId, next);
 			} catch (error) {
 				updateCursorStatus(ctx);
 				ctx.ui.notify(`Failed to save Cursor fast preference: ${error instanceof Error ? error.message : String(error)}`, "error");
 				return;
 			}
 			updateCursorStatus(ctx);
+			if (appendError !== undefined) {
+				ctx.ui.notify(
+					`Cursor fast ${next ? "enabled" : "disabled"} was saved globally, but persisting the session entry failed: ${appendError instanceof Error ? appendError.message : String(appendError)}`,
+					"error",
+				);
+				return;
+			}
 			ctx.ui.notify(`Cursor fast ${next ? "enabled" : "disabled"}`, "info");
 		},
 	});
@@ -495,6 +517,7 @@ export function registerCursorRuntimeControls(pi: CursorRuntimeControlsExtension
 
 	registerCursorModelLifecycle(pi, {
 		sessionStart: (_event, ctx) => {
+			authoritativeGlobalFastPreferenceIds.clear();
 			globalFastPreferences = loadGlobalFastPreferences();
 			cliForceFast = pi.getFlag("cursor-fast") === true;
 			cliForceNoFast = pi.getFlag("cursor-no-fast") === true;
@@ -514,6 +537,7 @@ function resetCursorModeStateForTests(): void {
 	cliCursorModeState = { kind: "unset" };
 	resetCursorRuntimeStateForTests();
 	invalidCursorModeNotifiedSessionScopeKeys.clear();
+	authoritativeGlobalFastPreferenceIds.clear();
 }
 
 export const __testUtils = {
