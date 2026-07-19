@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import {
 	__testUtils as cursorSessionScopeTestUtils,
 	getCursorSessionCwd,
 	getCursorSessionName,
+	getCursorSessionProjectTrusted,
 	MAX_CURSOR_SESSION_NAME_LENGTH,
 	registerCursorSessionScope,
 } from "../src/cursor-session-scope.js";
@@ -30,6 +31,27 @@ describe("cursor-session-scope cwd", () => {
 			expect(getCursorSessionCwd()).toBe(sessionDir);
 		} finally {
 			rmSync(sessionDir, { recursive: true, force: true });
+		}
+	});
+
+	it("snapshots trust only when Pi recognizes a project resource", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-cursor-session-trust-"));
+		try {
+			mkdirSync(join(cwd, ".pi"));
+			writeFileSync(join(cwd, ".pi", "cursor-sdk.json"), '{"runtime":"cloud"}\n');
+			const pi = createEventHarness();
+			registerCursorSessionScope(pi);
+
+			await pi.runSessionStart({ cwd, isProjectTrusted: vi.fn(() => true) });
+			expect(getCursorSessionProjectTrusted()).toBe(false);
+
+			writeFileSync(join(cwd, ".pi", "settings.json"), "{}\n");
+			expect(getCursorSessionProjectTrusted()).toBe(false);
+
+			await pi.runSessionStart({ cwd, isProjectTrusted: vi.fn(() => true) });
+			expect(getCursorSessionProjectTrusted()).toBe(true);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
 		}
 	});
 

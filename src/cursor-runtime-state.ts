@@ -20,7 +20,7 @@ import {
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
 	loadCursorSdkConfig,
-	loadCursorSdkProjectConfig,
+	loadCursorSdkProjectConfigForUpdate,
 	loadCursorSdkUserConfig,
 	mergeCursorSdkConfig,
 	parseCursorSdkConfig,
@@ -35,6 +35,7 @@ import {
 	type CursorSdkConfig,
 } from "./cursor-config.js";
 import { asRecord } from "./cursor-record-utils.js";
+import { getCursorSessionCwd, getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
 
 export const CURSOR_RUNTIME_ENTRY_TYPE = "cursor-runtime-state";
 
@@ -57,7 +58,7 @@ export type CursorRuntimeStateExtensionApi = Pick<
 	"appendEntry" | "getFlag" | "registerFlag" | "registerCommand" | "on"
 >;
 
-type CursorRuntimeContext = Pick<ExtensionContext, "cwd"> & Partial<Pick<ExtensionContext, "isProjectTrusted">>;
+type CursorRuntimeContext = Pick<ExtensionContext, "cwd">;
 
 type CursorStatusRefresh = (ctx: ExtensionContext) => void;
 
@@ -147,7 +148,10 @@ export function resolveEffectiveCursorConfig(options: {
 }
 
 export function resolveEffectiveCursorConfigForContext(ctx: CursorRuntimeContext): CursorResolvedSdkConfig {
-	return resolveEffectiveCursorConfig({ cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted?.() === true });
+	return resolveEffectiveCursorConfig({
+		cwd: ctx.cwd,
+		projectTrusted: getCursorSessionCwd() === ctx.cwd && getCursorSessionProjectTrusted(),
+	});
 }
 
 export type CursorRuntimeResolution =
@@ -384,7 +388,7 @@ function registerCursorRuntimeCommand(
 							...(cloudAcknowledged ? { cloud: { acknowledged: true } } : {}),
 						}));
 					} else {
-						const current = loadCursorSdkProjectConfig(ctx.cwd, true) ?? {};
+						const current = loadCursorSdkProjectConfigForUpdate(ctx.cwd) ?? {};
 						saveCursorSdkProjectConfig(ctx.cwd, mergeCursorSdkConfig(current, { runtime: raw }));
 					}
 				} catch (error) {

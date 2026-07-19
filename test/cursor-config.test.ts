@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -116,6 +116,7 @@ describe("Cursor SDK config resolver", () => {
 		writeFileSync(userPath, "{}\n");
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		writeFileSync(projectPath, "{}\n");
+		writeFileSync(join(cwd, ".pi", "settings.json"), '{"theme":"dark"}\n');
 		if (process.platform !== "win32") {
 			chmodSync(userPath, 0o660);
 			chmodSync(projectPath, 0o640);
@@ -126,12 +127,33 @@ describe("Cursor SDK config resolver", () => {
 
 		expect(JSON.parse(readFileSync(userPath, "utf8"))).toEqual({ runtime: "cloud" });
 		expect(JSON.parse(readFileSync(projectPath, "utf8"))).toEqual({ runtime: "local" });
+		expect(JSON.parse(readFileSync(join(cwd, ".pi", "settings.json"), "utf8"))).toEqual({ theme: "dark" });
 		if (process.platform !== "win32") {
 			expect(statSync(userPath).mode & 0o777).toBe(0o660);
 			expect(statSync(projectPath).mode & 0o777).toBe(0o640);
 		}
 		expect(readdirSync(agentDir)).toEqual(["cursor-sdk.json"]);
-		expect(readdirSync(join(cwd, ".pi"))).toEqual(["cursor-sdk.json"]);
+		expect(readdirSync(join(cwd, ".pi"))).toEqual(["cursor-sdk.json", "settings.json"]);
+	});
+
+	it("rejects an invalid project settings path before changing Cursor config", () => {
+		const invalidCwd = join(root, "invalid-settings-repo");
+		mkdirSync(join(invalidCwd, ".pi", "settings.json"), { recursive: true });
+		const configPath = getCursorSdkProjectConfigPath(invalidCwd);
+		writeFileSync(configPath, '{"runtime":"local"}\n');
+
+		expect(() => saveCursorSdkProjectConfig(invalidCwd, { runtime: "cloud" })).toThrow(
+			"Project settings path must be a regular file",
+		);
+		expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({ runtime: "local" });
+	});
+
+	it("does not create the trust marker when project config replacement fails", () => {
+		const invalidCwd = join(root, "invalid-config-repo");
+		mkdirSync(getCursorSdkProjectConfigPath(invalidCwd), { recursive: true });
+
+		expect(() => saveCursorSdkProjectConfig(invalidCwd, { runtime: "cloud" })).toThrow();
+		expect(existsSync(join(invalidCwd, ".pi", "settings.json"))).toBe(false);
 	});
 
 	it.skipIf(process.platform === "win32")("uses normal umask permissions for new project config files", () => {
@@ -141,6 +163,7 @@ describe("Cursor SDK config resolver", () => {
 		saveCursorSdkProjectConfig(newCwd, { runtime: "local" });
 
 		expect(statSync(getCursorSdkProjectConfigPath(newCwd)).mode & 0o777).toBe(0o666 & ~process.umask());
+		expect(JSON.parse(readFileSync(join(newCwd, ".pi", "settings.json"), "utf8"))).toEqual({});
 	});
 
 	it("preserves current fast precedence through the resolver", () => {
@@ -166,6 +189,9 @@ describe("Cursor SDK config resolver", () => {
 		writeFileSync(projectPath, JSON.stringify({ runtime: "cloud" }));
 
 		expect(loadCursorSdkConfig({ cwd, agentDir, projectTrusted: false })).toEqual({ user: {} });
+		expect(loadCursorSdkConfig({ cwd, agentDir, projectTrusted: true })).toEqual({ user: {} });
+
+		writeFileSync(join(cwd, ".pi", "settings.json"), "{}\n");
 		expect(loadCursorSdkConfig({ cwd, agentDir, projectTrusted: true })).toEqual({ user: {}, project: { runtime: "cloud" } });
 	});
 

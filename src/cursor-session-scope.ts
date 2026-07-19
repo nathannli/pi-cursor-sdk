@@ -1,4 +1,5 @@
 import type { ExtensionHandler, SessionInfoChangedEvent, SessionStartEvent } from "@earendil-works/pi-coding-agent";
+import { isCursorSdkProjectConfigTrusted } from "./cursor-config.js";
 import { truncateCursorDisplayLine } from "./cursor-display-text.js";
 
 interface CursorSessionScopeExtensionApi {
@@ -108,7 +109,7 @@ export function registerCursorSessionScope(pi: CursorSessionScopeExtensionApi): 
 			ctx.cwd,
 			ctx.sessionManager?.getSessionFile?.() ?? undefined,
 			ctx.sessionManager?.getSessionId?.() ?? undefined,
-			ctx.isProjectTrusted?.() === true,
+			isCursorSdkProjectConfigTrusted(ctx.cwd, ctx.isProjectTrusted?.() === true),
 			ctx.sessionManager?.getSessionName?.() ?? undefined,
 		);
 		if (previousScopeKey !== getCursorSessionScopeKey()) {

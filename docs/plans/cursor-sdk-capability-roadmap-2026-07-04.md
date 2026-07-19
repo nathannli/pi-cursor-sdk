@@ -1,6 +1,6 @@
 # Cursor SDK capability roadmap
 
-Status: **Active current-state capability ledger and remaining-work plan**. Reconciled 2026-07-18 against baseline `a2d574b` and installed `@cursor/sdk@1.0.23`.
+Status: **Active current-state capability ledger and remaining-work plan**. Historical reconciliation baseline: `a2d574b` on 2026-07-18. Implementation status refreshed 2026-07-19 against current source and installed `@cursor/sdk@1.0.23`.
 
 This document separates landed behavior, open work, deliberate product exclusions, and SDK/API contract gaps. Historical probes are context only; current source, tests, installed SDK types/source, and retained smoke evidence are the acceptance authorities.
 
@@ -117,7 +117,7 @@ Test anchors: `test/cursor-cloud-local-state.test.ts` covers starting-ref normal
 
 **Status: Implemented.**
 
-`test/cursor-project-trust-contract.test.ts` packs and extracts the extension, then launches the installed Pi CLI against that isolated provider with isolated agent/project directories and a project `.pi/cursor-sdk.json` in print, JSON, and RPC modes. A test-only wrapper in the extracted package records the canonical `session_start` scope and `resolveCursorProviderTurnConfig()` result. The matrix proves `--no-approve` keeps the provider on the built-in local runtime, explicit approval allows the project runtime to select cloud but not acknowledge it, automatic provider startup never calls UI confirmation, and each mode returns its documented process status. Its mocked provider assertion proves missing cloud acknowledgement fails before SDK create, resume, or send. No live cloud call is made.
+`test/cursor-project-trust-contract.test.ts` packs and extracts the extension, then launches the installed Pi CLI against that isolated provider with isolated agent/project directories and a project `.pi/cursor-sdk.json` in print, JSON, and RPC modes. A test-only wrapper in the extracted package records the canonical `session_start` scope and `resolveCursorProviderTurnConfig()` result. The matrix proves `--no-approve` keeps the provider on the built-in local runtime, explicit approval allows a Pi-recognized project resource to select cloud but not acknowledge it, and a standalone `.pi/cursor-sdk.json` remains ignored without a trust decision even when Pi's raw no-resource trust bit is true and user acknowledgement already exists. Automatic provider startup never calls UI confirmation, and each mode returns its documented process status. Project saves create `.pi/settings.json` when absent so subsequent starts use Pi's normal trust flow. The mocked provider assertion proves missing cloud acknowledgement fails before SDK create, resume, or send. No live cloud call is made by the contract proof.
 
 Source anchors: `src/cursor-session-scope.ts`, `src/cursor-config.ts`, `src/cursor-runtime-state.ts`, and cloud preflight in `src/cursor-provider-turn-prepare.ts` / `src/cursor-cloud-options.ts`.
 

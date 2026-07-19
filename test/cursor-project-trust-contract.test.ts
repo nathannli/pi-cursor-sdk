@@ -47,12 +47,19 @@ describe("non-interactive project trust CLI/provider contract", () => {
 		mkdirSync(packDir);
 		mkdirSync(extractDir);
 		const npmCli = process.env.npm_execpath;
-		if (!npmCli) throw new Error("npm_execpath is required for the packed CLI contract test");
-		const pack = spawnSync(process.execPath, [npmCli, "pack", "--silent", "--pack-destination", packDir], {
-			cwd: packageRoot,
-			encoding: "utf8",
-			timeout: 60_000,
-		});
+		const packArgs = ["pack", "--silent", "--pack-destination", packDir];
+		const pack = npmCli
+			? spawnSync(process.execPath, [npmCli, ...packArgs], {
+					cwd: packageRoot,
+					encoding: "utf8",
+					timeout: 60_000,
+				})
+			: spawnSync("npm", packArgs, {
+					cwd: packageRoot,
+					encoding: "utf8",
+					shell: process.platform === "win32",
+					timeout: 60_000,
+				});
 		expect(pack.error).toBeUndefined();
 		expect(pack.status, pack.stderr).toBe(0);
 		const tarballName = pack.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
@@ -117,7 +124,7 @@ export default async function (pi: any) {
 		if (fixtureRoot) rmSync(fixtureRoot, { recursive: true, force: true });
 	});
 
-	function runPi(mode: PiMode, trusted: boolean): { output: string; events: MarkerEvent[] } {
+	function runPi(mode: PiMode, trusted?: boolean): { output: string; events: MarkerEvent[] } {
 		const env = Object.fromEntries(
 			Object.entries(process.env).filter(([name]) => name !== "CURSOR_API_KEY" && !name.startsWith("PI_CURSOR_")),
 		);
@@ -130,7 +137,7 @@ export default async function (pi: any) {
 		});
 		const args = [
 			piCli,
-			trusted ? "--approve" : "--no-approve",
+			...(trusted === undefined ? [] : [trusted ? "--approve" : "--no-approve"]),
 			"-e",
 			probeExtensionPath,
 			"--model",
@@ -169,6 +176,7 @@ export default async function (pi: any) {
 		["json", false],
 		["rpc", true],
 	] as const)("ignores project cloud runtime under --no-approve in %s mode", (mode, hasUI) => {
+		writeFileSync(join(projectDir, ".pi", "settings.json"), "{}\n");
 		const { output, events } = runPi(mode, false);
 
 		expect(events).toContainEqual({ event: "session_start", mode, hasUI, trusted: false });
@@ -189,6 +197,7 @@ export default async function (pi: any) {
 		["json", false],
 		["rpc", true],
 	] as const)("excludes project cloud acknowledgement in approved %s mode", (mode, hasUI) => {
+		writeFileSync(join(projectDir, ".pi", "settings.json"), "{}\n");
 		const { output, events } = runPi(mode, true);
 
 		expect(events).toContainEqual({ event: "session_start", mode, hasUI, trusted: true });
@@ -203,7 +212,29 @@ export default async function (pi: any) {
 		expect(output).toContain("Cursor SDK runs require a Cursor SDK API key");
 	}, 30_000);
 
+	it.each([
+		["print", false],
+		["json", false],
+		["rpc", true],
+	] as const)("ignores standalone project cloud runtime without a trust decision in %s mode", (mode, hasUI) => {
+		writeFileSync(join(agentDir, "cursor-sdk.json"), JSON.stringify({ cloud: { acknowledged: true } }));
+		const { output, events } = runPi(mode);
+
+		expect(events).toContainEqual({ event: "session_start", mode, hasUI, trusted: true });
+		expect(events).toContainEqual({
+			event: "provider_config",
+			runtime: "local",
+			runtimeSource: "builtin",
+			acknowledged: true,
+			acknowledgementSource: "user",
+		});
+		expect(events).not.toEqual(expect.arrayContaining([expect.objectContaining({ event: "ui_confirm" })]));
+		expect(output).toContain("Cursor SDK runs require a Cursor SDK API key");
+		expect(output).not.toContain("Cursor cloud runtime requires first-use acknowledgement");
+	}, 30_000);
+
 	it("fails cloud preflight before SDK create or send when project acknowledgement is the only acknowledgement", async () => {
+		writeFileSync(join(projectDir, ".pi", "settings.json"), "{}\n");
 		cursorSessionScopeTestUtils.set(projectDir, join(runRoot, "session.jsonl"), "contract-session", true);
 		const send = vi.fn();
 		mockCreatedAgent({ send });
