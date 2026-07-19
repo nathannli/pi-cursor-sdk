@@ -10,6 +10,7 @@ import {
 	resolveCursorSdkAbortCause,
 	sanitizeCursorProviderError,
 } from "./cursor-provider-errors.js";
+import type { CursorRuntime } from "./cursor-config.js";
 import { CursorLiveRunAbortError } from "./cursor-live-run-coordinator.js";
 import {
 	buildIncompleteCursorToolRunOutcome,
@@ -70,6 +71,7 @@ export interface CursorRunFinalizerParams {
 	sdkEventDebug: () => CursorSdkEventDebugSink | undefined;
 	sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>;
 	resolvedApiKey: () => string | undefined;
+	runtimeTarget: () => CursorRuntime | undefined;
 }
 
 export interface StartCursorLiveRunCompletionParams {
@@ -112,7 +114,7 @@ export class CursorRunFinalizer {
 				if (!liveRun.disposed) {
 					cursorLiveRuns.markError(
 						liveRun,
-						sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? runnerParams.options?.apiKey),
+						sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? runnerParams.options?.apiKey, "local"),
 					);
 				}
 				this.safeCleanup(() => sdkEventDebug?.recordWaitResult({ status: "error", error: String(error) }));
@@ -212,7 +214,11 @@ export class CursorRunFinalizer {
 			this.pushTerminalError(
 				this.params.runnerParams.partial,
 				"error",
-				sanitizeCursorProviderError(error, this.params.resolvedApiKey() ?? this.params.runnerParams.options?.apiKey),
+				sanitizeCursorProviderError(
+					error,
+					this.params.resolvedApiKey() ?? this.params.runnerParams.options?.apiKey,
+					prepared?.runtimeTarget ?? this.params.runtimeTarget(),
+				),
 			);
 		}
 	}

@@ -82,6 +82,7 @@ describe("streamCursor prompt and model config", () => {
 		const root = mkdtempSync(join(tmpdir(), "pi-cursor-local-safety-"));
 		const cwd = join(root, "repo");
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
+		writeFileSync(join(cwd, ".pi", "settings.json"), "{}\n");
 		writeFileSync(join(cwd, ".pi", "cursor-sdk.json"), JSON.stringify({ local: { autoReview: true, sandboxOptions: { enabled: true } } }));
 		cursorSessionScopeTestUtils.set(cwd, "/tmp/session-local-safety.jsonl", "test-session", true);
 		mockCreatedAgent({

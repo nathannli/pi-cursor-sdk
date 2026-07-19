@@ -19,15 +19,14 @@ import {
 	CURSOR_LOCAL_RESUME_ENV,
 	CURSOR_RUNTIME_ENV,
 	CURSOR_SANDBOX_ENV,
+	getCursorSdkProjectConfigPath,
+	getCursorSdkUserConfigPath,
 	loadCursorSdkConfig,
-	loadCursorSdkProjectConfig,
-	loadCursorSdkUserConfig,
-	mergeCursorSdkConfig,
+	mergeCursorSdkConfigForUpdate,
 	parseCursorSdkConfig,
 	parseExplicitCursorCloudEnvNames,
 	resolveCursorSdkConfig,
-	saveCursorSdkProjectConfig,
-	saveCursorSdkUserConfig,
+	updateCursorSdkConfig,
 	type CursorExplicitSdkConfig,
 	type CursorResolvedSdkConfig,
 	type CursorResolvedSetting,
@@ -35,6 +34,7 @@ import {
 	type CursorSdkConfig,
 } from "./cursor-config.js";
 import { asRecord } from "./cursor-record-utils.js";
+import { getCursorSessionCwd, getCursorSessionProjectTrusted } from "./cursor-session-scope.js";
 
 export const CURSOR_RUNTIME_ENTRY_TYPE = "cursor-runtime-state";
 
@@ -57,7 +57,7 @@ export type CursorRuntimeStateExtensionApi = Pick<
 	"appendEntry" | "getFlag" | "registerFlag" | "registerCommand" | "on"
 >;
 
-type CursorRuntimeContext = Pick<ExtensionContext, "cwd"> & Partial<Pick<ExtensionContext, "isProjectTrusted">>;
+type CursorRuntimeContext = Pick<ExtensionContext, "cwd">;
 
 type CursorStatusRefresh = (ctx: ExtensionContext) => void;
 
@@ -147,7 +147,10 @@ export function resolveEffectiveCursorConfig(options: {
 }
 
 export function resolveEffectiveCursorConfigForContext(ctx: CursorRuntimeContext): CursorResolvedSdkConfig {
-	return resolveEffectiveCursorConfig({ cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted?.() === true });
+	return resolveEffectiveCursorConfig({
+		cwd: ctx.cwd,
+		projectTrusted: getCursorSessionCwd() === ctx.cwd && getCursorSessionProjectTrusted(),
+	});
 }
 
 export type CursorRuntimeResolution =
@@ -370,6 +373,13 @@ function registerCursorRuntimeCommand(
 				ctx.ui.notify(`${currentResolution.message} Fix the explicit override before changing the session runtime.`, "error");
 				return;
 			}
+			if (saveProject && (getCursorSessionCwd() !== ctx.cwd || !getCursorSessionProjectTrusted())) {
+				ctx.ui.notify(
+					"Cannot save Cursor project config without explicit project-trust provenance. Ensure .pi/settings.json or another Pi project resource exists, trust the project, then restart pi; or restart with --approve. Project-local package installs must use --approve on every run that reads or writes .pi/cursor-sdk.json.",
+					"error",
+				);
+				return;
+			}
 			const cloudAcknowledged = raw === "cloud" && await confirmCloudAcknowledgement(
 				ctx,
 				resolveEffectiveCursorConfigForContext(ctx).cloud.acknowledged.value,
@@ -378,14 +388,19 @@ function registerCursorRuntimeCommand(
 			if (saveUser || saveProject) {
 				try {
 					if (saveUser) {
-						const current = loadCursorSdkUserConfig();
-						saveCursorSdkUserConfig(mergeCursorSdkConfig(current, {
-							runtime: raw,
-							...(cloudAcknowledged ? { cloud: { acknowledged: true } } : {}),
-						}));
+						updateCursorSdkConfig(
+							getCursorSdkUserConfigPath(),
+							(current) => mergeCursorSdkConfigForUpdate(current, {
+								runtime: raw,
+								...(cloudAcknowledged ? { cloud: { acknowledged: true } } : {}),
+							}),
+							{ newFileMode: 0o600 },
+						);
 					} else {
-						const current = loadCursorSdkProjectConfig(ctx.cwd, true) ?? {};
-						saveCursorSdkProjectConfig(ctx.cwd, mergeCursorSdkConfig(current, { runtime: raw }));
+						updateCursorSdkConfig(
+							getCursorSdkProjectConfigPath(ctx.cwd),
+							(current) => mergeCursorSdkConfigForUpdate(current, { runtime: raw }),
+						);
 					}
 				} catch (error) {
 					const effectiveResolution = resolveCursorStatusRuntime(ctx);

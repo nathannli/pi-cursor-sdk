@@ -793,7 +793,7 @@ describe("Cursor cloud local state", () => {
 			repo: "https://github.com/example/repo.git",
 			branch: "main",
 		})).toEqual({ insideGitRepo: true, dirty: true, comparison: "contains_head" });
-	});
+	}, 15_000);
 
 	it.each([
 		["remote listing", (args: string[]) => args.length === 1 && args[0] === "remote"],

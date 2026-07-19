@@ -1,7 +1,8 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { join, resolve } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CURSOR_AUTO_REVIEW_ENV,
 	CURSOR_CLOUD_ALLOW_LOCAL_STATE_ENV,
@@ -22,14 +23,42 @@ import {
 	getCursorSdkProjectConfigPath,
 	getCursorSdkUserConfigPath,
 	loadCursorSdkConfig,
+	loadCursorSdkConfigForUpdate,
 	loadCursorSdkUserConfig,
 	mergeCursorSdkConfig,
 	resolveCursorFastDefault,
 	resolveCursorSdkConfig,
 	saveCursorSdkProjectConfig,
 	saveCursorSdkUserConfig,
+	updateCursorSdkConfig,
 	withCursorFastDefaults,
 } from "../src/cursor-config.js";
+
+function runConfigWriter(
+	path: string,
+	gatePath: string,
+	key: string,
+): Promise<{ code: number | null; output: string }> {
+	const child = spawn(
+		process.execPath,
+		[resolve("node_modules/vitest/vitest.mjs"), "run", "test/fixtures/cursor-config-writer.test.ts", "--reporter=dot"],
+		{
+			cwd: process.cwd(),
+			env: {
+				...process.env,
+				PI_CURSOR_CONFIG_WRITER_PATH: path,
+				PI_CURSOR_CONFIG_WRITER_GATE: gatePath,
+				PI_CURSOR_CONFIG_WRITER_KEY: key,
+			},
+		},
+	);
+	let output = "";
+	child.stdout?.on("data", (chunk) => { output += chunk; });
+	child.stderr?.on("data", (chunk) => { output += chunk; });
+	return new Promise((done) => {
+		child.on("close", (code) => done({ code, output }));
+	});
+}
 
 describe("Cursor SDK config resolver", () => {
 	let root: string;
@@ -160,13 +189,92 @@ describe("Cursor SDK config resolver", () => {
 		expect(resolveCursorFastDefault({ modelDefault: true })).toMatchObject({ value: true, source: "builtin" });
 	});
 
-	it("trust-gates project config loading through the caller's project trust state", () => {
+	it("loads project config only from the caller's snapshotted trust decision", () => {
 		const projectPath = getCursorSdkProjectConfigPath(cwd);
 		mkdirSync(join(cwd, ".pi"), { recursive: true });
 		writeFileSync(projectPath, JSON.stringify({ runtime: "cloud" }));
 
 		expect(loadCursorSdkConfig({ cwd, agentDir, projectTrusted: false })).toEqual({ user: {} });
 		expect(loadCursorSdkConfig({ cwd, agentDir, projectTrusted: true })).toEqual({ user: {}, project: { runtime: "cloud" } });
+	});
+
+	it("loads raw config objects for updates and rejects invalid files", () => {
+		const path = getCursorSdkUserConfigPath(agentDir);
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(path, JSON.stringify({ runtime: "local", future: { enabled: true } }));
+		expect(loadCursorSdkConfigForUpdate(path)).toEqual({ runtime: "local", future: { enabled: true } });
+
+		const sentinel = "PI_CURSOR_MALFORMED_SECRET";
+		writeFileSync(path, `{"secret":"${sentinel}`);
+		let malformedError: unknown;
+		try {
+			loadCursorSdkConfigForUpdate(path);
+		} catch (error) {
+			malformedError = error;
+		}
+		expect(malformedError).toBeInstanceOf(Error);
+		expect((malformedError as Error).message).toContain("Invalid JSON in Cursor SDK config");
+		expect((malformedError as Error).message).not.toContain(sentinel);
+		writeFileSync(path, "[]");
+		expect(() => loadCursorSdkConfigForUpdate(path)).toThrow("expected a JSON object");
+	});
+
+	it("serializes two process writers without losing unrelated fields", async () => {
+		const path = getCursorSdkUserConfigPath(agentDir);
+		const gatePath = join(root, "writer-gate");
+		const first = runConfigWriter(path, gatePath, "writerA");
+		const second = runConfigWriter(path, gatePath, "writerB");
+		await vi.waitFor(() => {
+			expect(existsSync(`${gatePath}.writerA.started`)).toBe(true);
+			expect(existsSync(`${gatePath}.writerB.started`)).toBe(true);
+			expect(
+				Number(existsSync(`${gatePath}.writerA.ready`)) + Number(existsSync(`${gatePath}.writerB.ready`)),
+			).toBe(1);
+		}, { timeout: 20_000, interval: 20 });
+		writeFileSync(gatePath, "go");
+		const results = await Promise.all([first, second]);
+		for (const result of results) expect(result.code, result.output).toBe(0);
+		expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ writerA: true, writerB: true });
+		expect(existsSync(`${path}.lock`)).toBe(false);
+	}, 60_000);
+
+	it("times out without changing config or removing an existing lock", () => {
+		const path = getCursorSdkUserConfigPath(agentDir);
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(path, '{"runtime":"local"}\n');
+		writeFileSync(`${path}.lock`, "existing");
+		try {
+			expect(() => updateCursorSdkConfig(path, (current) => ({ ...current, runtime: "cloud" }))).toThrow(
+				"Timed out waiting for Cursor SDK config lock",
+			);
+			expect(readFileSync(path, "utf8")).toBe('{"runtime":"local"}\n');
+			expect(readFileSync(`${path}.lock`, "utf8")).toBe("existing");
+		} finally {
+			rmSync(`${path}.lock`, { force: true });
+		}
+	}, 10_000);
+
+	it("cleans locks and temporary files on update, parse, and replacement failures", () => {
+		const path = getCursorSdkUserConfigPath(agentDir);
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(path, '{"runtime":"local"}\n');
+		expect(() => updateCursorSdkConfig(path, () => { throw new Error("update failed"); })).toThrow("update failed");
+		expect(readFileSync(path, "utf8")).toBe('{"runtime":"local"}\n');
+		expect(existsSync(`${path}.lock`)).toBe(false);
+
+		writeFileSync(path, "{invalid");
+		expect(() => updateCursorSdkConfig(path, (current) => current)).toThrow("Invalid JSON in Cursor SDK config");
+		expect(readFileSync(path, "utf8")).toBe("{invalid");
+		expect(existsSync(`${path}.lock`)).toBe(false);
+
+		writeFileSync(path, '{}\n');
+		expect(() => updateCursorSdkConfig(path, (current) => {
+			rmSync(path);
+			mkdirSync(path);
+			return { ...current, runtime: "cloud" };
+		})).toThrow();
+		expect(existsSync(`${path}.lock`)).toBe(false);
+		expect(readdirSync(agentDir).filter((name) => name.includes(".tmp"))).toEqual([]);
 	});
 
 	it("keeps explicit env safety allows above project defaults", () => {

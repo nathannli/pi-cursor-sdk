@@ -57,6 +57,7 @@ export function buildCursorRunOutcomeFromWait(params: BuildCursorRunOutcomeParam
 		runErrorFallback: params.runErrorFallback,
 		resolvedApiKey: params.resolvedApiKey,
 		optionsApiKey: params.optionsApiKey,
+		runtimeTarget: prepared.runtimeTarget,
 	});
 }
 
