@@ -38,6 +38,9 @@ function createMockAgent(): SDKAgent {
 }
 
 vi.mock("@cursor/sdk", () => ({
+	Cursor: {
+		configure: vi.fn(),
+	},
 	Agent: {
 		create: vi.fn().mockResolvedValue(createMockAgent()),
 	},
@@ -46,13 +49,14 @@ vi.mock("@cursor/sdk", () => ({
 	}),
 }));
 
-import { Agent, type SDKAgent } from "@cursor/sdk";
+import { Agent, Cursor, type SDKAgent } from "@cursor/sdk";
 import extensionFactory from "../src/index.js";
 import { discoverModels } from "../src/model-discovery.js";
 import { __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
 import { streamCursorLazy } from "../src/cursor-provider-lazy.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
 import { __testUtils as cursorPiToolBridgeTestUtils } from "../src/cursor-pi-tool-bridge.js";
+import { __testUtils as cursorHttp1TestUtils } from "../src/cursor-http1.js";
 import {
 	collectEvents,
 	createExtensionRegistrationPi,
@@ -63,6 +67,7 @@ import {
 
 const mockedDiscover = vi.mocked(discoverModels);
 const mockedAgentCreate = vi.mocked(Agent.create);
+const mockedCursorConfigure = vi.mocked(Cursor.configure);
 
 describe("extension session cwd integration", () => {
 	beforeEach(async () => {
@@ -71,6 +76,8 @@ describe("extension session cwd integration", () => {
 		delete process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY;
 		delete process.env.PI_CURSOR_REGISTER_NATIVE_TOOLS;
 		delete process.env.PI_CURSOR_SETTING_SOURCES;
+		delete process.env.PI_CURSOR_HTTP_1_1;
+		cursorHttp1TestUtils.reset();
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		cursorSessionScopeTestUtils.reset();
 		mockedAgentCreate.mockResolvedValue(createMockAgent());
@@ -102,6 +109,7 @@ describe("extension session cwd integration", () => {
 					local: { cwd: sessionDir, settingSources: ["all"] },
 				}),
 			);
+			expect(mockedCursorConfigure).not.toHaveBeenCalled();
 		} finally {
 			rmSync(sessionDir, { recursive: true, force: true });
 		}

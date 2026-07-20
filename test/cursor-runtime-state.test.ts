@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { CURSOR_HTTP1_ENV } from "../src/cursor-config.js";
 import {
 	__testUtils,
 	getCursorCliConfig,
@@ -29,12 +30,13 @@ import {
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
 
-const CLOUD_ENV_NAMES = [
+const RUNTIME_ENV_NAMES = [
 	"PI_CURSOR_RUNTIME",
 	"PI_CURSOR_CLOUD_CONTEXT",
 	"PI_CURSOR_CLOUD_AUTO_CREATE_PR",
 	"PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST",
 	"PI_CURSOR_CLOUD_ACK",
+	CURSOR_HTTP1_ENV,
 ] as const;
 
 function createCursorRuntimeHarness(options: {
@@ -97,7 +99,7 @@ describe("Cursor cloud runtime state", () => {
 	beforeEach(() => {
 		tmpAgentDir = mkdtempSync(join(tmpdir(), "pi-cursor-runtime-state-"));
 		process.env.PI_CODING_AGENT_DIR = tmpAgentDir;
-		for (const name of CLOUD_ENV_NAMES) {
+		for (const name of RUNTIME_ENV_NAMES) {
 			originalEnv.set(name, process.env[name]);
 			delete process.env[name];
 		}
@@ -120,7 +122,7 @@ describe("Cursor cloud runtime state", () => {
 	afterEach(() => {
 		if (originalAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = originalAgentDir;
-		for (const name of CLOUD_ENV_NAMES) {
+		for (const name of RUNTIME_ENV_NAMES) {
 			const value = originalEnv.get(name);
 			if (value === undefined) delete process.env[name];
 			else process.env[name] = value;

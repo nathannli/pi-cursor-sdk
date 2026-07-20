@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelListItem } from "@cursor/sdk";
 import { SessionManager, type ExtensionContext, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { CURSOR_HTTP1_ENV } from "../src/cursor-config.js";
 import {
 	__testUtils,
 	getEffectiveFastForModelId,
@@ -65,10 +66,12 @@ function createFastHarness(options: { modelId?: string; branch?: SessionEntry[] 
 describe("Cursor fast preference persistence", () => {
 	let tmpAgentDir: string;
 	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const originalHttp1Env = process.env[CURSOR_HTTP1_ENV];
 
 	beforeEach(() => {
 		tmpAgentDir = mkdtempSync(join(tmpdir(), "pi-cursor-fast-persistence-"));
 		process.env.PI_CODING_AGENT_DIR = tmpAgentDir;
+		delete process.env[CURSOR_HTTP1_ENV];
 		__testUtils.sessionFastPreferences.clear();
 		__testUtils.resetCursorModeStateForTests();
 		modelDiscoveryTestUtils.registerModelItems(modelItems);
@@ -80,6 +83,8 @@ describe("Cursor fast preference persistence", () => {
 		} else {
 			process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 		}
+		if (originalHttp1Env === undefined) delete process.env[CURSOR_HTTP1_ENV];
+		else process.env[CURSOR_HTTP1_ENV] = originalHttp1Env;
 		rmSync(tmpAgentDir, { recursive: true, force: true });
 		vi.clearAllMocks();
 	});

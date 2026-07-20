@@ -15,6 +15,7 @@ import {
 import { __testUtils as modelDiscoveryTestUtils } from "../src/model-discovery.js";
 import type { ModelListItem } from "@cursor/sdk";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { CURSOR_HTTP1_ENV } from "../src/cursor-config.js";
 import {
 	createExtensionCommandContext,
 	createExtensionTestContext,
@@ -128,10 +129,12 @@ function createCursorRuntimeHarness(options: {
 describe("Cursor runtime state", () => {
 	let tmpAgentDir: string;
 	const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const originalHttp1Env = process.env[CURSOR_HTTP1_ENV];
 
 	beforeEach(() => {
 		tmpAgentDir = mkdtempSync(join(tmpdir(), "pi-cursor-state-"));
 		process.env.PI_CODING_AGENT_DIR = tmpAgentDir;
+		delete process.env[CURSOR_HTTP1_ENV];
 		__testUtils.sessionFastPreferences.clear();
 		__testUtils.resetCursorModeStateForTests();
 		modelDiscoveryTestUtils.registerModelItems(modelItems);
@@ -143,6 +146,8 @@ describe("Cursor runtime state", () => {
 		} else {
 			process.env.PI_CODING_AGENT_DIR = originalAgentDir;
 		}
+		if (originalHttp1Env === undefined) delete process.env[CURSOR_HTTP1_ENV];
+		else process.env[CURSOR_HTTP1_ENV] = originalHttp1Env;
 		rmSync(tmpAgentDir, { recursive: true, force: true });
 		vi.clearAllMocks();
 	});
