@@ -54,6 +54,24 @@ function isCursorSdkWriteIterableClosedError(error: unknown): boolean {
 	);
 }
 
+// The Cursor SDK aborts an in-flight controlled-exec turn via its internal
+// `AbortController.abort()` (user interrupt or stall-detector cancellation),
+// which surfaces as a raw `DOMException [AbortError]` rather than a
+// `ConnectError`. `classifyCursorConnectError` returns undefined for it, so it
+// otherwise falls through the emit patch and terminates the process. A
+// DOMException is not `instanceof Error`, so match structurally on the
+// `AbortError` name plus the same `@cursor/sdk/dist` stack provenance the
+// WriteIterableClosedError recognizer uses, keeping unrelated AbortErrors fatal.
+function isCursorSdkAbortError(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const { name, stack } = error as { name?: unknown; stack?: unknown };
+	return (
+		name === "AbortError" &&
+		typeof stack === "string" &&
+		/(?:^|[\\/])node_modules[\\/]@cursor[\\/]sdk[\\/]dist[\\/]/.test(stack)
+	);
+}
+
 // The exact observed incident: the Cursor SDK 1.0.23 local shell executor writes a
 // spawned child's stdin without a stream 'error' listener, so a child exiting while
 // a write is in flight surfaces a raw `write EPIPE` uncaught exception whose stack
@@ -95,6 +113,7 @@ function shouldSuppressProcessError(event: string | symbol, args: readonly unkno
 		return containLocalTransportClosedPipeError();
 	}
 	if (isCursorSdkWriteIterableClosedError(error)) return activeSessions.size > 0;
+	if (isCursorSdkAbortError(error)) return hasActiveAbortSuppression();
 	const classification = classifyCursorConnectError(error);
 	if (!classification) return false;
 	if (classification.kind === "abort") return hasActiveAbortSuppression();
