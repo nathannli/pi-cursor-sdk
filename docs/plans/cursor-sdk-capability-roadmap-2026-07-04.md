@@ -91,9 +91,9 @@ Automatic provider startup in print/JSON/RPC does not prompt and fails closed wh
 | Remote Pi bridge | **Intentionally deferred/rejected** | No approved public endpoint, per-run auth, tool allowlist, trust model, cancellation, redaction, or cleanup contract exists. Cloud must not depend on it. |
 | Cloud-specific auth/integration remediation | **Implemented** | `src/cursor-provider-errors.ts` preserves scrubbed HTTPS integration remediation and distinguishes Cloud API authentication while retaining local handling; runtime provenance is threaded by the turn runner/finalization path. Coverage: `test/cursor-provider-errors.test.ts`, `test/cursor-provider-stream-auth.test.ts`, `test/cursor-provider-run-outcome.test.ts`. |
 | PR controls beyond direct push (`autoCreatePR`, `skipReviewerRequest`) | **Implemented** | Strictly opt-in CLI/environment/user inputs resolve through the CLI/environment/session/user source order and map to SDK cloud options only when explicitly set; no PR-control session command is exposed, project config is excluded, and unset options remain omitted. Anchors: `src/cursor-config.ts`, `src/cursor-runtime-state.ts`, `src/cursor-cloud-options.ts`, focused config/option/provider/registration tests, and `docs/evidence/cursor-cloud-pr-controls-2026-07-19.md`. |
-| Minimal cloud runtime and fresh/bootstrap smoke scripts | **Implemented** | `scripts/cloud-runtime-smoke.mjs`, `package.json`, and `docs/platform-smoke.md` define `smoke:cloud` and `smoke:cloud:context`, assertions, and archival verification. There is no retained tracked cloud smoke report at the reconciled baseline. |
-| Expanded repo/ref/direct-push/missing-branch/cancel/delete/artifact/usage smoke matrix | **Still open** | P2.6 defines durable release-evidence acceptance. |
-| Cloud activity-card fixture and visual contract | **Still open** | Shared coordinator wiring exists, but no cloud-specific retained tool/activity fixture or visual assertion exists. P2.7 defines acceptance. |
+| Required cloud runtime matrix and optional fresh/bootstrap context proof | **Implemented** | `scripts/cloud-runtime-smoke.mjs`, `package.json`, and `docs/platform-smoke.md` keep no-flag `smoke:cloud` as the release gate and `smoke:cloud:context` as optional context proof. Both use persisted sessions and fail-closed verified agent cleanup. |
+| Expanded repo/ref/direct-push/missing-branch/cancel/delete/artifact/usage smoke matrix | **Implemented** | `scripts/cloud-runtime-smoke.mjs` plus focused GitHub/cleanup helpers self-create/seed/delete a private GitHub repository, run the named required lanes, verify exact metadata/lifecycle IDs (including retained cancel run-ID source and installed-SDK `Agent.listRuns()` recovery), remote/API outcomes, archive+delete cleanup, and atomically write sanitized provenance-bearing `docs/evidence/cursor-cloud-smoke-matrix-latest.json` only after a successful no-flag run. Offline contracts: `test/cloud-smoke-helpers.test.ts`, `test/cursor-sdk-cloud-list-runs-contract.test.ts`, `test/smoke-tooling.test.ts`, `test/smoke-cli-package-contracts.test.ts`, `test/maintainer-scripts-declarations.test.ts`. |
+| Cloud activity-card fixture and visual contract | **Implemented** | Normalized installed-SDK capture: `test/fixtures/cursor-cloud-activity-callbacks-2026-07-19.json`; actual cloud prepare/send/coordinator coverage plus installed Pi `AssistantMessageComponent` fixed-width render assertion: `test/cursor-provider-cloud-activity.test.ts`; retained provenance and cleanup proof: `docs/evidence/cursor-cloud-activity-callbacks-2026-07-19.md`. |
 | Default Pi-tool transport via SDK `local.customTools` | **Blocked on SDK/API** | Missing contract: `SDKCustomToolContext` provides no `AbortSignal`, deadline, or cancellation channel. Revisit only if the SDK adds them or Pi accepts an adapter owning aborts, timeouts, child cleanup, diagnostics, permissions, and platform-smoke parity. The loopback MCP bridge remains canonical. |
 | Guarded branch-scoped local `Agent.resume()` and recorded-ID cleanup | **Implemented** | `src/cursor-session-agent.ts`, `src/cursor-session-agent-resume.ts`, `src/cursor-session-agent-cleanup.ts`; session-agent resume/cleanup tests and `npm run smoke:platform:all` lanes cover restart, tree, compaction, copy/fork, tool-surface, abort, fallback, opt-out, and cleanup. |
 | Automatic local force recovery | **Intentionally deferred/rejected** | Manual `--cursor-local-force` is implemented. Automatic recovery lacks Pi ownership, heartbeat/staleness proof, active-run status, stable idempotency, and cross-handle cleanup guarantees. |
@@ -159,31 +159,21 @@ Likely anchors after the contract exists: `src/model-discovery.ts`, `src/cursor-
 
 ### P2.6 — Expanded cloud smoke matrix
 
-**Status: Still open.**
+**Status: Implemented.**
 
-Highest-value lanes: cancel; explicit repo plus `startingRef` branch/PR; direct-push opt-in; missing branch; lifecycle delete; passive artifacts and raw usage when account output exists.
+The no-flag `npm run smoke:cloud` release gate now self-creates one private GitHub throwaway repository, seeds clean `main`, `starting-ref`, and `direct-push` branches, and runs named cancel, explicit repo/starting-ref branch/PR reporting, direct-push, missing-branch fail-closed, persisted-session lifecycle delete, and account-conditional artifact/raw-usage observation lanes with `cursor/composer-2-5`. The branch lane independently verifies a distinct pushed branch's remote content and ancestry from `starting-ref`, records whether the SDK returned branch metadata, and validates returned PR URLs when the account returns one. Compatible observations share runs to bound paid calls. The optional `npm run smoke:cloud:context` split remains unchanged in purpose.
 
-Acceptance criteria:
+Every created path harvests exact agent/run IDs from provider metadata and canonical lifecycle JSONL/journals. Final cleanup archives every still-existing union member, verifies `archived: true`, deletes it, then requires `Agent.get` not-found/404 and archived-inclusive list exclusion. Lifecycle delete receives the same independent checks. Repository deletion runs in `finally` and must independently return authenticated HTTP 404. Missing credentials, `gh` capability, entitlement, integration/repository access, required output, cancellation/lifecycle proof, agent cleanup, or repository cleanup fails the gate and retains raw temporary artifacts.
 
-- Capture exact agent/run IDs.
-- Archive/delete every throwaway agent and verify cleanup.
-- Retain a sanitized report separately from secret-bearing raw artifacts.
-- Treat missing credentials, entitlements, cleanup proof, or required output as a failed release gate, not a passing skip.
-
-Likely anchors: `scripts/cloud-runtime-smoke.mjs`, `docs/platform-smoke.md`.
+A successful no-flag run secret-scans and atomically writes the known-shape `docs/evidence/cursor-cloud-smoke-matrix-latest.json` before removing raw artifacts; failures preserve the prior tracked summary. The retained summary includes evidence provenance: extension package version, installed `@cursor/sdk` version, git source revision, and `packageSourceSha256` over the full published package/`package.json` surface (not a manual three-file list; generated evidence is excluded). On uncommitted pre-commit checkouts the package-source hash is authoritative and revision is baseline identity. Throwaway GitHub repos use UUID names plus ownership-marker descriptions; cleanup handles are exposed only after ownership is established, and delete rejects non-owned handles. Raw-run projection and persisted-evidence validation are separate explicit six-lane/cleanup/provenance allowlists with complete lane-agent cleanup coverage and idempotent round-trip checks. Offline resource coordination is injectable via `coordinateCloudSmokeReleaseGate()`; concrete lanes stay in the entrypoint. Source and contract anchors: `scripts/cloud-runtime-smoke.mjs`, `scripts/cloud-runtime-smoke.d.mts`, `scripts/lib/cloud-smoke-*.mjs`, `docs/platform-smoke.md`, `test/cloud-smoke-helpers.test.ts`, `test/cursor-sdk-cloud-list-runs-contract.test.ts`, `test/smoke-tooling.test.ts`, `test/smoke-cli-package-contracts.test.ts`, and `test/maintainer-scripts-declarations.test.ts`.
 
 ### P2.7 — Cloud activity-card contract check
 
-**Status: Still open.**
+**Status: Implemented.**
 
-Acceptance criteria:
+`test/fixtures/cursor-cloud-activity-callbacks-2026-07-19.json` retains a normalized, secret-free excerpt of the installed `@cursor/sdk@1.0.23` cloud capture with read, shell, and task activity across both callback channels. The fixture contract asserts installed SDK version equality, exact source `bc-*` / `run-*` IDs, source callback counts exceeding the retained excerpt, terminal `finished`, and cleanup `archived` / `deleted` / `getNotFound` / `listExcluded` all true. `test/cursor-provider-cloud-activity.test.ts` feeds that fixture through `streamCursor()`'s actual cloud `Agent.create()` / `send()` path and shared `CursorSdkTurnCoordinator`, deliberately enables ambient local native-display/bridge settings, and asserts bounded traces/final output with no local/MCP create/send assumptions, Pi tool-call/native replay cards, or live-run `toolUse` leak. It also initializes the installed Pi built-in `dark` theme without a watcher (`initTheme("dark", false)`), renders the actual `done.message` through installed Pi `AssistantMessageComponent` at fixed width 80, asserts every line's `visibleWidth` stays within width with a bounded line count, and checks representative read/shell/task/final activity with no bridge/native-replay leakage. This is a real renderer contract against the pinned Pi dev dependency, not PNG/screenshot evidence.
 
-- Capture a cloud `onDelta` / `onStep` fixture exercising shell, task, and tool activity through the shared coordinator.
-- Assert bounded TUI/print output.
-- Assert that no local bridge or native-replay assumption leaks into cloud mode.
-- Retain visual/contract evidence suitable for release review.
-
-Likely anchors: provider turn prepare/send/coordinator modules and cloud provider tests.
+Current source anchors are `prepareCursorCloudProviderTurn()` in `src/cursor-provider-turn-prepare.ts` (cloud coordinator with native replay and bridge disabled), `sendCursorProviderTurn()` in `src/cursor-provider-turn-send.ts` (`onDelta` / `onStep` forwarding), and `CursorSdkTurnCoordinator.handleDelta()` / `.handleStep()` in `src/cursor-provider-turn-coordinator.ts` (tool activity normalization/routing). Capture provenance and exact agent cleanup proof are retained at `docs/evidence/cursor-cloud-activity-callbacks-2026-07-19.md`; no raw debug path is retained.
 
 ## Historical probe context
 
@@ -210,7 +200,7 @@ Retained local evidence remains current only for its named local contracts, incl
 - `src/cursor-provider-turn-finalize.ts` — successful cloud reporting and outcome finalization.
 - `src/cursor-cloud-reporting.ts` — bounded branch/PR/artifact/raw-usage display reporting.
 - `src/cursor-cloud-lifecycle.ts` — durable branch ledger and exact recorded-ID lifecycle commands.
-- `scripts/cloud-runtime-smoke.mjs` — minimal runtime/context smoke and archival verification.
+- `scripts/cloud-runtime-smoke.mjs` — required expanded cloud matrix, optional context proof, retained sanitized summary, and archive/delete verification.
 - `src/cursor-session-agent.ts` and local resume/lifecycle/cleanup modules — local pooling and guarded resume.
 - `src/cursor-pi-tool-bridge-run.ts` and `src/cursor-pi-tool-bridge-snapshot.ts` — canonical local Pi-tool transport.
 - `src/cursor-skill-tool.ts` — removes Pi skill metadata from the cloud system prompt.

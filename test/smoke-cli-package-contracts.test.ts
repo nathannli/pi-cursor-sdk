@@ -68,6 +68,9 @@ describe("smoke CLI and package contracts", () => {
 		expect(platformLiveHelp.stdout).toContain("--prep-dir");
 		expect(cloudHelp.status).toBe(0);
 		expect(cloudHelp.stdout).toContain("--context-matrix");
+		expect(cloudHelp.stdout).toContain("private throwaway GitHub repository");
+		expect(cloudHelp.stdout).toContain("direct push");
+		expect(cloudHelp.stdout).toContain("lifecycle delete");
 		expect(cloudHelp.stdout).toContain("2  invalid command-line usage");
 		expect(localResumeHelp.status).toBe(0);
 		expect(localResumeHelp.stdout).toContain("smoke:local-resume");
@@ -127,11 +130,32 @@ describe("smoke CLI and package contracts", () => {
 		}
 	});
 
-	it("runs paid cloud smoke in a persisted session", () => {
+	it("keeps the required paid cloud matrix CLI contract and helper surface", () => {
 		const source = readFileSync("scripts/cloud-runtime-smoke.mjs", "utf8");
+		const help = run(process.execPath, ["scripts/cloud-runtime-smoke.mjs", "--help"]);
+		expect(help.status).toBe(0);
+		expect(help.stdout).toContain("npm run smoke:cloud");
+		expect(help.stdout).toContain("--context-matrix");
+		expect(help.stdout).toContain("CURSOR_API_KEY");
 		expect(source).toContain('"--session-dir"');
 		expect(source).toContain('"--session-id"');
 		expect(source).not.toContain('"--no-session"');
+		for (const anchor of [
+			"runCancelLane",
+			"runBranchAndLifecycleLane",
+			"runDirectPushLane",
+			"runMissingBranchLane",
+			"accountConditionalLane",
+			"coordinateCloudSmokeReleaseGate",
+			"deleteThrowawayRepository",
+			"cursor-cloud-smoke-matrix-latest.json",
+			"buildCloudSmokeEvidenceProvenance",
+			"projectCloudSmokeMatrixEvidence",
+			"listCloudSmokePackageSourcePaths",
+		]) expect(source, anchor).toContain(anchor);
+		// Helper modules are loaded by the entrypoint; CLI contract stays source-shape only.
+		expect(source).toContain('from "./lib/cloud-smoke-cleanup-evidence.mjs"');
+		expect(source).toContain('from "./lib/cloud-smoke-github.mjs"');
 	});
 
 	it("rejects paid smoke typos and repeated or conflicting lanes before auth or runs", () => {
@@ -299,6 +323,10 @@ if (!windows.includes("for($i=0;$i -lt 10") || !windows.includes("$w=$e.Replace(
 		expect(paths.has("shared/cursor-sensitive-text.mjs")).toBe(true);
 		expect(paths.has("shared/cursor-sensitive-text.d.mts")).toBe(true);
 		expect(paths.has("scripts/lib/local-resume-smoke-harness.mjs")).toBe(true);
+		expect(paths.has("scripts/lib/cloud-smoke-cleanup-evidence.mjs")).toBe(true);
+		expect(paths.has("scripts/lib/cloud-smoke-cleanup-evidence.d.mts")).toBe(true);
+		expect(paths.has("scripts/lib/cloud-smoke-github.mjs")).toBe(true);
+		expect(paths.has("scripts/lib/cloud-smoke-github.d.mts")).toBe(true);
 		expect(paths.has("scripts/lib/cursor-smoke-env.mjs")).toBe(true);
 		expect(paths.has("scripts/lib/cursor-smoke-env.d.mts")).toBe(true);
 		expect(paths.has("scripts/lib/cursor-smoke-shell.sh")).toBe(true);

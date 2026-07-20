@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "timestamp": "2026-07-20T01:26:31.556Z",
+  "model": "cursor/composer-2-5",
+  "provenance": {
+    "extensionVersion": "0.1.60",
+    "cursorSdkVersion": "1.0.23",
+    "gitRevision": "3c7d8c47b4802b79529255f6c0e42f966d3066c0",
+    "packageSourceSha256": "5d265d83bf1a7fd6c2a6f841efca00c37a9f9bc33aa02f3d0fb6f4cb8edeecf4"
+  },
+  "lanes": [
+    {
+      "name": "cancel",
+      "status": "passed",
+      "agentId": "bc-d8558a40-66e7-4a78-b455-2b5509ee9933",
+      "runId": "run-da31e431-fc71-414a-b485-126630f4cfc2",
+      "runIdSource": "metadata",
+      "terminalStatus": "cancelled",
+      "idsCapturedBeforeAbort": true
+    },
+    {
+      "name": "explicit-https-repo-starting-ref-branch-pr-reporting",
+      "status": "passed",
+      "agentId": "bc-ac3435c9-23ab-4035-aa88-09b10ff1d2bb",
+      "runId": "run-8ca59fb3-0ecb-44f9-bf3f-41cfa58799f1",
+      "branchReportObserved": false,
+      "startingRefAncestryVerified": true,
+      "remoteContentVerified": true,
+      "prUrlReturned": false,
+      "branches": [],
+      "artifactsObserved": false,
+      "rawUsageObserved": true
+    },
+    {
+      "name": "lifecycle-delete",
+      "status": "passed",
+      "agentId": "bc-ac3435c9-23ab-4035-aa88-09b10ff1d2bb",
+      "runId": "run-8ca59fb3-0ecb-44f9-bf3f-41cfa58799f1",
+      "lifecycleDeleteVerified": true
+    },
+    {
+      "name": "direct-push-opt-in",
+      "status": "passed",
+      "agentId": "bc-b32eba9a-19ef-4371-9222-4b6d1375c7a5",
+      "runId": "run-916e67bb-bcc4-4bcf-955e-704cd16a0fa7",
+      "remoteContentChanged": true,
+      "branches": [
+        {
+          "branch": "direct-push",
+          "prUrl": null
+        }
+      ],
+      "artifactsObserved": false,
+      "rawUsageObserved": true
+    },
+    {
+      "name": "missing-branch-failure",
+      "status": "passed",
+      "expectedFailureObserved": true,
+      "agentIds": [
+        "bc-534f4deb-ebf3-4ee9-85e9-93c67ec11215"
+      ]
+    },
+    {
+      "name": "passive-artifacts-and-raw-usage",
+      "status": "passed",
+      "artifactsObserved": false,
+      "rawUsageObserved": true,
+      "observationsValidated": true
+    }
+  ],
+  "cleanup": [
+    {
+      "agentId": "bc-d8558a40-66e7-4a78-b455-2b5509ee9933",
+      "archived": true,
+      "deleted": true,
+      "listExcluded": true
+    },
+    {
+      "agentId": "bc-ac3435c9-23ab-4035-aa88-09b10ff1d2bb",
+      "alreadyDeleted": true,
+      "archiveRequired": false,
+      "deleted": true,
+      "listExcluded": true
+    },
+    {
+      "agentId": "bc-b32eba9a-19ef-4371-9222-4b6d1375c7a5",
+      "archived": true,
+      "deleted": true,
+      "listExcluded": true
+    },
+    {
+      "agentId": "bc-534f4deb-ebf3-4ee9-85e9-93c67ec11215",
+      "alreadyDeleted": true,
+      "archiveRequired": false,
+      "deleted": true,
+      "listExcluded": true
+    }
+  ],
+  "throwawayRepository": {
+    "name": "fitchmultz/pi-cursor-cloud-smoke-c04b539b-6657-46f7-9b0c-5e26b8b255bf",
+    "deleted": true,
+    "httpStatus": 404
+  }
+}

@@ -1,0 +1,569 @@
+import { readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import {
+	assertCloudSmokeEvidenceSafe,
+	buildCloudSmokeEvidenceProvenance,
+	cleanupCloudAgent,
+	coordinateCloudSmokeReleaseGate,
+	listCloudSmokePackageSourcePaths,
+	projectCloudSmokeMatrixEvidence,
+	validateCloudSmokeMatrixEvidence,
+} from "../scripts/lib/cloud-smoke-cleanup-evidence.mjs";
+import {
+	assertOwnedThrowawayRepositoryHandle,
+	cloudSmokeRepositoryDescription,
+	createThrowawayRepository,
+	deleteThrowawayRepository,
+	normalizeCloudSmokeGitHubRepo,
+	validatePrUrl,
+} from "../scripts/lib/cloud-smoke-github.mjs";
+
+const agentId = "bc-00000000-0000-0000-0000-000000000099";
+const ownershipToken = "11111111-2222-4333-8444-555555555555";
+const ownedFullName = `owner/pi-cursor-cloud-smoke-${ownershipToken}`;
+const ownedDescription = cloudSmokeRepositoryDescription(ownershipToken);
+const ownedRepo = {
+	fullName: ownedFullName,
+	repoUrl: `https://github.com/${ownedFullName}.git`,
+	seedDir: "/tmp/seed",
+	ownershipToken,
+	description: ownedDescription,
+};
+
+describe("cloud smoke helper contracts", () => {
+	it("fail-closes cloud agent cleanup", async () => {
+		const Agent = {
+			get: async () => ({ archived: false }),
+			archive: async () => undefined,
+			delete: async () => undefined,
+			list: async () => ({ items: [{ agentId }], nextCursor: undefined }),
+		};
+		let getCalls = 0;
+		Agent.get = async () => {
+			getCalls += 1;
+			if (getCalls === 1) return { archived: false };
+			if (getCalls === 2) return { archived: true };
+			const error = new Error("agent_not_found");
+			(error as Error & { code?: string }).code = "AgentNotFound";
+			throw error;
+		};
+		await expect(cleanupCloudAgent(Agent, agentId, { apiKey: "test-key" })).rejects.toThrow(/remained in Agent\.list/);
+
+		getCalls = 0;
+		Agent.list = async () => ({ items: [], nextCursor: undefined });
+		await expect(cleanupCloudAgent(Agent, agentId, { apiKey: "test-key" })).resolves.toEqual({
+			agentId,
+			archived: true,
+			deleted: true,
+			listExcluded: true,
+		});
+
+		const alreadyGone = {
+			get: async () => {
+				const error = new Error("404");
+				(error as Error & { status?: number }).status = 404;
+				throw error;
+			},
+			archive: async () => undefined,
+			delete: async () => undefined,
+			list: async () => ({ items: [], nextCursor: undefined }),
+		};
+		await expect(cleanupCloudAgent(alreadyGone, agentId, { apiKey: "test-key" })).resolves.toMatchObject({
+			alreadyDeleted: true,
+			deleted: true,
+			listExcluded: true,
+		});
+	});
+
+	it("requires exact ownership and explicit HTTP 404 for repository cleanup", () => {
+		expect(() => assertOwnedThrowawayRepositoryHandle({ fullName: "owner/repo" })).toThrow(/ownership token/);
+		expect(() => deleteThrowawayRepository(
+			{ fullName: "owner/repo", ownershipToken: "not-a-uuid", description: "nope" },
+			{ runCommand: () => "", spawnSync: () => ({ status: 0, stdout: "", stderr: "" }) as never },
+		)).toThrow(/ownership token|pi-cursor-cloud-smoke/);
+		expect(() => deleteThrowawayRepository(
+			{ fullName: "owner/pre-existing-repo", ownershipToken, description: ownedDescription },
+			{ runCommand: () => "", spawnSync: () => ({ status: 0, stdout: "", stderr: "" }) as never },
+		)).toThrow(/pi-cursor-cloud-smoke/);
+
+		const deletedCommands: string[] = [];
+		expect(deleteThrowawayRepository(ownedRepo, {
+			runCommand: (name, args) => {
+				deletedCommands.push([name, ...args].join(" "));
+				if (name === "gh" && args[0] === "repo" && args[1] === "view") {
+					return JSON.stringify({ isPrivate: true, description: ownedDescription });
+				}
+				return "";
+			},
+			spawnSync: () => ({ status: 1, stdout: "HTTP/2 404", stderr: "" }) as never,
+		})).toEqual({ deleted: true, httpStatus: 404 });
+		expect(deletedCommands.some((line) => line.includes("repo delete"))).toBe(true);
+
+		const transientProbes = [
+			{ status: 1, stdout: "HTTP/2 503", stderr: "service unavailable" },
+			{ status: 1, stdout: "HTTP/2 404", stderr: "not found" },
+		];
+		const retrySleep = vi.fn();
+		expect(deleteThrowawayRepository(ownedRepo, {
+			runCommand: (name, args) => {
+				if (name === "gh" && args[0] === "repo" && args[1] === "view") {
+					return JSON.stringify({ isPrivate: true, description: ownedDescription });
+				}
+				return "";
+			},
+			spawnSync: () => transientProbes.shift() as never,
+			sleep: retrySleep,
+		})).toEqual({ deleted: true, httpStatus: 404 });
+		expect(retrySleep).toHaveBeenCalledTimes(1);
+		expect(() => deleteThrowawayRepository(ownedRepo, {
+			runCommand: (name, args) => {
+				if (name === "gh" && args[0] === "repo" && args[1] === "view") {
+					return JSON.stringify({ isPrivate: true, description: ownedDescription });
+				}
+				throw Object.assign(new Error("delete transport failure"), { details: "Could not resolve host: api.github.com" });
+			},
+			spawnSync: () => ({ status: 1, stdout: "", stderr: "Could not resolve host: api.github.com" }) as never,
+			verificationAttempts: 2,
+			verificationDelayMs: 0,
+			sleep: () => undefined,
+		})).toThrow(/explicit HTTP 200\/404|transport failed/);
+		for (const probe of [
+			{ status: 1, stdout: "HTTP/2.0 503 Service Unavailable\n\n{\"message\":\"upstream mentioned HTTP 404\"}", stderr: "" },
+			{ status: null, stdout: "HTTP/2.0 404 Not Found", stderr: "socket closed", error: new Error("transport closed") },
+		]) {
+			expect(() => deleteThrowawayRepository(ownedRepo, {
+				runCommand: (name, args) => name === "gh" && args[1] === "view"
+					? JSON.stringify({ isPrivate: true, description: ownedDescription })
+					: "",
+				spawnSync: () => probe as never,
+				verificationAttempts: 1,
+				sleep: () => undefined,
+			})).toThrow(/HTTP 404|explicit HTTP|independently verified/);
+		}
+
+		// Create collision without ownership marker: no cleanup handle, no delete.
+		let exposed: unknown;
+		const collisionCommands: string[] = [];
+		expect(() => createThrowawayRepository("/tmp/artifacts", (repo) => { exposed = repo; }, {
+			randomUUID: () => ownershipToken,
+			runCommand: (name, args) => {
+				collisionCommands.push([name, ...args].join(" "));
+				if (name === "gh" && args.includes("auth")) return "";
+				if (name === "gh" && args.includes("user")) return "owner";
+				if (name === "gh" && args[1] === "create") throw Object.assign(new Error("create failed"), { details: "HTTP 422" });
+				throw new Error(`unexpected command ${name} ${args.join(" ")}`);
+			},
+			spawnSync: () => ({
+				status: 0,
+				stdout: `HTTP/2.0 200 OK\n\n${JSON.stringify({ private: true, description: "someone else's repo" })}`,
+				stderr: "",
+			}) as never,
+		})).toThrow(/without ownership marker|refusing cleanup/);
+		expect(exposed).toBeUndefined();
+		expect(collisionCommands.some((line) => line.includes("repo delete"))).toBe(false);
+
+		// Ambiguous create retries transient ownership probes and exposes cleanup only for the exact marker.
+		exposed = undefined;
+		const ambiguousProbes = [
+			{ status: 1, stdout: "HTTP/2.0 503 Service Unavailable", stderr: "service unavailable" },
+			{ status: 0, stdout: `HTTP/2.0 200 OK\n\n${JSON.stringify({ private: true, description: ownedDescription })}`, stderr: "" },
+		];
+		const ambiguousSleep = vi.fn();
+		expect(() => createThrowawayRepository("/tmp/artifacts", (repo) => { exposed = repo; }, {
+			randomUUID: () => ownershipToken,
+			runCommand: (name, args) => {
+				if (name === "gh" && args.includes("auth")) return "";
+				if (name === "gh" && args.includes("user")) return "owner";
+				if (name === "gh" && args[1] === "create") throw Object.assign(new Error("create ambiguous"), { details: "timeout" });
+				throw new Error(`unexpected command ${name} ${args.join(" ")}`);
+			},
+			spawnSync: () => ambiguousProbes.shift() as never,
+			sleep: ambiguousSleep,
+		})).toThrow(/ownership marker was observed/);
+		expect(ambiguousSleep).toHaveBeenCalledTimes(1);
+		expect(exposed).toMatchObject({ fullName: ownedFullName, ownershipToken, description: ownedDescription });
+
+		// Successful create exposes the cleanup handle only after the create command establishes ownership.
+		const ordered: string[] = [];
+		exposed = undefined;
+		const successRepo = createThrowawayRepository("/tmp/artifacts", (repo) => {
+			ordered.push("owned");
+			exposed = repo;
+		}, {
+			randomUUID: () => ownershipToken,
+			writeFileSync: () => undefined,
+			runCommand: (name, args) => {
+				const line = [name, ...args].join(" ");
+				ordered.push(line);
+				if (name === "gh" && args.includes("auth")) return "";
+				if (name === "gh" && args.includes("user")) return "owner";
+				if (name === "gh" && args[1] === "create") {
+					expect(exposed).toBeUndefined();
+					return "";
+				}
+				if (name === "gh" && args[1] === "view") {
+					return JSON.stringify({ isPrivate: true, description: ownedDescription });
+				}
+				if (name === "gh" && args[1] === "clone") return "";
+				if (name === "gh" && args[1] === "edit") return "";
+				if (name === "git" && args.includes("status")) return "";
+				if (name === "git" && args.includes("ls-remote")) return "refs/heads/main\nrefs/heads/starting-ref\nrefs/heads/direct-push\n";
+				if (name === "git") return "ok";
+				return "";
+			},
+		});
+		expect(successRepo).toMatchObject({ fullName: ownedFullName, ownershipToken });
+		expect(exposed).toEqual(successRepo);
+		expect(ordered.indexOf("owned")).toBeGreaterThan(ordered.findIndex((line) => line.includes("repo create")));
+
+		expect(normalizeCloudSmokeGitHubRepo("https://github.com/Acme/Widget.git")).toBe("acme/widget");
+		expect(() => validatePrUrl(
+			{ fullName: "acme/widget" },
+			"https://evil.example/acme/widget/pull/1",
+			{ runCommand: () => "{}" },
+		)).toThrow(/outside the throwaway repository/);
+		expect(validatePrUrl(
+			{ fullName: "acme/widget" },
+			"https://github.com/acme/widget/pull/7",
+			{ runCommand: () => JSON.stringify({ url: "https://github.com/acme/widget/pull/7", state: "OPEN" }) },
+		)).toEqual({ url: "https://github.com/acme/widget/pull/7", state: "OPEN" });
+	});
+
+	it("hashes the published source surface and validates round-trippable evidence", () => {
+		const packageFiles = [
+			"package.json",
+			"src/index.ts",
+			"shared/constants.mjs",
+			"scripts/cloud-runtime-smoke.mjs",
+			"scripts/lib/cloud-smoke-cleanup-evidence.mjs",
+			"scripts/lib/cloud-smoke-github.mjs",
+			"README.md",
+		];
+		const fileContents = new Map<string, string>([
+			["package.json", JSON.stringify({
+				version: "9.9.9",
+				files: ["src", "shared", "scripts/cloud-runtime-smoke.mjs", "scripts/lib/cloud-smoke-cleanup-evidence.mjs", "scripts/lib/cloud-smoke-github.mjs", "README.md"],
+			})],
+			["src/index.ts", "export const src = 1;\n"],
+			["shared/constants.mjs", "export const shared = 1;\n"],
+			["scripts/cloud-runtime-smoke.mjs", "smoke-entry\n"],
+			["scripts/lib/cloud-smoke-cleanup-evidence.mjs", "cleanup\n"],
+			["scripts/lib/cloud-smoke-github.mjs", "github\n"],
+			["README.md", "readme\n"],
+			["node_modules/@cursor/sdk/package.json", JSON.stringify({ version: "1.2.3" })],
+			["docs/evidence/cursor-cloud-smoke-matrix-latest.json", "{\"should\":\"not-hash\"}\n"],
+			["cloud-roadmap-change-scout.md", "protected\n"],
+		]);
+		const directories = new Set([
+			"",
+			"src",
+			"shared",
+			"scripts",
+			"scripts/lib",
+			"node_modules",
+			"node_modules/@cursor",
+			"node_modules/@cursor/sdk",
+			"docs",
+			"docs/evidence",
+		]);
+		const virtualRoot = resolve("/virtual");
+		const virtualRelative = (target: string) => relative(virtualRoot, String(target)).replaceAll("\\", "/");
+		const virtualFs = {
+			readFileSync: ((target: string) => {
+				const relative = virtualRelative(target);
+				const content = fileContents.get(relative);
+				if (content === undefined) throw new Error(`missing ${relative}`);
+				return content;
+			}) as typeof readFileSync,
+			lstatSync: ((target: string) => {
+				const relative = virtualRelative(target);
+				if (directories.has(relative)) {
+					return { isSymbolicLink: () => false, isFile: () => false, isDirectory: () => true };
+				}
+				if (fileContents.has(relative)) {
+					return { isSymbolicLink: () => false, isFile: () => true, isDirectory: () => false };
+				}
+				throw new Error(`missing ${relative}`);
+			}) as unknown as typeof import("node:fs").lstatSync,
+			readdirSync: ((target: string) => {
+				const relative = virtualRelative(target);
+				const prefix = relative ? `${relative}/` : "";
+				const names = new Set<string>();
+				for (const dir of directories) {
+					if (!dir.startsWith(prefix)) continue;
+					const rest = dir.slice(prefix.length);
+					if (rest && !rest.includes("/")) names.add(rest);
+				}
+				for (const file of fileContents.keys()) {
+					if (!file.startsWith(prefix)) continue;
+					const rest = file.slice(prefix.length);
+					if (rest && !rest.includes("/")) names.add(rest);
+				}
+				return [...names].sort().map((name) => {
+					const child = `${prefix}${name}`;
+					const isDirectory = directories.has(child);
+					return {
+						name,
+						isSymbolicLink: () => false,
+						isDirectory: () => isDirectory,
+						isFile: () => !isDirectory,
+					};
+				});
+			}) as unknown as typeof import("node:fs").readdirSync,
+		};
+
+		const packageSourcePaths = listCloudSmokePackageSourcePaths({
+			root: virtualRoot,
+			...virtualFs,
+		});
+		expect(packageSourcePaths).toEqual([...packageFiles].sort((left, right) => left.localeCompare(right)));
+		expect(packageSourcePaths).not.toContain("docs/evidence/cursor-cloud-smoke-matrix-latest.json");
+		expect(packageSourcePaths).not.toContain("cloud-roadmap-change-scout.md");
+
+		const realPackagePaths = listCloudSmokePackageSourcePaths();
+		expect(realPackagePaths).toContain("package.json");
+		expect(realPackagePaths).toContain("src/index.ts");
+		expect(realPackagePaths).toContain("shared/cursor-sensitive-text.mjs");
+		expect(realPackagePaths).toContain("scripts/cloud-runtime-smoke.mjs");
+		expect(realPackagePaths).not.toContain("docs/evidence/cursor-cloud-smoke-matrix-latest.json");
+		expect(realPackagePaths).not.toContain("cloud-roadmap-change-scout.md");
+		expect(realPackagePaths).not.toContain("cloud-roadmap-reconciliation.md");
+		expect(realPackagePaths).not.toContain("progress.md");
+
+		const gitRevision = "d".repeat(40);
+		const provenance = buildCloudSmokeEvidenceProvenance({
+			root: virtualRoot,
+			gitRevision,
+			...virtualFs,
+		});
+		const again = buildCloudSmokeEvidenceProvenance({
+			root: virtualRoot,
+			gitRevision,
+			...virtualFs,
+		});
+		expect(provenance).toEqual({
+			extensionVersion: "9.9.9",
+			cursorSdkVersion: "1.2.3",
+			gitRevision,
+			packageSourceSha256: again.packageSourceSha256,
+		});
+		expect(provenance.packageSourceSha256).toMatch(/^[a-f0-9]{64}$/);
+
+		fileContents.set("src/index.ts", "export const src = 2;\n");
+		const changed = buildCloudSmokeEvidenceProvenance({
+			root: virtualRoot,
+			gitRevision,
+			...virtualFs,
+		});
+		expect(changed.packageSourceSha256).not.toBe(provenance.packageSourceSha256);
+
+		const runId = "run-00000000-0000-0000-0000-000000000099";
+		const missingAgentId = "bc-00000000-0000-0000-0000-000000000097";
+		const rawLanes = [
+			{ name: "cancel", status: "passed", agentId, runId, runIdSource: "metadata", terminalStatus: "cancelled", idsCapturedBeforeAbort: true },
+			{
+				name: "explicit-https-repo-starting-ref-branch-pr-reporting",
+				status: "passed",
+				agentId,
+				runId,
+				branchReportObserved: false,
+				startingRefAncestryVerified: true,
+				remoteContentVerified: true,
+				prUrlReturned: false,
+				report: { branches: [], artifacts: [], usage: { total: 1 } },
+			},
+			{ name: "lifecycle-delete", status: "passed", agentId, runId, lifecycleDeleteVerified: true },
+			{
+				name: "direct-push-opt-in",
+				status: "passed",
+				agentId,
+				runId,
+				remoteContentChanged: true,
+				report: {
+					branches: [{ branch: "direct-push", prUrl: null, extra: "drop" }],
+					artifacts: [{ path: "a.txt", sizeBytes: 1, updatedAt: "2026-07-19T00:00:00.000Z" }],
+					usage: { totalUsage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 2 } },
+					resultText: "must-not-leak",
+				},
+				missingRef: "drop-me",
+				extraLaneField: "drop-me-too",
+			},
+			{ name: "missing-branch-failure", status: "passed", expectedFailureObserved: true, agentIds: [missingAgentId] },
+			{ name: "passive-artifacts-and-raw-usage", status: "passed", artifactsObserved: true, rawUsageObserved: true, observationsValidated: true },
+		];
+		const summary = projectCloudSmokeMatrixEvidence({
+			model: "cursor/composer-2-5",
+			timestamp: "2026-07-19T00:00:00.000Z",
+			provenance,
+			cleanup: [
+				{ agentId, archived: true, deleted: true, listExcluded: true },
+				{ agentId: missingAgentId, alreadyDeleted: true, archiveRequired: false, deleted: true, listExcluded: true },
+			],
+			throwawayRepository: { name: ownedFullName, deleted: true, httpStatus: 404 },
+			lanes: rawLanes,
+		});
+		expect(summary.provenance).toEqual(provenance);
+		expect(summary.lanes[0]).toMatchObject({ runIdSource: "metadata" });
+		expect(summary.lanes[4]).toMatchObject({ agentIds: [missingAgentId] });
+		expect(summary.lanes[3]).toEqual({
+			name: "direct-push-opt-in",
+			status: "passed",
+			agentId,
+			runId,
+			remoteContentChanged: true,
+			branches: [{ branch: "direct-push", prUrl: null }],
+			artifactsObserved: true,
+			rawUsageObserved: true,
+		});
+		expect(summary.lanes[3]).not.toHaveProperty("report");
+		expect(summary.lanes[3]).not.toHaveProperty("missingRef");
+		expect(summary.lanes[3]).not.toHaveProperty("extraLaneField");
+		expect(JSON.stringify(summary)).not.toContain("must-not-leak");
+		expect(JSON.stringify(summary)).not.toContain("drop-me");
+		expect(validateCloudSmokeMatrixEvidence(summary)).toEqual(summary);
+		expect(validateCloudSmokeMatrixEvidence(validateCloudSmokeMatrixEvidence(summary))).toEqual(summary);
+		expect(assertCloudSmokeEvidenceSafe(summary, "secret-key")).toContain('"packageSourceSha256"');
+		expect(() => assertCloudSmokeEvidenceSafe({ ...summary, prompt: "nope" }, "secret-key")).toThrow("forbidden");
+
+		expect(() => validateCloudSmokeMatrixEvidence({
+			...summary,
+			lanes: summary.lanes.map((lane, index) => index === 0 ? { ...lane, name: "unknown-lane" } : lane),
+		})).toThrow(/unknown lane/);
+		expect(() => validateCloudSmokeMatrixEvidence({
+			...summary,
+			cleanup: [{ agentId, archived: false, deleted: true, listExcluded: true }],
+		})).toThrow(/cleanup/);
+		expect(() => validateCloudSmokeMatrixEvidence({
+			...summary,
+			cleanup: summary.cleanup.filter((entry) => entry.agentId !== missingAgentId),
+		})).toThrow(/cleanup is missing lane agent/);
+		const uncoveredAgentId = "bc-00000000-0000-0000-0000-000000000098";
+		expect(() => validateCloudSmokeMatrixEvidence({
+			...summary,
+			lanes: summary.lanes.map((lane) => lane.name === "direct-push-opt-in" ? { ...lane, agentId: uncoveredAgentId } : lane),
+		})).toThrow(/cleanup is missing lane agent/);
+		expect(() => validateCloudSmokeMatrixEvidence({
+			...summary,
+			provenance: { ...summary.provenance, packageSourceSha256: "nope" },
+		})).toThrow(/packageSourceSha256|sha256/);
+		expect(() => validateCloudSmokeMatrixEvidence({
+			...summary,
+			throwawayRepository: { name: ownedFullName, deleted: false, httpStatus: 404 },
+		})).toThrow(/throwawayRepository/);
+	});
+
+	it("coordinates cleanup after failures and writes evidence only after complete success", async () => {
+		const writes: unknown[] = [];
+		const cleanedAgents: string[] = [];
+		const cleanedRepos: string[] = [];
+
+		await expect(coordinateCloudSmokeReleaseGate({
+			run: async (state) => {
+				state.repository = ownedRepo;
+				state.lanes.push({
+					name: "cancel",
+					status: "passed",
+					agentId,
+					runId: "run-00000000-0000-0000-0000-000000000099",
+					terminalStatus: "cancelled",
+					idsCapturedBeforeAbort: true,
+				});
+				throw new Error("lane failed after repo established");
+			},
+			harvestAgentIds: () => [agentId],
+			cleanupAgent: async (id) => {
+				cleanedAgents.push(id);
+				return { agentId: id, archived: true, deleted: true, listExcluded: true };
+			},
+			cleanupRepository: async (repo) => {
+				cleanedRepos.push(repo.fullName);
+				return { deleted: true as const, httpStatus: 404 as const };
+			},
+			writeEvidence: async (input) => { writes.push(input); },
+		})).rejects.toThrow(/lane failed after repo established/);
+		expect(cleanedAgents).toEqual([agentId]);
+		expect(cleanedRepos).toEqual([ownedFullName]);
+		expect(writes).toEqual([]);
+
+		cleanedAgents.length = 0;
+		cleanedRepos.length = 0;
+		await expect(coordinateCloudSmokeReleaseGate({
+			run: async (state) => {
+				state.repository = ownedRepo;
+				state.lanes.push({
+					name: "missing-branch-failure",
+					status: "passed",
+					expectedFailureObserved: true,
+				});
+			},
+			harvestAgentIds: () => [agentId],
+			cleanupAgent: async () => {
+				throw new Error("agent cleanup failed");
+			},
+			cleanupRepository: async (repo) => {
+				cleanedRepos.push(repo.fullName);
+				return { deleted: true as const, httpStatus: 404 as const };
+			},
+			writeEvidence: async (input) => { writes.push(input); },
+		})).rejects.toThrow(/agent cleanup failed/);
+		expect(cleanedRepos).toEqual([ownedFullName]);
+		expect(writes).toEqual([]);
+
+		cleanedRepos.length = 0;
+		await expect(coordinateCloudSmokeReleaseGate({
+			run: async (state) => {
+				state.repository = ownedRepo;
+				state.lanes.push({
+					name: "missing-branch-failure",
+					status: "passed",
+					expectedFailureObserved: true,
+				});
+			},
+			harvestAgentIds: () => [],
+			cleanupAgent: async (id) => ({ agentId: id, archived: true, deleted: true, listExcluded: true }),
+			cleanupRepository: async () => {
+				throw new Error("repo cleanup failed");
+			},
+			writeEvidence: async (input) => { writes.push(input); },
+		})).rejects.toThrow(/repo cleanup failed/);
+		expect(writes).toEqual([]);
+
+		await expect(coordinateCloudSmokeReleaseGate({
+			run: async (state) => { state.repository = ownedRepo; },
+			harvestAgentIds: async () => { throw new Error("agent harvest failed"); },
+			cleanupAgent: async (id) => ({ agentId: id, archived: true, deleted: true, listExcluded: true }),
+			cleanupRepository: async () => ({ deleted: true as const, httpStatus: 404 as const }),
+			writeEvidence: async (input) => { writes.push(input); },
+		})).rejects.toThrow(/agent harvest failed/);
+		expect(writes).toEqual([]);
+
+		await expect(coordinateCloudSmokeReleaseGate({
+			run: async (state) => { state.repository = ownedRepo; },
+			harvestAgentIds: () => [],
+			cleanupAgent: async (id) => ({ agentId: id, archived: true, deleted: true, listExcluded: true }),
+			cleanupRepository: async () => ({ deleted: true as const, httpStatus: 404 as const }),
+			writeEvidence: async () => { throw new Error("evidence write failed"); },
+		})).rejects.toThrow(/evidence write failed/);
+		expect(writes).toEqual([]);
+
+		await expect(coordinateCloudSmokeReleaseGate({
+			run: async (state) => {
+				state.repository = ownedRepo;
+				state.lanes.push({
+					name: "missing-branch-failure",
+					status: "passed",
+					expectedFailureObserved: true,
+				});
+			},
+			harvestAgentIds: () => [agentId],
+			cleanupAgent: async (id) => ({ agentId: id, archived: true, deleted: true, listExcluded: true }),
+			cleanupRepository: async () => ({ deleted: true as const, httpStatus: 404 as const }),
+			writeEvidence: async (input) => { writes.push(input); },
+		})).resolves.toMatchObject({
+			throwawayRepository: { name: ownedFullName, deleted: true, httpStatus: 404 },
+		});
+		expect(writes).toHaveLength(1);
+	});
+
+});
