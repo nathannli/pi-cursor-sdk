@@ -20,6 +20,15 @@ import {
 } from "./lib/cursor-child-process.mjs";
 import { buildCursorSmokeEnv } from "./lib/cursor-smoke-env.mjs";
 import {
+	awaitCloudSmokeShutdown,
+	createCloudSmokeShutdownController,
+	createCloudSmokeTerminalFailureState,
+	installCloudSmokeSignalHandlers,
+	routeCloudSmokeChildClose,
+	routeCloudSmokeChildError,
+	stopCloudSmokeTrackedChild,
+} from "./lib/cloud-smoke-shutdown.mjs";
+import {
 	assertAgentDeleted,
 	assertCloudSmokeEvidenceSafe,
 	buildCloudSmokeEvidenceProvenance,
@@ -50,6 +59,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const EVIDENCE_PATH = join(root, "docs", "evidence", "cursor-cloud-smoke-matrix-latest.json");
 const MODEL = "cursor/composer-2-5";
 const CLOUD_RUN_ID_PATTERN = /^run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const cloudSmokeShutdown = createCloudSmokeShutdownController((child) => terminateChild(child, { graceMs: 15_000 }));
 const argv = process.argv.slice(2);
 const args = new Set(argv);
 const CLOUD_ENV_NAMES = [
@@ -182,6 +192,7 @@ export {
 };
 
 function runPi({ artifactDir, envOptions = {}, message, sessionId, timeoutMs }) {
+	cloudSmokeShutdown.throwIfRequested();
 	const sessionDir = join(artifactDir, "sessions");
 	mkdirSync(sessionDir, { recursive: true });
 	const child = spawn(
@@ -194,6 +205,7 @@ function runPi({ artifactDir, envOptions = {}, message, sessionId, timeoutMs }) 
 			...CHILD_PROCESS_TREE_SPAWN_OPTIONS,
 		},
 	);
+	const tracking = cloudSmokeShutdown.track(child);
 	let stdout = "";
 	let stderr = "";
 	child.stdout.setEncoding("utf8");
@@ -201,24 +213,61 @@ function runPi({ artifactDir, envOptions = {}, message, sessionId, timeoutMs }) 
 	child.stdout.on("data", (chunk) => { stdout += chunk; });
 	child.stderr.on("data", (chunk) => { stderr += chunk; });
 	return new Promise((resolveRun, rejectRun) => {
-		let timedOut = false;
+		let settled = false;
+		let timeoutStarted = false;
+		let timeoutTermination = Promise.resolve();
+		const settle = (callback, value) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			cloudSmokeShutdown.signal.removeEventListener("abort", onShutdown);
+			callback(value);
+		};
+		const onShutdown = () => {
+			const termination = Promise.allSettled([tracking, timeoutTermination]).then((results) => {
+				const failed = results.find((result) => result.status === "rejected");
+				if (failed) throw failed.reason;
+			});
+			void awaitCloudSmokeShutdown(cloudSmokeShutdown, termination).then((error) => settle(rejectRun, error));
+		};
 		const timer = setTimeout(() => {
-			timedOut = true;
-			void terminateChild(child).then(
-				() => rejectRun(new Error(`pi cloud smoke timed out after ${timeoutMs}ms`)),
-				(error) => rejectRun(new Error(`pi cloud smoke timed out and cleanup failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error })),
+			if (cloudSmokeShutdown.signal.aborted) {
+				onShutdown();
+				return;
+			}
+			timeoutStarted = true;
+			timeoutTermination = terminateChild(child);
+			void timeoutTermination.then(
+				() => {
+					if (cloudSmokeShutdown.signal.aborted) onShutdown();
+					else settle(rejectRun, new Error(`pi cloud smoke timed out after ${timeoutMs}ms`));
+				},
+				(error) => {
+					if (cloudSmokeShutdown.signal.aborted) onShutdown();
+					else settle(rejectRun, new Error(`pi cloud smoke timed out and cleanup failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error }));
+				},
 			);
 		}, timeoutMs);
-		child.once("error", (error) => {
-			if (timedOut) return;
-			clearTimeout(timer);
-			rejectRun(error);
+		cloudSmokeShutdown.signal.addEventListener("abort", onShutdown, { once: true });
+		if (cloudSmokeShutdown.signal.aborted) onShutdown();
+		void tracking.catch((error) => {
+			if (cloudSmokeShutdown.signal.aborted) onShutdown();
+			else settle(rejectRun, error);
 		});
-		child.once("close", (code, signal) => {
-			if (timedOut) return;
-			clearTimeout(timer);
-			resolveRun({ code, signal, stdout, stderr });
-		});
+		child.once("error", (error) => routeCloudSmokeChildClose(
+			cloudSmokeShutdown,
+			timeoutStarted,
+			onShutdown,
+			(failure) => settle(rejectRun, failure),
+			error,
+		));
+		child.once("close", (code, signal) => routeCloudSmokeChildClose(
+			cloudSmokeShutdown,
+			timeoutStarted,
+			onShutdown,
+			(result) => settle(resolveRun, result),
+			{ code, signal, stdout, stderr },
+		));
 	});
 }
 
@@ -379,7 +428,8 @@ function assertLaneEvidence(artifactDir, expectedAgentId, expectedRunId) {
 	}
 }
 
-function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envOptions = {} }) {
+async function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envOptions = {} }) {
+	cloudSmokeShutdown.throwIfRequested();
 	const sessionDir = join(artifactDir, "sessions");
 	mkdirSync(sessionDir, { recursive: true });
 	const child = spawn(
@@ -392,6 +442,7 @@ function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envOptions
 			...CHILD_PROCESS_TREE_SPAWN_OPTIONS,
 		},
 	);
+	const tracking = cloudSmokeShutdown.track(child);
 	let stderr = "";
 	const events = [];
 	const pending = new Map();
@@ -410,6 +461,10 @@ function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envOptions
 			let message;
 			try { message = JSON.parse(line); } catch { continue; }
 			if (message.type === "response" && pending.has(message.id)) {
+				if (cloudSmokeShutdown.signal.aborted) {
+					rejectAfterShutdown();
+					continue;
+				}
 				const request = pending.get(message.id);
 				pending.delete(message.id);
 				clearTimeout(request.timer);
@@ -417,9 +472,44 @@ function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envOptions
 			} else events.push(message);
 		}
 	});
+	const rejectPending = (error) => {
+		for (const request of pending.values()) {
+			clearTimeout(request.timer);
+			request.reject(error);
+		}
+		pending.clear();
+	};
+	const terminalState = createCloudSmokeTerminalFailureState(rejectPending);
+	const rejectAfterShutdown = () => {
+		void awaitCloudSmokeShutdown(cloudSmokeShutdown, tracking).then(rejectPending);
+	};
+	cloudSmokeShutdown.signal.addEventListener("abort", rejectAfterShutdown, { once: true });
+	if (cloudSmokeShutdown.signal.aborted) rejectAfterShutdown();
+	child.once("error", (error) => routeCloudSmokeChildError(
+		cloudSmokeShutdown,
+		rejectAfterShutdown,
+		terminalState.record,
+		error,
+	));
+	child.once("close", () => {
+		cloudSmokeShutdown.signal.removeEventListener("abort", rejectAfterShutdown);
+		if (cloudSmokeShutdown.signal.aborted) rejectAfterShutdown();
+		else terminalState.record(new Error(`cloud smoke RPC exited. Stderr: ${stderr}`));
+	});
 	const send = (type, extra = {}, timeoutMs = 120000) => new Promise((resolveRequest, rejectRequest) => {
+		try {
+			cloudSmokeShutdown.throwIfRequested();
+			terminalState.throwIfFailed();
+		} catch (error) {
+			rejectRequest(error);
+			return;
+		}
 		const id = `cloud_smoke_${++requestId}`;
 		const timer = setTimeout(() => {
+			if (cloudSmokeShutdown.signal.aborted) {
+				rejectAfterShutdown();
+				return;
+			}
 			pending.delete(id);
 			rejectRequest(new Error(`timeout waiting for ${type}. Stderr: ${stderr}`));
 		}, timeoutMs);
@@ -427,16 +517,40 @@ function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envOptions
 		child.stdin.write(`${JSON.stringify({ id, type, ...extra })}\n`);
 	});
 	const stop = async () => {
-		for (const request of pending.values()) clearTimeout(request.timer);
-		pending.clear();
-		await terminateChild(child, { graceMs: 15_000 });
+		cloudSmokeShutdown.signal.removeEventListener("abort", rejectAfterShutdown);
+		if (!cloudSmokeShutdown.signal.aborted) terminalState.record(new Error("cloud smoke RPC stopped"));
+		try {
+			const shutdownReason = await stopCloudSmokeTrackedChild(
+				cloudSmokeShutdown,
+				tracking,
+				() => terminateChild(child, { graceMs: 15_000 }),
+			);
+			if (shutdownReason) rejectPending(shutdownReason);
+		} catch (error) {
+			rejectPending(error);
+			throw error;
+		}
 	};
-	return { events, send, stop, get stderr() { return stderr; } };
+	try {
+		await tracking;
+		if (cloudSmokeShutdown.signal.aborted) throw await awaitCloudSmokeShutdown(cloudSmokeShutdown, tracking);
+	} catch (error) {
+		rejectPending(error);
+		throw error;
+	}
+	return {
+		events,
+		send,
+		stop,
+		throwIfFailed: terminalState.throwIfFailed,
+		get stderr() { return stderr; },
+	};
 }
 
 async function waitFor(predicate, timeoutMs, errorMessage) {
 	const started = Date.now();
 	while (Date.now() - started < timeoutMs) {
+		cloudSmokeShutdown.throwIfRequested();
 		const value = await predicate();
 		if (value) return value;
 		await new Promise((resolveWait) => setTimeout(resolveWait, 250));
@@ -446,7 +560,10 @@ async function waitFor(predicate, timeoutMs, errorMessage) {
 
 async function waitForAgentSettled(rpc, fromIndex, timeoutMs) {
 	await waitFor(
-		() => rpc.events.slice(fromIndex).some((event) => event.type === "agent_settled"),
+		() => {
+			rpc.throwIfFailed();
+			return rpc.events.slice(fromIndex).some((event) => event.type === "agent_settled");
+		},
 		timeoutMs,
 		`timeout waiting for agent_settled. Stderr: ${rpc.stderr}`,
 	);
@@ -484,7 +601,7 @@ async function runContextScenario({ artifactRoot, contextHandoff, timeoutMs }) {
 	const artifactDir = join(artifactRoot, `context-${contextHandoff}`);
 	mkdirSync(artifactDir, { recursive: true });
 	const marker = `CLOUD_CONTEXT_${contextHandoff}_${Date.now()}`;
-	const rpc = startRpc({ artifactDir, contextHandoff, sessionId: `cloud-context-${contextHandoff}-${Date.now()}` });
+	const rpc = await startRpc({ artifactDir, contextHandoff, sessionId: `cloud-context-${contextHandoff}-${Date.now()}` });
 	try {
 		const first = await promptAndRead({ rpc, artifactDir, message: `Remember exact marker ${marker}. Reply exactly FIRST_OK.`, timeoutMs, expectedContextHandoff: contextHandoff });
 		if (lastNonEmptyLine(first.text) !== "FIRST_OK") fail(`cloud ${contextHandoff} setup turn did not return FIRST_OK`, first.text);
@@ -538,7 +655,7 @@ async function runBranchAndLifecycleLane({ artifactRoot, repo, timeoutMs, Agent 
 	const remoteContent = command("git", ["show", `${remoteRef}:branch-proof.txt`], { cwd: repo.seedDir, label: "read cloud branch proof" });
 	if (remoteContent !== marker) fail("cloud branch proof content did not match marker", remoteContent);
 
-	const rpc = startRpc({ artifactDir, sessionId, envOptions });
+	const rpc = await startRpc({ artifactDir, sessionId, envOptions });
 	try {
 		const commandResponse = await rpc.send("prompt", { message: `/cursor-cloud delete ${result.agentId} --yes` }, timeoutMs);
 		if (!commandResponse.success) fail("lifecycle delete command failed", commandResponse.error);
@@ -596,13 +713,14 @@ async function runDirectPushLane({ artifactRoot, repo, timeoutMs }) {
 
 async function runCancelLane({ artifactRoot, repo, timeoutMs, Agent }) {
 	const artifactDir = join(artifactRoot, "lane-cancel");
-	const rpc = startRpc({ artifactDir, sessionId: `cloud-cancel-${Date.now()}`, envOptions: { repoUrl: repo.repoUrl, startingRef: "starting-ref" } });
+	const rpc = await startRpc({ artifactDir, sessionId: `cloud-cancel-${Date.now()}`, envOptions: { repoUrl: repo.repoUrl, startingRef: "starting-ref" } });
 	const eventStart = rpc.events.length;
 	try {
 		const response = await rpc.send("prompt", { message: "Run the shell command `sleep 300`, wait for it, then reply CANCEL_LANE_UNEXPECTED_COMPLETION." }, timeoutMs);
 		if (!response.success) fail("cancel lane prompt was rejected", response.error);
 		let nextRunProbeAt = 0;
 		const identity = await waitFor(async () => {
+			rpc.throwIfFailed();
 			const latest = readLatestMetadataIfPresent(artifactDir);
 			const agentId = latest?.metadata.run?.agentId;
 			if (!CLOUD_AGENT_ID_PATTERN.test(agentId ?? "")) return undefined;
@@ -624,6 +742,7 @@ async function runCancelLane({ artifactRoot, repo, timeoutMs, Agent }) {
 		if (!abortResponse.success) fail("cancel lane abort request failed", abortResponse.error);
 		await waitForAgentSettled(rpc, eventStart, timeoutMs);
 		await waitFor(() => {
+			rpc.throwIfFailed();
 			try {
 				assertLaneEvidence(artifactDir, agentId, runId);
 				return true;
@@ -632,6 +751,7 @@ async function runCancelLane({ artifactRoot, repo, timeoutMs, Agent }) {
 			}
 		}, timeoutMs, "cancel lane did not retain exact agent/run lifecycle evidence after abort");
 		const terminal = await waitFor(async () => {
+			rpc.throwIfFailed();
 			const run = await Agent.getRun(runId, { runtime: "cloud", agentId, apiKey: process.env.CURSOR_API_KEY });
 			return run.status === "cancelled" ? run : run.status === "finished" || run.status === "error" ? fail(`cancel lane reached wrong terminal state ${run.status}`) : undefined;
 		}, timeoutMs, "cancel lane SDK status did not reach cancelled");
@@ -698,13 +818,16 @@ async function main() {
 	const timeoutMs = Number(process.env.CURSOR_CLOUD_SMOKE_TIMEOUT_MS || 300000);
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) fail("CURSOR_CLOUD_SMOKE_TIMEOUT_MS must be a positive number");
 	const artifactRoot = mkdtempSync(join(tmpdir(), "pi-cursor-cloud-smoke-"));
+	const removeSignalHandlers = installCloudSmokeSignalHandlers(cloudSmokeShutdown);
 	let failure;
 	console.error(scrubSmokeText(`[cloud-smoke] artifacts: ${artifactRoot}`));
 	const { Agent } = await import("@cursor/sdk");
 	const contextMatrix = args.has("--context-matrix");
 	try {
 		await coordinateCloudSmokeReleaseGate({
+			throwIfInterrupted: () => cloudSmokeShutdown.throwIfRequested(),
 			run: async (state) => {
+				cloudSmokeShutdown.throwIfRequested();
 				if (contextMatrix) {
 					state.lanes = await runContextMatrix({ artifactRoot, timeoutMs });
 					console.error("[cloud-smoke] context matrix passed");
@@ -759,8 +882,11 @@ async function main() {
 				writeEvidenceSummary(summary);
 			},
 		});
+		cloudSmokeShutdown.throwIfRequested();
 	} catch (error) {
 		failure = error;
+	} finally {
+		removeSignalHandlers();
 	}
 	if (process.env.CURSOR_CLOUD_SMOKE_KEEP_ARTIFACTS !== "1" && !failure) rmSync(artifactRoot, { recursive: true, force: true });
 	else console.error(scrubSmokeText(`[cloud-smoke] retained artifacts: ${artifactRoot}`));

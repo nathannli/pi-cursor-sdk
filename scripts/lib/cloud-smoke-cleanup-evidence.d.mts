@@ -186,6 +186,7 @@ export function buildCloudSmokeEvidenceProvenance(options?: {
 }): CloudSmokeEvidenceProvenance;
 
 export function coordinateCloudSmokeReleaseGate(callbacks: {
+	throwIfInterrupted?: () => void;
 	run: (state: CloudSmokeReleaseGateState) => void | Promise<void>;
 	harvestAgentIds: (state: CloudSmokeReleaseGateState) => Iterable<string> | Promise<Iterable<string>>;
 	cleanupAgent: (agentId: string) => CloudSmokeCleanupEvidence | Promise<CloudSmokeCleanupEvidence>;

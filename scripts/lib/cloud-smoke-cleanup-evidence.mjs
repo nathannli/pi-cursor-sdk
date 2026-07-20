@@ -500,6 +500,13 @@ export async function coordinateCloudSmokeReleaseGate(callbacks = {}) {
 	const cleanupAgent = callbacks.cleanupAgent;
 	const cleanupRepository = callbacks.cleanupRepository;
 	const writeEvidence = callbacks.writeEvidence;
+	const captureInterruption = () => {
+		try {
+			callbacks.throwIfInterrupted?.();
+		} catch (error) {
+			failure ??= error;
+		}
+	};
 	if (typeof run !== "function") fail("coordinateCloudSmokeReleaseGate requires run()");
 	if (typeof harvestAgentIds !== "function") fail("coordinateCloudSmokeReleaseGate requires harvestAgentIds()");
 	if (typeof cleanupAgent !== "function") fail("coordinateCloudSmokeReleaseGate requires cleanupAgent()");
@@ -515,6 +522,7 @@ export async function coordinateCloudSmokeReleaseGate(callbacks = {}) {
 	} catch (error) {
 		failure = error;
 	}
+	captureInterruption();
 
 	let agentIds = [];
 	try {
@@ -522,6 +530,7 @@ export async function coordinateCloudSmokeReleaseGate(callbacks = {}) {
 	} catch (error) {
 		failure ??= error;
 	}
+	captureInterruption();
 
 	for (const agentId of agentIds) {
 		try {
@@ -530,6 +539,7 @@ export async function coordinateCloudSmokeReleaseGate(callbacks = {}) {
 			callbacks.onAgentCleanupError?.(error, agentId);
 			failure ??= error;
 		}
+		captureInterruption();
 	}
 
 	if (state.repository) {
@@ -550,6 +560,7 @@ export async function coordinateCloudSmokeReleaseGate(callbacks = {}) {
 		}
 	}
 
+	captureInterruption();
 	if (!failure) {
 		try {
 			await writeEvidence({
@@ -561,6 +572,7 @@ export async function coordinateCloudSmokeReleaseGate(callbacks = {}) {
 		} catch (error) {
 			failure = error;
 		}
+		captureInterruption();
 	}
 
 	if (failure) throw failure;

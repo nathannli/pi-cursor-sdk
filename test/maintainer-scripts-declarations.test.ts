@@ -56,6 +56,7 @@ import {
 	terminateChild,
 	waitForChildClose,
 } from "../scripts/lib/cursor-child-process.mjs";
+import { createCloudSmokeShutdownController } from "../scripts/lib/cloud-smoke-shutdown.mjs";
 import { createScriptFail } from "../scripts/lib/cursor-script-fail.mjs";
 import {
 	CURSOR_SDK_STARTUP_NOISE_PATTERNS,
@@ -132,6 +133,9 @@ const DECLARATION_TYPE_ONLY_EXPORTS: Record<string, readonly string[]> = {
 	],
 	"scripts/lib/cloud-smoke-github.d.mts": [
 		"CloudSmokeOwnedRepository",
+	],
+	"scripts/lib/cloud-smoke-shutdown.d.mts": [
+		"CloudSmokeShutdownController",
 	],
 	"scripts/lib/cursor-cli-args.d.mts": [
 		"CursorCliBooleanFlagSpec",
@@ -297,6 +301,7 @@ const _writeTerminalScreenshot: (htmlPath: string, pngPath: string, width: numbe
 const _requiredApiKey: string = requireApiKey({ apiKey: "key" }, {}, createScriptFail("test"));
 const _signalChild: (child: ChildProcess, signal: NodeJS.Signals) => void = signalChild;
 const _terminateChild: (child: ChildProcess, options?: { graceMs?: number }) => Promise<void> = terminateChild;
+const _cloudSmokeShutdown = createCloudSmokeShutdownController((child) => terminateChild(child, { graceMs: 15_000 }));
 
 // @ts-expect-error startup noise patterns are string literals, not regular expressions
 const _invalidStartupNoisePatternType: readonly RegExp[] = CURSOR_SDK_STARTUP_NOISE_PATTERNS;

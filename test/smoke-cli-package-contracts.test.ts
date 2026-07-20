@@ -147,6 +147,8 @@ describe("smoke CLI and package contracts", () => {
 			"runMissingBranchLane",
 			"accountConditionalLane",
 			"coordinateCloudSmokeReleaseGate",
+			"installCloudSmokeSignalHandlers",
+			"cloudSmokeShutdown",
 			"deleteThrowawayRepository",
 			"cursor-cloud-smoke-matrix-latest.json",
 			"buildCloudSmokeEvidenceProvenance",
@@ -156,6 +158,14 @@ describe("smoke CLI and package contracts", () => {
 		// Helper modules are loaded by the entrypoint; CLI contract stays source-shape only.
 		expect(source).toContain('from "./lib/cloud-smoke-cleanup-evidence.mjs"');
 		expect(source).toContain('from "./lib/cloud-smoke-github.mjs"');
+		expect(source).toContain('from "./lib/cloud-smoke-shutdown.mjs"');
+		for (const shutdownAnchor of [
+			"timeoutTermination = terminateChild(child)",
+			"stopCloudSmokeTrackedChild(",
+			"() => terminateChild(child, { graceMs: 15_000 })",
+			"createCloudSmokeTerminalFailureState(rejectPending)",
+			"throwIfFailed: terminalState.throwIfFailed",
+		]) expect(source, shutdownAnchor).toContain(shutdownAnchor);
 	});
 
 	it("rejects paid smoke typos and repeated or conflicting lanes before auth or runs", () => {

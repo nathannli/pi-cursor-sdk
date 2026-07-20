@@ -6,6 +6,10 @@
 
 - Add strictly opt-in Cursor Cloud pull-request controls: `--cursor-cloud-auto-create-pr` / `PI_CURSOR_CLOUD_AUTO_CREATE_PR` / `cloud.autoCreatePR` and `--cursor-cloud-skip-reviewer-request` / `PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST` / `cloud.skipReviewerRequest`. Unset controls remain omitted from SDK options, project config is excluded, and local runtime behavior is unchanged.
 
+### Changed
+
+- Expand the maintainer-only `npm run smoke:cloud` release gate to create, seed, and delete a private UUID-named GitHub repository while proving cancel, starting-ref branch, direct-push, missing-branch, lifecycle-delete, exact agent cleanup, and authenticated repository-deletion contracts. Add fail-closed `SIGINT`/`SIGTERM` handling and account-conditional artifact/raw-usage observations. The gate now requires `gh` authorization to create/push/delete private repositories; product runtime behavior and defaults are unchanged.
+
 ## 0.1.60 - 2026-07-17
 
 ### Fixed

@@ -1,3 +1,5 @@
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +12,15 @@ import {
 	projectCloudSmokeMatrixEvidence,
 	validateCloudSmokeMatrixEvidence,
 } from "../scripts/lib/cloud-smoke-cleanup-evidence.mjs";
+import {
+	awaitCloudSmokeShutdown,
+	createCloudSmokeShutdownController,
+	createCloudSmokeTerminalFailureState,
+	installCloudSmokeSignalHandlers,
+	routeCloudSmokeChildClose,
+	routeCloudSmokeChildError,
+	stopCloudSmokeTrackedChild,
+} from "../scripts/lib/cloud-smoke-shutdown.mjs";
 import {
 	assertOwnedThrowawayRepositoryHandle,
 	cloudSmokeRepositoryDescription,
@@ -566,4 +577,208 @@ describe("cloud smoke helper contracts", () => {
 		expect(writes).toHaveLength(1);
 	});
 
+	it("waits for detached child termination before signal-triggered resource cleanup", async () => {
+		const processLike = new EventEmitter();
+		const child = new EventEmitter();
+		let releaseTermination!: () => void;
+		const terminate = vi.fn(() => new Promise<void>((resolveTermination) => {
+			releaseTermination = () => {
+				child.emit("close");
+				resolveTermination();
+			};
+		}));
+		const shutdown = createCloudSmokeShutdownController(terminate);
+		await shutdown.track(child as unknown as ChildProcess);
+		const removeSignalHandlers = installCloudSmokeSignalHandlers(shutdown, processLike);
+		const cleanedAgents: string[] = [];
+		const cleanedRepos: string[] = [];
+		const writes: unknown[] = [];
+
+		const run = coordinateCloudSmokeReleaseGate({
+			throwIfInterrupted: () => shutdown.throwIfRequested(),
+			run: async (state) => {
+				state.repository = ownedRepo;
+				await new Promise((_, reject) => shutdown.signal.addEventListener("abort", () => {
+					void shutdown.wait().then(() => reject(shutdown.reason), reject);
+				}, { once: true }));
+			},
+			harvestAgentIds: () => [agentId],
+			cleanupAgent: async (id) => {
+				cleanedAgents.push(id);
+				return { agentId: id, archived: true, deleted: true, listExcluded: true };
+			},
+			cleanupRepository: async (repo) => {
+				cleanedRepos.push(repo.fullName);
+				return { deleted: true as const, httpStatus: 404 as const };
+			},
+			writeEvidence: async (input) => { writes.push(input); },
+		});
+		processLike.emit("SIGTERM");
+		await Promise.resolve();
+
+		expect(cleanedAgents).toEqual([]);
+		expect(cleanedRepos).toEqual([]);
+		releaseTermination();
+		await expect(run).rejects.toThrow(/interrupted by SIGTERM/);
+		expect(terminate).toHaveBeenCalledWith(child);
+		expect(cleanedAgents).toEqual([agentId]);
+		expect(cleanedRepos).toEqual([ownedFullName]);
+		expect(writes).toEqual([]);
+		removeSignalHandlers();
+		expect(processLike.listenerCount("SIGTERM")).toBe(0);
+
+		const failedChild = new EventEmitter();
+		const deferredChild = new EventEmitter();
+		let releaseDeferred!: () => void;
+		const failedShutdown = createCloudSmokeShutdownController((trackedChild) => {
+			if (trackedChild === failedChild) throw new Error("terminate failed");
+			return new Promise<void>((resolveTermination) => { releaseDeferred = resolveTermination; });
+		});
+		await failedShutdown.track(failedChild as unknown as ChildProcess);
+		await failedShutdown.track(deferredChild as unknown as ChildProcess);
+		const failedRequest = failedShutdown.request("SIGINT");
+		let failedRequestSettled = false;
+		void failedRequest.catch(() => { failedRequestSettled = true; });
+		await new Promise((resolveImmediate) => setImmediate(resolveImmediate));
+		expect(failedRequestSettled).toBe(false);
+		releaseDeferred();
+		await expect(failedRequest).rejects.toThrow(/child termination failed/);
+
+		const activeChild = new EventEmitter();
+		const lateChild = new EventEmitter();
+		let releaseActive!: () => void;
+		let releaseLate!: () => void;
+		const lateShutdown = createCloudSmokeShutdownController((trackedChild) => new Promise<void>((resolveTermination) => {
+			if (trackedChild === activeChild) releaseActive = resolveTermination;
+			else releaseLate = resolveTermination;
+		}));
+		await lateShutdown.track(activeChild as unknown as ChildProcess);
+		const originalRequest = lateShutdown.request("SIGTERM");
+		const originalWait = lateShutdown.wait();
+		const rejectedLateTrack = lateShutdown.track(lateChild as unknown as ChildProcess);
+		let combinedSettled = false;
+		const combinedShutdown = awaitCloudSmokeShutdown(lateShutdown, rejectedLateTrack);
+		void combinedShutdown.then(() => { combinedSettled = true; });
+		await Promise.resolve();
+		releaseActive();
+		await expect(originalRequest).resolves.toMatchObject({ signal: "SIGTERM" });
+		await expect(originalWait).resolves.toBeUndefined();
+		await new Promise((resolveImmediate) => setImmediate(resolveImmediate));
+		expect(combinedSettled).toBe(false);
+		releaseLate();
+		await expect(rejectedLateTrack).rejects.toThrow(/interrupted by SIGTERM/);
+		await expect(combinedShutdown).resolves.toMatchObject({ message: "cloud smoke interrupted by SIGTERM" });
+	});
+
+	it("routes child errors through the shutdown barrier after abort", async () => {
+		const idleShutdown = createCloudSmokeShutdownController(async () => {});
+		await expect(awaitCloudSmokeShutdown(idleShutdown)).resolves.toMatchObject({ message: "cloud smoke shutdown failed" });
+		await expect(awaitCloudSmokeShutdown(idleShutdown, Promise.reject("tracking failed"))).resolves.toMatchObject({
+			message: "cloud smoke shutdown failed",
+			cause: "tracking failed",
+		});
+		const closeResults: string[] = [];
+		routeCloudSmokeChildClose(idleShutdown, true, () => closeResults.push("shutdown"), (result) => closeResults.push(result), "closed");
+		expect(closeResults).toEqual([]);
+		routeCloudSmokeChildClose(idleShutdown, false, () => closeResults.push("shutdown"), (result) => closeResults.push(result), "closed");
+		expect(closeResults).toEqual(["closed"]);
+		await idleShutdown.request("SIGTERM");
+		routeCloudSmokeChildClose(idleShutdown, true, () => closeResults.push("shutdown"), (result) => closeResults.push(result), "closed");
+		expect(closeResults).toEqual(["closed", "shutdown"]);
+
+		const exitedChild = new EventEmitter();
+		const timeoutShutdown = createCloudSmokeShutdownController(async () => {});
+		const exitedTracking = timeoutShutdown.track(exitedChild as unknown as ChildProcess);
+		await exitedTracking;
+		exitedChild.emit("close");
+		let releaseTimeoutTermination!: () => void;
+		const timeoutTermination = new Promise<void>((resolveTermination) => { releaseTimeoutTermination = resolveTermination; });
+		await timeoutShutdown.request("SIGINT");
+		const timeoutOutcome = awaitCloudSmokeShutdown(timeoutShutdown, timeoutTermination);
+		let timeoutOutcomeSettled = false;
+		void timeoutOutcome.then(() => { timeoutOutcomeSettled = true; });
+		await new Promise((resolveImmediate) => setImmediate(resolveImmediate));
+		expect(timeoutOutcomeSettled).toBe(false);
+		releaseTimeoutTermination();
+		await expect(timeoutOutcome).resolves.toMatchObject({ message: "cloud smoke interrupted by SIGINT" });
+
+		const exitedRpcChild = new EventEmitter();
+		const rpcShutdown = createCloudSmokeShutdownController(async () => {});
+		const rpcTracking = rpcShutdown.track(exitedRpcChild as unknown as ChildProcess);
+		await rpcTracking;
+		exitedRpcChild.emit("close");
+		await rpcShutdown.request("SIGTERM");
+		let releaseRpcTermination!: () => void;
+		const terminateExitedRpc = vi.fn(() => new Promise<void>((resolveTermination) => { releaseRpcTermination = resolveTermination; }));
+		const stoppedRpc = stopCloudSmokeTrackedChild(rpcShutdown, rpcTracking, terminateExitedRpc);
+		let stoppedRpcSettled = false;
+		void stoppedRpc.then(() => { stoppedRpcSettled = true; });
+		await new Promise((resolveImmediate) => setImmediate(resolveImmediate));
+		expect(terminateExitedRpc).toHaveBeenCalledOnce();
+		expect(stoppedRpcSettled).toBe(false);
+		releaseRpcTermination();
+		await expect(stoppedRpc).resolves.toMatchObject({ message: "cloud smoke interrupted by SIGTERM" });
+
+		const rejectedTerminalFailures: Error[] = [];
+		const terminalState = createCloudSmokeTerminalFailureState((error) => rejectedTerminalFailures.push(error));
+		const firstTerminalFailure = new Error("RPC closed");
+		terminalState.record(firstTerminalFailure);
+		terminalState.record(new Error("later error"));
+		expect(rejectedTerminalFailures).toEqual([firstTerminalFailure, firstTerminalFailure]);
+		expect(() => terminalState.throwIfFailed()).toThrow(firstTerminalFailure);
+
+		const child = new EventEmitter();
+		let releaseTermination!: () => void;
+		const shutdown = createCloudSmokeShutdownController(() => new Promise<void>((resolveTermination) => {
+			releaseTermination = resolveTermination;
+		}));
+		const tracking = shutdown.track(child as unknown as ChildProcess);
+		await tracking;
+		let normalError: Error | undefined;
+		let shutdownSettled = false;
+		const childFailure = new Promise<Error>((resolveFailure) => {
+			child.once("error", (error) => routeCloudSmokeChildError(
+				shutdown,
+				() => { void awaitCloudSmokeShutdown(shutdown, tracking).then(resolveFailure); },
+				(failure) => { normalError = failure; resolveFailure(failure); },
+				error,
+			));
+		});
+		void childFailure.then(() => { shutdownSettled = true; });
+		const request = shutdown.request("SIGINT");
+		await Promise.resolve();
+		child.emit("error", new Error("kill failed before close"));
+		await new Promise((resolveImmediate) => setImmediate(resolveImmediate));
+		expect(normalError).toBeUndefined();
+		expect(shutdownSettled).toBe(false);
+		releaseTermination();
+		await expect(request).resolves.toMatchObject({ signal: "SIGINT" });
+		await expect(childFailure).resolves.toMatchObject({ message: "cloud smoke interrupted by SIGINT" });
+	});
+
+	it("fails without writing evidence when SIGTERM arrives during cleanup", async () => {
+		const processLike = new EventEmitter();
+		const shutdown = createCloudSmokeShutdownController(async () => {});
+		const removeSignalHandlers = installCloudSmokeSignalHandlers(shutdown, processLike);
+		const cleanedRepos: string[] = [];
+		const writes: unknown[] = [];
+
+		await expect(coordinateCloudSmokeReleaseGate({
+			throwIfInterrupted: () => shutdown.throwIfRequested(),
+			run: async (state) => { state.repository = ownedRepo; },
+			harvestAgentIds: () => [agentId],
+			cleanupAgent: async (id) => {
+				processLike.emit("SIGTERM");
+				return { agentId: id, archived: true, deleted: true, listExcluded: true };
+			},
+			cleanupRepository: async (repo) => {
+				cleanedRepos.push(repo.fullName);
+				return { deleted: true as const, httpStatus: 404 as const };
+			},
+			writeEvidence: async (input) => { writes.push(input); },
+		})).rejects.toThrow(/interrupted by SIGTERM/);
+		expect(cleanedRepos).toEqual([ownedFullName]);
+		expect(writes).toEqual([]);
+		removeSignalHandlers();
+	});
 });
