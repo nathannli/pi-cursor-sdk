@@ -21,6 +21,7 @@ import {
 import { buildCursorSmokeEnv } from "./lib/cursor-smoke-env.mjs";
 import {
 	awaitCloudSmokeShutdown,
+	checkpointCloudSmokeShutdown,
 	createCloudSmokeShutdownController,
 	createCloudSmokeTerminalFailureState,
 	installCloudSmokeSignalHandlers,
@@ -800,11 +801,15 @@ function accountConditionalLane(lanes) {
 	};
 }
 
-function writeEvidenceSummary(summary) {
+function stageEvidenceSummary(summary) {
 	const text = assertCloudSmokeEvidenceSafe(validateCloudSmokeMatrixEvidence(summary));
 	mkdirSync(dirname(EVIDENCE_PATH), { recursive: true });
 	const temporary = `${EVIDENCE_PATH}.tmp-${process.pid}`;
 	writeFileSync(temporary, text, { mode: 0o644 });
+	return temporary;
+}
+
+function commitEvidenceSummary(temporary) {
 	try {
 		renameSync(temporary, EVIDENCE_PATH);
 	} catch (error) {
@@ -818,7 +823,7 @@ async function main() {
 	const timeoutMs = Number(process.env.CURSOR_CLOUD_SMOKE_TIMEOUT_MS || 300000);
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) fail("CURSOR_CLOUD_SMOKE_TIMEOUT_MS must be a positive number");
 	const artifactRoot = mkdtempSync(join(tmpdir(), "pi-cursor-cloud-smoke-"));
-	const removeSignalHandlers = installCloudSmokeSignalHandlers(cloudSmokeShutdown);
+	installCloudSmokeSignalHandlers(cloudSmokeShutdown, process, () => { process.exitCode = 1; });
 	let failure;
 	console.error(scrubSmokeText(`[cloud-smoke] artifacts: ${artifactRoot}`));
 	const { Agent } = await import("@cursor/sdk");
@@ -879,17 +884,29 @@ async function main() {
 					throwawayRepository,
 					provenance: buildCloudSmokeEvidenceProvenance({ root }),
 				});
-				writeEvidenceSummary(summary);
+				const temporary = stageEvidenceSummary(summary);
+				try {
+					await checkpointCloudSmokeShutdown(cloudSmokeShutdown);
+					commitEvidenceSummary(temporary);
+				} catch (error) {
+					rmSync(temporary, { force: true });
+					throw error;
+				}
 			},
 		});
-		cloudSmokeShutdown.throwIfRequested();
+		await checkpointCloudSmokeShutdown(cloudSmokeShutdown);
 	} catch (error) {
 		failure = error;
-	} finally {
-		removeSignalHandlers();
 	}
 	if (process.env.CURSOR_CLOUD_SMOKE_KEEP_ARTIFACTS !== "1" && !failure) rmSync(artifactRoot, { recursive: true, force: true });
 	else console.error(scrubSmokeText(`[cloud-smoke] retained artifacts: ${artifactRoot}`));
+	if (!failure) {
+		try {
+			await checkpointCloudSmokeShutdown(cloudSmokeShutdown);
+		} catch (error) {
+			failure = error;
+		}
+	}
 	if (failure) throw failure;
 	console.log(contextMatrix ? "cloud-context-smoke-ok" : "cloud-smoke-ok");
 }

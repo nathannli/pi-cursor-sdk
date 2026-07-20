@@ -18,6 +18,10 @@ export function awaitCloudSmokeShutdown(
 	tracking?: Promise<unknown>,
 ): Promise<Error>;
 
+export function checkpointCloudSmokeShutdown(
+	shutdown: CloudSmokeShutdownController,
+): Promise<void>;
+
 export function createCloudSmokeTerminalFailureState(
 	rejectPending: (error: Error) => void,
 ): {
@@ -52,4 +56,5 @@ export function installCloudSmokeSignalHandlers(
 		on(signalName: string, handler: () => void): unknown;
 		off(signalName: string, handler: () => void): unknown;
 	},
+	onSignal?: (signalName: string) => void,
 ): () => void;

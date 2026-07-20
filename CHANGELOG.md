@@ -8,7 +8,7 @@
 
 ### Changed
 
-- Expand the maintainer-only `npm run smoke:cloud` release gate to create, seed, and delete a private UUID-named GitHub repository while proving cancel, starting-ref branch, direct-push, missing-branch, lifecycle-delete, exact agent cleanup, and authenticated repository-deletion contracts. Add fail-closed `SIGINT`/`SIGTERM` handling and account-conditional artifact/raw-usage observations. The gate now requires `gh` authorization to create/push/delete private repositories; product runtime behavior and defaults are unchanged.
+- Expand the maintainer-only `npm run smoke:cloud` release gate to create, seed, and delete a private UUID-named GitHub repository while proving cancel, starting-ref branch, direct-push, missing-branch, lifecycle-delete, exact agent cleanup, and authenticated repository-deletion contracts. Add fail-closed `SIGINT`/`SIGTERM` handling, including a real event-loop checkpoint before the atomic evidence commit and handlers retained through process teardown, plus account-conditional artifact/raw-usage observations. The gate now requires `gh` authorization to create/push/delete private repositories; product runtime behavior and defaults are unchanged.
 
 ## 0.1.60 - 2026-07-17
 

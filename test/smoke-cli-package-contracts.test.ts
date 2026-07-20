@@ -165,7 +165,27 @@ describe("smoke CLI and package contracts", () => {
 			"() => terminateChild(child, { graceMs: 15_000 })",
 			"createCloudSmokeTerminalFailureState(rejectPending)",
 			"throwIfFailed: terminalState.throwIfFailed",
+			"process.exitCode = 1",
 		]) expect(source, shutdownAnchor).toContain(shutdownAnchor);
+		expect(source).toContain("installCloudSmokeSignalHandlers(cloudSmokeShutdown, process, () => { process.exitCode = 1; })");
+		expect(source).not.toContain("removeSignalHandlers");
+		expect(source.match(/await checkpointCloudSmokeShutdown\(cloudSmokeShutdown\)/g)).toHaveLength(3);
+		const stageIndex = source.indexOf("const temporary = stageEvidenceSummary(summary)");
+		const preCommitCheckpointIndex = source.indexOf("await checkpointCloudSmokeShutdown(cloudSmokeShutdown)", stageIndex);
+		const commitIndex = source.indexOf("commitEvidenceSummary(temporary)", preCommitCheckpointIndex);
+		const postCoordinatorCheckpointIndex = source.indexOf("await checkpointCloudSmokeShutdown(cloudSmokeShutdown)", commitIndex);
+		const artifactRemovalIndex = source.indexOf("rmSync(artifactRoot", postCoordinatorCheckpointIndex);
+		const finalCheckpointIndex = source.indexOf("await checkpointCloudSmokeShutdown(cloudSmokeShutdown)", artifactRemovalIndex);
+		const failureIndex = source.indexOf("if (failure) throw failure", finalCheckpointIndex);
+		const successMarkerIndex = source.indexOf("console.log(contextMatrix ?", failureIndex);
+		expect(stageIndex).toBeGreaterThan(0);
+		expect(preCommitCheckpointIndex).toBeGreaterThan(stageIndex);
+		expect(commitIndex).toBeGreaterThan(preCommitCheckpointIndex);
+		expect(postCoordinatorCheckpointIndex).toBeGreaterThan(commitIndex);
+		expect(artifactRemovalIndex).toBeGreaterThan(postCoordinatorCheckpointIndex);
+		expect(finalCheckpointIndex).toBeGreaterThan(artifactRemovalIndex);
+		expect(failureIndex).toBeGreaterThan(finalCheckpointIndex);
+		expect(successMarkerIndex).toBeGreaterThan(failureIndex);
 	});
 
 	it("rejects paid smoke typos and repeated or conflicting lanes before auth or runs", () => {

@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "timestamp": "2026-07-20T08:10:22.266Z",
+  "timestamp": "2026-07-20T13:07:30.989Z",
   "model": "cursor/composer-2-5",
   "provenance": {
     "extensionVersion": "0.1.60",
     "cursorSdkVersion": "1.0.23",
-    "gitRevision": "d11c541a2d7574996d0679d164ea48385c4e1d46",
-    "packageSourceSha256": "ca61179d60ac51c0ad6f3896483939ec9b0cd7314964c50f48e7bc6f944d92c7"
+    "gitRevision": "0dc87c0d44eb6dd53709556471b8ea4b59e460e8",
+    "packageSourceSha256": "3e0a3be258b607b09233af80ca689265c13a9b7da5653fef075e89779fffc12a"
   },
   "lanes": [
     {
       "name": "cancel",
       "status": "passed",
-      "agentId": "bc-e671ec12-cdde-4a1f-abac-dc62c41fefe2",
-      "runId": "run-e054d557-cf4f-42fd-8ea5-69b4789643ba",
+      "agentId": "bc-6fd15ead-c70e-42a6-8cd1-f5615ecc3b4c",
+      "runId": "run-283ee656-00ac-4312-ab92-f03503d816e5",
       "runIdSource": "metadata",
       "terminalStatus": "cancelled",
       "idsCapturedBeforeAbort": true
@@ -21,8 +21,8 @@
     {
       "name": "explicit-https-repo-starting-ref-branch-pr-reporting",
       "status": "passed",
-      "agentId": "bc-9b6671e4-3e94-4478-8a46-8a374cfa55bd",
-      "runId": "run-1ee0cd3c-9025-427d-9d69-802a1a1414de",
+      "agentId": "bc-b212e580-6a6f-452c-9bdb-a940e977b9c4",
+      "runId": "run-50e7fed8-2fc3-42fa-8ff5-08b6761988ba",
       "branchReportObserved": false,
       "startingRefAncestryVerified": true,
       "remoteContentVerified": true,
@@ -34,15 +34,15 @@
     {
       "name": "lifecycle-delete",
       "status": "passed",
-      "agentId": "bc-9b6671e4-3e94-4478-8a46-8a374cfa55bd",
-      "runId": "run-1ee0cd3c-9025-427d-9d69-802a1a1414de",
+      "agentId": "bc-b212e580-6a6f-452c-9bdb-a940e977b9c4",
+      "runId": "run-50e7fed8-2fc3-42fa-8ff5-08b6761988ba",
       "lifecycleDeleteVerified": true
     },
     {
       "name": "direct-push-opt-in",
       "status": "passed",
-      "agentId": "bc-31ba4e24-1a93-48d1-ac08-66b1d7f39712",
-      "runId": "run-78154a0d-9d42-43a4-8b00-687ba705c9bf",
+      "agentId": "bc-fb66790f-a929-4040-9f8c-c518b2e4e784",
+      "runId": "run-5f3e0a16-f4fa-4eb3-97b9-9200ab985152",
       "remoteContentChanged": true,
       "branches": [
         {
@@ -58,7 +58,7 @@
       "status": "passed",
       "expectedFailureObserved": true,
       "agentIds": [
-        "bc-186edca5-848c-401c-b58b-3250259aeb1b"
+        "bc-499ba69e-da7c-4aab-833f-9b60c8e5f174"
       ]
     },
     {
@@ -71,26 +71,26 @@
   ],
   "cleanup": [
     {
-      "agentId": "bc-e671ec12-cdde-4a1f-abac-dc62c41fefe2",
+      "agentId": "bc-6fd15ead-c70e-42a6-8cd1-f5615ecc3b4c",
       "archived": true,
       "deleted": true,
       "listExcluded": true
     },
     {
-      "agentId": "bc-9b6671e4-3e94-4478-8a46-8a374cfa55bd",
+      "agentId": "bc-b212e580-6a6f-452c-9bdb-a940e977b9c4",
       "alreadyDeleted": true,
       "archiveRequired": false,
       "deleted": true,
       "listExcluded": true
     },
     {
-      "agentId": "bc-31ba4e24-1a93-48d1-ac08-66b1d7f39712",
+      "agentId": "bc-fb66790f-a929-4040-9f8c-c518b2e4e784",
       "archived": true,
       "deleted": true,
       "listExcluded": true
     },
     {
-      "agentId": "bc-186edca5-848c-401c-b58b-3250259aeb1b",
+      "agentId": "bc-499ba69e-da7c-4aab-833f-9b60c8e5f174",
       "alreadyDeleted": true,
       "archiveRequired": false,
       "deleted": true,
@@ -98,7 +98,7 @@
     }
   ],
   "throwawayRepository": {
-    "name": "fitchmultz/pi-cursor-cloud-smoke-f4ca3e9a-e59c-41d0-a215-780c8d2a51d0",
+    "name": "fitchmultz/pi-cursor-cloud-smoke-474e8fbf-31bf-44d3-a2d4-1a9f27b99659",
     "deleted": true,
     "httpStatus": 404
   }

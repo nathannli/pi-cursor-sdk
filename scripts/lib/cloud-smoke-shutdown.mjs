@@ -66,6 +66,11 @@ export async function awaitCloudSmokeShutdown(shutdown, tracking = Promise.resol
 	return outcome instanceof Error ? outcome : new Error("cloud smoke shutdown failed", { cause: outcome });
 }
 
+export async function checkpointCloudSmokeShutdown(shutdown) {
+	await new Promise((resolve) => setImmediate(resolve));
+	shutdown.throwIfRequested();
+}
+
 export function createCloudSmokeTerminalFailureState(rejectPending) {
 	let failure;
 	return {
@@ -102,10 +107,16 @@ export function routeCloudSmokeChildClose(shutdown, timedOut, onShutdown, onClos
 	else if (!timedOut) onClose(result);
 }
 
-export function installCloudSmokeSignalHandlers(shutdown, processLike = process) {
+export function installCloudSmokeSignalHandlers(shutdown, processLike = process, onSignal) {
 	const handlers = new Map();
 	for (const signalName of ["SIGINT", "SIGTERM"]) {
-		const handler = () => { void shutdown.request(signalName).catch(() => {}); };
+		const handler = () => {
+			try {
+				onSignal?.(signalName);
+			} finally {
+				void shutdown.request(signalName).catch(() => {});
+			}
+		};
 		handlers.set(signalName, handler);
 		processLike.on(signalName, handler);
 	}

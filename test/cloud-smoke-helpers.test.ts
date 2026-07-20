@@ -1,7 +1,8 @@
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
 	assertCloudSmokeEvidenceSafe,
@@ -14,6 +15,7 @@ import {
 } from "../scripts/lib/cloud-smoke-cleanup-evidence.mjs";
 import {
 	awaitCloudSmokeShutdown,
+	checkpointCloudSmokeShutdown,
 	createCloudSmokeShutdownController,
 	createCloudSmokeTerminalFailureState,
 	installCloudSmokeSignalHandlers,
@@ -577,6 +579,53 @@ describe("cloud smoke helper contracts", () => {
 		expect(writes).toHaveLength(1);
 	});
 
+	it.skipIf(process.platform === "win32")("handles real OS signals on both sides of the evidence commit point", async () => {
+		for (const mode of ["precommit", "postcommit"] as const) {
+			const fixtureRoot = mkdtempSync(join(tmpdir(), "cloud-smoke-signal-test-"));
+			const evidencePath = join(fixtureRoot, "evidence.json");
+			const releasePath = join(fixtureRoot, "release");
+			const child = spawn(process.execPath, [
+				resolve("test/fixtures/cloud-smoke-signal-finalization.mjs"),
+				evidencePath,
+				releasePath,
+				mode,
+			], { cwd: resolve("."), stdio: ["ignore", "pipe", "pipe"] });
+			let stdout = "";
+			let stderr = "";
+			child.stdout.setEncoding("utf8");
+			child.stderr.setEncoding("utf8");
+			child.stdout.on("data", (chunk) => { stdout += chunk; });
+			child.stderr.on("data", (chunk) => { stderr += chunk; });
+			try {
+				const marker = mode === "postcommit" ? "COMMITTED" : "FINALIZING";
+				await new Promise<void>((resolveReady, rejectReady) => {
+					const timer = setTimeout(() => rejectReady(new Error(`fixture did not reach ${marker}: ${stderr}`)), 5_000);
+					child.stdout.on("data", () => {
+						if (!stdout.includes(marker)) return;
+						clearTimeout(timer);
+						resolveReady();
+					});
+				});
+				expect(child.kill("SIGTERM")).toBe(true);
+				writeFileSync(releasePath, "continue\n");
+				const exitCode = await new Promise<number | null>((resolveClose, rejectClose) => {
+					const timer = setTimeout(() => rejectClose(new Error(`fixture did not exit: ${stderr}`)), 5_000);
+					child.once("close", (code) => {
+						clearTimeout(timer);
+						resolveClose(code);
+					});
+				});
+				expect(exitCode, stderr).toBe(1);
+				expect(stdout).toContain("INTERRUPTED cloud smoke interrupted by SIGTERM");
+				expect(stdout).not.toContain("UNEXPECTED_SUCCESS");
+				expect(existsSync(evidencePath)).toBe(mode === "postcommit");
+			} finally {
+				if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+				rmSync(fixtureRoot, { recursive: true, force: true });
+			}
+		}
+	}, 15_000);
+
 	it("waits for detached child termination before signal-triggered resource cleanup", async () => {
 		const processLike = new EventEmitter();
 		const child = new EventEmitter();
@@ -589,7 +638,8 @@ describe("cloud smoke helper contracts", () => {
 		}));
 		const shutdown = createCloudSmokeShutdownController(terminate);
 		await shutdown.track(child as unknown as ChildProcess);
-		const removeSignalHandlers = installCloudSmokeSignalHandlers(shutdown, processLike);
+		const observedSignals: string[] = [];
+		const removeSignalHandlers = installCloudSmokeSignalHandlers(shutdown, processLike, (signalName) => observedSignals.push(signalName));
 		const cleanedAgents: string[] = [];
 		const cleanedRepos: string[] = [];
 		const writes: unknown[] = [];
@@ -621,6 +671,7 @@ describe("cloud smoke helper contracts", () => {
 		releaseTermination();
 		await expect(run).rejects.toThrow(/interrupted by SIGTERM/);
 		expect(terminate).toHaveBeenCalledWith(child);
+		expect(observedSignals).toEqual(["SIGTERM"]);
 		expect(cleanedAgents).toEqual([agentId]);
 		expect(cleanedRepos).toEqual([ownedFullName]);
 		expect(writes).toEqual([]);
@@ -672,6 +723,7 @@ describe("cloud smoke helper contracts", () => {
 
 	it("routes child errors through the shutdown barrier after abort", async () => {
 		const idleShutdown = createCloudSmokeShutdownController(async () => {});
+		await expect(checkpointCloudSmokeShutdown(idleShutdown)).resolves.toBeUndefined();
 		await expect(awaitCloudSmokeShutdown(idleShutdown)).resolves.toMatchObject({ message: "cloud smoke shutdown failed" });
 		await expect(awaitCloudSmokeShutdown(idleShutdown, Promise.reject("tracking failed"))).resolves.toMatchObject({
 			message: "cloud smoke shutdown failed",
