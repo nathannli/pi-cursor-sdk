@@ -42,6 +42,13 @@ export function routeCloudSmokeChildError(
 	error: Error,
 ): void;
 
+export function installCloudSmokeChildErrorHandlers(
+	child: ChildProcess,
+	shutdown: CloudSmokeShutdownController,
+	onShutdown: () => void,
+	onError: (error: Error) => void,
+): (error: Error) => void;
+
 export function routeCloudSmokeChildClose<T>(
 	shutdown: CloudSmokeShutdownController,
 	timedOut: boolean,

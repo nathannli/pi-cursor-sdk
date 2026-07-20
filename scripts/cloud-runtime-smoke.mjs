@@ -24,9 +24,9 @@ import {
 	checkpointCloudSmokeShutdown,
 	createCloudSmokeShutdownController,
 	createCloudSmokeTerminalFailureState,
+	installCloudSmokeChildErrorHandlers,
 	installCloudSmokeSignalHandlers,
 	routeCloudSmokeChildClose,
-	routeCloudSmokeChildError,
 	stopCloudSmokeTrackedChild,
 } from "./lib/cloud-smoke-shutdown.mjs";
 import {
@@ -486,12 +486,12 @@ async function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envO
 	};
 	cloudSmokeShutdown.signal.addEventListener("abort", rejectAfterShutdown, { once: true });
 	if (cloudSmokeShutdown.signal.aborted) rejectAfterShutdown();
-	child.once("error", (error) => routeCloudSmokeChildError(
+	const routeRpcError = installCloudSmokeChildErrorHandlers(
+		child,
 		cloudSmokeShutdown,
 		rejectAfterShutdown,
 		terminalState.record,
-		error,
-	));
+	);
 	child.once("close", () => {
 		cloudSmokeShutdown.signal.removeEventListener("abort", rejectAfterShutdown);
 		if (cloudSmokeShutdown.signal.aborted) rejectAfterShutdown();
@@ -515,7 +515,11 @@ async function startRpc({ artifactDir, contextHandoff = "fresh", sessionId, envO
 			rejectRequest(new Error(`timeout waiting for ${type}. Stderr: ${stderr}`));
 		}, timeoutMs);
 		pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer });
-		child.stdin.write(`${JSON.stringify({ id, type, ...extra })}\n`);
+		try {
+			child.stdin.write(`${JSON.stringify({ id, type, ...extra })}\n`);
+		} catch (error) {
+			routeRpcError(error);
+		}
 	});
 	const stop = async () => {
 		cloudSmokeShutdown.signal.removeEventListener("abort", rejectAfterShutdown);

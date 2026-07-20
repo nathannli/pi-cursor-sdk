@@ -164,9 +164,12 @@ describe("smoke CLI and package contracts", () => {
 			"stopCloudSmokeTrackedChild(",
 			"() => terminateChild(child, { graceMs: 15_000 })",
 			"createCloudSmokeTerminalFailureState(rejectPending)",
+			"installCloudSmokeChildErrorHandlers(",
+			"const routeRpcError = installCloudSmokeChildErrorHandlers(",
 			"throwIfFailed: terminalState.throwIfFailed",
 			"process.exitCode = 1",
 		]) expect(source, shutdownAnchor).toContain(shutdownAnchor);
+		expect(source).toContain('try {\n\t\t\tchild.stdin.write(`${JSON.stringify({ id, type, ...extra })}\\n`);\n\t\t} catch (error) {\n\t\t\trouteRpcError(error);\n\t\t}');
 		expect(source).toContain("installCloudSmokeSignalHandlers(cloudSmokeShutdown, process, () => { process.exitCode = 1; })");
 		expect(source).not.toContain("removeSignalHandlers");
 		expect(source.match(/await checkpointCloudSmokeShutdown\(cloudSmokeShutdown\)/g)).toHaveLength(3);

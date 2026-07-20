@@ -18,6 +18,7 @@ import {
 	checkpointCloudSmokeShutdown,
 	createCloudSmokeShutdownController,
 	createCloudSmokeTerminalFailureState,
+	installCloudSmokeChildErrorHandlers,
 	installCloudSmokeSignalHandlers,
 	routeCloudSmokeChildClose,
 	routeCloudSmokeChildError,
@@ -606,15 +607,16 @@ describe("cloud smoke helper contracts", () => {
 						resolveReady();
 					});
 				});
-				expect(child.kill("SIGTERM")).toBe(true);
-				writeFileSync(releasePath, "continue\n");
-				const exitCode = await new Promise<number | null>((resolveClose, rejectClose) => {
+				const closed = new Promise<number | null>((resolveClose, rejectClose) => {
 					const timer = setTimeout(() => rejectClose(new Error(`fixture did not exit: ${stderr}`)), 5_000);
 					child.once("close", (code) => {
 						clearTimeout(timer);
 						resolveClose(code);
 					});
 				});
+				expect(child.kill("SIGTERM")).toBe(true);
+				writeFileSync(releasePath, "continue\n");
+				const exitCode = await closed;
 				expect(exitCode, stderr).toBe(1);
 				expect(stdout).toContain("INTERRUPTED cloud smoke interrupted by SIGTERM");
 				expect(stdout).not.toContain("UNEXPECTED_SUCCESS");
@@ -625,6 +627,46 @@ describe("cloud smoke helper contracts", () => {
 			}
 		}
 	}, 15_000);
+
+	it.skipIf(process.platform === "win32")("routes an actual RPC stdin EPIPE into terminal state", async () => {
+		const child = spawn(process.execPath, [
+			"-e",
+			"require('node:fs').closeSync(0); console.log('READY'); setTimeout(() => {}, 2000)",
+		], { stdio: ["pipe", "pipe", "ignore"] });
+		const closed = new Promise<void>((resolveClose) => { child.once("close", () => resolveClose()); });
+		const shutdown = createCloudSmokeShutdownController(async () => {});
+		await shutdown.track(child);
+		let shutdownRoutes = 0;
+		let resolveTerminalError!: (error: Error) => void;
+		const terminalError = new Promise<Error>((resolveError) => { resolveTerminalError = resolveError; });
+		const terminalState = createCloudSmokeTerminalFailureState(resolveTerminalError);
+		installCloudSmokeChildErrorHandlers(child, shutdown, () => { shutdownRoutes++; }, terminalState.record);
+		try {
+			await new Promise<void>((resolveReady, rejectReady) => {
+				const timer = setTimeout(() => rejectReady(new Error("EPIPE fixture did not become ready")), 5_000);
+				child.stdout.once("data", () => {
+					clearTimeout(timer);
+					resolveReady();
+				});
+			});
+			child.stdin.write(Buffer.alloc(1024 * 1024));
+			const error = await new Promise<Error>((resolveError, rejectError) => {
+				const timer = setTimeout(() => rejectError(new Error("stdin EPIPE was not routed")), 5_000);
+				void terminalError.then((failure) => {
+					clearTimeout(timer);
+					resolveError(failure);
+				});
+			});
+			expect((error as NodeJS.ErrnoException).code).toBe("EPIPE");
+			expect(child.exitCode).toBeNull();
+			expect(child.signalCode).toBeNull();
+			expect(shutdownRoutes).toBe(0);
+			expect(() => terminalState.throwIfFailed()).toThrow(error);
+		} finally {
+			if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+			await closed;
+		}
+	}, 10_000);
 
 	it("waits for detached child termination before signal-triggered resource cleanup", async () => {
 		const processLike = new EventEmitter();

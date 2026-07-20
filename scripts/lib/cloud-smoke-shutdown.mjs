@@ -102,6 +102,13 @@ export function routeCloudSmokeChildError(shutdown, onShutdown, onError, error) 
 	else onError(error);
 }
 
+export function installCloudSmokeChildErrorHandlers(child, shutdown, onShutdown, onError) {
+	const routeError = (error) => routeCloudSmokeChildError(shutdown, onShutdown, onError, error);
+	child.once("error", routeError);
+	child.stdin?.on?.("error", routeError);
+	return routeError;
+}
+
 export function routeCloudSmokeChildClose(shutdown, timedOut, onShutdown, onClose, result) {
 	if (shutdown.signal.aborted) onShutdown();
 	else if (!timedOut) onClose(result);
