@@ -70,7 +70,12 @@ try {
 			process.env.PI_CURSOR_CLOUD_ENV_NAME = "ambient-pool";
 			process.env.CURSOR_CLOUD_SMOKE_ENV_TYPE = "machine";
 			process.env.CURSOR_CLOUD_SMOKE_ENV_NAME = "smoke-machine";
-			const { buildCloudSmokeEnv, buildCloudSmokeWorkspace } = await import("../scripts/cloud-runtime-smoke.mjs");
+			const {
+				assertCloudSmokeEvidenceSafe,
+				buildCloudSmokeEnv,
+				buildCloudSmokeWorkspace,
+				normalizeCloudSmokeGitHubRepo,
+			} = await import("../scripts/cloud-runtime-smoke.mjs");
 			const env = buildCloudSmokeEnv(artifactRoot);
 			const workspace = buildCloudSmokeWorkspace(artifactRoot);
 			const agentDir = env.PI_CODING_AGENT_DIR;
@@ -82,6 +87,22 @@ try {
 			expect(env.PI_CURSOR_RUNTIME).toBe("cloud");
 			expect(env.PI_CURSOR_CLOUD_CONTEXT).toBe("fresh");
 			expect(buildCloudSmokeEnv(artifactRoot, { contextHandoff: "bootstrap" }).PI_CURSOR_CLOUD_CONTEXT).toBe("bootstrap");
+			const repoEnv = buildCloudSmokeEnv(artifactRoot, {
+				repoUrl: "https://github.com/example/throwaway.git",
+				startingRef: "starting-ref",
+				directPush: true,
+			});
+			expect(repoEnv.PI_CURSOR_CLOUD_REPO).toBe("https://github.com/example/throwaway.git");
+			expect(repoEnv.PI_CURSOR_CLOUD_BRANCH).toBe("starting-ref");
+			expect(repoEnv.PI_CURSOR_CLOUD_DIRECT_PUSH).toBe("1");
+			expect(repoEnv.PI_CURSOR_CLOUD_ENV_TYPE).toBeUndefined();
+			expect(assertCloudSmokeEvidenceSafe({ schemaVersion: 1, agentId: "bc-00000000-0000-0000-0000-000000000001" }, "secret-key")).toContain('"schemaVersion": 1');
+			expect(() => assertCloudSmokeEvidenceSafe({ value: "secret-key" }, "secret-key")).toThrow("secret scan");
+			expect(() => assertCloudSmokeEvidenceSafe({ stdout: "safe" })).toThrow("forbidden");
+			expect(normalizeCloudSmokeGitHubRepo("github.com/Example/Repo")).toBe("example/repo");
+			expect(normalizeCloudSmokeGitHubRepo("https://github.com/Example/Repo.git")).toBe("example/repo");
+			expect(normalizeCloudSmokeGitHubRepo("ssh://git@github.com/example/repo")).toBeUndefined();
+			expect(normalizeCloudSmokeGitHubRepo("https://github.com/example/repo/more")).toBeUndefined();
 			expect(env.PI_CURSOR_SETTING_SOURCES).toBe("none");
 			expect(env.PI_CURSOR_CLOUD_REPO).toBeUndefined();
 			expect(env.PI_CURSOR_CLOUD_DIRECT_PUSH).toBeUndefined();
