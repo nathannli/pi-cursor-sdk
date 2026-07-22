@@ -737,11 +737,12 @@ Before calling done:
    - confirm requests use selected context, pi thinking, fast flag state, and SDK-native mode
 
 4. Tool bridge and replay:
-   - `npm test -- test/cursor-pi-tool-bridge.test.ts test/cursor-provider.test.ts test/cursor-mcp-timeout-override.test.ts`
+   - `npm test -- test/cursor-pi-tool-bridge.test.ts test/cursor-pi-tool-bridge-call-timeout.test.ts test/cursor-provider-bridge-mcp.test.ts test/cursor-live-run-coordinator.test.ts test/cursor-mcp-timeout-override.test.ts`
    - confirm `Agent.create()` gets `mcpServers.pi_tools` when active pi tools exist and omits it when `PI_CURSOR_PI_TOOL_BRIDGE=0` or the active snapshot is empty
    - confirm bridged MCP requests emit real pi tool calls and resolve matching pi tool results back to the same live Cursor SDK run without creating a new `Agent`, unless the run was disposed, aborted, or cancelled
    - confirm bridge MCP activity is suppressed from Cursor replay while non-bridge Cursor MCP activity remains visible
    - confirm `PI_CURSOR_MCP_TOOL_TIMEOUT_MS` and `PI_CURSOR_MCP_TOOL_TIMEOUT_SECONDS` override the Cursor SDK MCP callTool timeout seam
+   - confirm `PI_CURSOR_PI_BRIDGE_CALL_TIMEOUT_MS` can only lower the bridge deadline; expiry and cancellation clear pending state, abort active pi execution, suppress stale events/empty drain turns, and superseded registration handlers do not block replacement runs
    - confirm `PI_CURSOR_MCP_CONNECT_TIMEOUT_MS` and `PI_CURSOR_MCP_CONNECT_TIMEOUT_SECONDS` override the Cursor SDK MCP initialize/listTools timeout seam while unknown protocol timeout stacks keep the SDK default
    - confirm `PI_CURSOR_PI_TOOL_BRIDGE_DEBUG=1` emits typed, allowlisted, scrubbed JSONL to `process.stderr` with prefix `[pi-cursor-sdk:bridge]`, omits endpoint URLs/path components/tokens, and unset/false leaves output unchanged
    - run the visual audit workflow when replay card visuals or bridge card visuals change; JSONL should show real pi tool names for bridged calls and no duplicate MCP replay for bridge calls

@@ -94,6 +94,7 @@ export function registerCursorPiToolBridge(pi: CursorPiToolBridgeExtensionApi): 
 	const bridge = new CursorPiToolBridgeRegistry(pi);
 	registeredCursorPiToolBridge = bridge;
 	pi.on("tool_call", (event, ctx) => {
+		if (registeredCursorPiToolBridge !== bridge) return undefined;
 		if (!bridge.hasPendingPiToolCallId(event.toolCallId)) {
 			return isCursorPiBridgeToolCallId(event.toolCallId)
 				? { block: true, reason: "Cursor pi bridge tool call is no longer pending" }

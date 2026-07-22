@@ -145,6 +145,60 @@ describe("cursor pi tool bridge CallTool deadline", () => {
 		}
 	});
 
+	it("does not let a superseded tool_call handler block the replacement bridge", async () => {
+		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";
+		const pi = createBridgePiHarness({
+			active: ["bash"],
+			tools: [createBuiltinToolInfo("bash", Type.Object({ command: Type.String() }), "Run shell commands")],
+		});
+		registerCursorPiToolBridge(pi);
+		const run = await registerCursorPiToolBridge(pi).createRun();
+		const client = new Client({ name: "pi-cursor-sdk-test", version: "1.0.0" });
+		const transport = new StreamableHTTPClientTransport(new URL(getCursorPiBridgeMcpUrl(run)));
+		await client.connect(transport);
+		try {
+			const callPromise = client.callTool({ name: "pi__bash", arguments: { command: "echo ok" } });
+			const request = await waitForQueuedRequest(run);
+
+			const hookResult = await pi.runToolCall(
+				{
+					type: "tool_call",
+					toolCallId: request.piToolCallId,
+					toolName: "bash",
+					input: request.args,
+				},
+				{
+					signal: new AbortController().signal,
+					abort: vi.fn(),
+				},
+			);
+
+			expect(hookResult).toBeUndefined();
+			expect(run.hasPendingPiToolCallId(request.piToolCallId)).toBe(true);
+
+			await run.resolveToolResultsFromContext({
+				systemPrompt: "",
+				messages: [
+					{
+						role: "toolResult",
+						toolCallId: request.piToolCallId,
+						toolName: "bash",
+						content: [{ type: "text", text: "ok" }],
+						isError: false,
+						timestamp: 1,
+					},
+				],
+			});
+			await expect(callPromise).resolves.toMatchObject({
+				content: [{ type: "text", text: "ok" }],
+			});
+		} finally {
+			await client.close().catch(() => undefined);
+			await transport.close().catch(() => undefined);
+			await run.dispose();
+		}
+	});
+
 	it("aborts active pi execution when its bridge run is cancelled", async () => {
 		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";
 		const pi = createBridgePiHarness({
