@@ -2,11 +2,17 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { arePiToolsDisabled } from "./cursor-active-tools.js";
+import { parseEnvBoolean } from "./cursor-env-boolean.js";
 import { isCursorModel } from "./cursor-model.js";
 import { registerCursorModelLifecycle, type CursorModelLifecycleExtensionApi } from "./cursor-model-lifecycle.js";
 import { resolveCursorPiToolBridgeEnabled } from "./cursor-pi-tool-bridge-env.js";
 
 export const CURSOR_ASK_QUESTION_TOOL_NAME = "cursor_ask_question";
+export const CURSOR_ASK_QUESTION_ENV = "PI_CURSOR_ASK_QUESTION";
+
+export function resolveCursorAskQuestionEnabled(env: Record<string, string | undefined> = process.env): boolean {
+	return parseEnvBoolean(env[CURSOR_ASK_QUESTION_ENV], true);
+}
 
 interface CursorQuestionOption {
 	label: string;
@@ -188,6 +194,8 @@ function syncCursorQuestionToolForModel(pi: Pick<ExtensionAPI, "getActiveTools" 
 }
 
 export function registerCursorQuestionTool(pi: CursorQuestionToolExtensionApi): void {
+	if (!resolveCursorAskQuestionEnabled()) return;
+
 	pi.registerTool({
 		name: CURSOR_ASK_QUESTION_TOOL_NAME,
 		label: "Cursor question",
