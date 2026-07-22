@@ -7,6 +7,10 @@
 - Add strictly opt-in Cursor Cloud pull-request controls: `--cursor-cloud-auto-create-pr` / `PI_CURSOR_CLOUD_AUTO_CREATE_PR` / `cloud.autoCreatePR` and `--cursor-cloud-skip-reviewer-request` / `PI_CURSOR_CLOUD_SKIP_REVIEWER_REQUEST` / `cloud.skipReviewerRequest`. Unset controls remain omitted from SDK options, project config is excluded, and local runtime behavior is unchanged.
 - Add strictly opt-in local-agent HTTP/1.1/SSE compatibility through `PI_CURSOR_HTTP_1_1`, `/cursor-http [on|off|toggle]`, and user `cursor-sdk.json` `local.useHttp1ForAgent`, resolved as session > environment > user > unset. Explicit values configure the Cursor SDK before local agent creation, session shutdown clears extension-owned SDK transport state before module reload, transport choices split the pooled agent key, and enabled local status shows `http1`; cloud and unset/default behavior remain unchanged. The pool-key shape change makes pre-upgrade local resume handles rebootstrap once; superseded handles remain eligible for explicit `/cursor-local-resume-cleanup`.
 
+### Fixed
+
+- Initialize `CURSOR_RIPGREP_PATH` from the installed Cursor SDK platform package before local agent creation, including nested npm dependency layouts, so Cursor-native Grep/Glob can use the bundled executable.
+
 ### Changed
 
 - Expand the maintainer-only `npm run smoke:cloud` release gate to create, seed, and delete a private UUID-named GitHub repository while proving cancel, starting-ref branch, direct-push, missing-branch, lifecycle-delete, exact agent cleanup, and authenticated repository-deletion contracts. Add fail-closed `SIGINT`/`SIGTERM` handling, including a real event-loop checkpoint before the atomic evidence commit and handlers retained through process teardown, plus account-conditional artifact/raw-usage observations. The gate now requires `gh` authorization to create/push/delete private repositories; product runtime behavior and defaults are unchanged.
