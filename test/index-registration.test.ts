@@ -4,6 +4,7 @@ import {
 	createExtensionCommandContext,
 	createExtensionRegistrationPi,
 	createExtensionTestContext,
+	createTestToolInfo,
 	makeAssistantMessage,
 	makeContext,
 	makeHarnessModel,
@@ -432,7 +433,11 @@ describe("extension registration and discovery", () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "0";
 		process.env.PI_CURSOR_ASK_QUESTION = "0";
 		mockedDiscover.mockResolvedValueOnce([]);
-		const pi = createExtensionPi();
+		const bridgeToolName = "sem_reindex";
+		const pi = createExtensionRegistrationPi({
+			initialTools: [createTestToolInfo(bridgeToolName)],
+			activeTools: [bridgeToolName],
+		});
 
 		await extensionFactory(pi);
 		await pi.runSessionStart();
@@ -440,7 +445,9 @@ describe("extension registration and discovery", () => {
 		expect(cursorPiToolBridgeTestUtils.getRegisteredBridgeForTests()?.isEnabled()).toBe(true);
 		expect(pi._tools.map((tool) => tool.name)).not.toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
 		expect(pi._activeToolNames()).not.toContain(CURSOR_ASK_QUESTION_TOOL_NAME);
-		expect(buildCursorPiToolBridgeSnapshot(pi).piToolNameToMcpToolName.has(CURSOR_ASK_QUESTION_TOOL_NAME)).toBe(false);
+		const snapshot = buildCursorPiToolBridgeSnapshot(pi);
+		expect(snapshot.piToolNameToMcpToolName.has(CURSOR_ASK_QUESTION_TOOL_NAME)).toBe(false);
+		expect(snapshot.piToolNameToMcpToolName.get(bridgeToolName)).toBe(`pi__${bridgeToolName}`);
 	});
 
 	it("honors PI_CURSOR_PI_TOOL_BRIDGE=0 at the extension registration path", async () => {
